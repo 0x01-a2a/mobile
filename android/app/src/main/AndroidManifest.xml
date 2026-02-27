@@ -1,6 +1,17 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- dataSync covers persistent TCP/UDP network connections (mesh node) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- Prevent CPU from sleeping while node process runs -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Check WiFi/mobile state so we can surface connectivity in UI -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Android 13+ push notification permission -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Auto-restart node service on device boot -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
       android:name=".MainApplication"
@@ -11,6 +22,7 @@
       android:theme="@style/AppTheme"
       android:usesCleartextTraffic="${usesCleartextTraffic}"
       android:supportsRtl="true">
+
       <activity
         android:name=".MainActivity"
         android:label="@string/app_name"
@@ -23,5 +35,21 @@
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
       </activity>
+
+      <!-- Node foreground service — keeps zerox1-node running in background -->
+      <service
+        android:name=".NodeService"
+        android:foregroundServiceType="dataSync"
+        android:exported="false" />
+
+      <!-- Restart node on boot if it was running when device was shut down -->
+      <receiver
+        android:name=".BootReceiver"
+        android:exported="true">
+        <intent-filter>
+          <action android:name="android.intent.action.BOOT_COMPLETED" />
+        </intent-filter>
+      </receiver>
+
     </application>
 </manifest>
