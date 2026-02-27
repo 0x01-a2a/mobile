@@ -5,10 +5,10 @@ import React from 'react';
 import { StyleSheet, Text } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
-import { DashboardScreen } from '../screens/Dashboard';
-import { InboxScreen }     from '../screens/Inbox';
-import { EarningsScreen }  from '../screens/Earnings';
-import { SettingsScreen }  from '../screens/Settings';
+import { FeedScreen }     from '../screens/Feed';
+import { AgentsScreen }   from '../screens/Agents';
+import { MyAgentScreen }  from '../screens/MyAgent';
+import { SettingsScreen } from '../screens/Settings';
 
 const Tab = createBottomTabNavigator();
 
@@ -20,10 +20,10 @@ const C = {
 };
 
 const ICONS: Record<string, string> = {
-  Dashboard: '[_]',
-  Inbox:     '[>]',
-  Earnings:  '[+]',
-  Settings:  '[=]',
+  Feed:     '[~]',
+  Agents:   '[@]',
+  'My Node':'[*]',
+  Settings: '[=]',
 };
 
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
@@ -48,10 +48,10 @@ export function AppNavigator() {
         ),
       })}
     >
-      <Tab.Screen name="Dashboard" component={DashboardScreen} />
-      <Tab.Screen name="Inbox"     component={InboxScreen}     />
-      <Tab.Screen name="Earnings"  component={EarningsScreen}  />
-      <Tab.Screen name="Settings"  component={SettingsScreen}  />
+      <Tab.Screen name="Feed"     component={FeedScreen}    />
+      <Tab.Screen name="Agents"   component={AgentsScreen}  />
+      <Tab.Screen name="My Node"  component={MyAgentScreen} />
+      <Tab.Screen name="Settings" component={SettingsScreen}/>
     </Tab.Navigator>
   );
 }

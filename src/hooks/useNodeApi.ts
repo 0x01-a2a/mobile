@@ -6,8 +6,10 @@
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
 
-const API_BASE = 'http://127.0.0.1:9090';
-const WS_BASE  = 'ws://127.0.0.1:9090';
+const API_BASE       = 'http://127.0.0.1:9090';
+const WS_BASE        = 'ws://127.0.0.1:9090';
+const AGGREGATOR_API = 'https://api.0x01.world';
+const AGGREGATOR_WS  = 'wss://api.0x01.world';
 
 // ============================================================================
 // Types (mirrors node API responses)
@@ -51,6 +53,32 @@ export interface IdentityInfo {
   agent_id: string;
   /** Human-readable agent name from config. */
   name: string;
+}
+
+export interface ActivityEvent {
+  id:               number;
+  ts:               number;
+  event_type:       'JOIN' | 'FEEDBACK' | 'DISPUTE' | 'VERDICT';
+  agent_id:         string;
+  target_id?:       string;
+  score?:           number;
+  name?:            string;
+  target_name?:     string;
+  slot?:            number;
+  conversation_id?: string;
+}
+
+export interface AgentSummary {
+  agent_id:       string;
+  name:           string;
+  feedback_count: number;
+  total_score:    number;
+  average_score:  number;
+  positive_count: number;
+  negative_count: number;
+  verdict_count:  number;
+  trend:          string;
+  last_seen:      number;
 }
 
 // ============================================================================
@@ -181,6 +209,96 @@ export function useIdentity() {
   }, []);
 
   return identity;
+}
+
+/** Polls GET /agents on the aggregator. */
+export function useAgents(
+  sort: 'reputation' | 'active' | 'new' = 'reputation',
+  limit = 100,
+) {
+  const [agents, setAgents] = useState<AgentSummary[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const res = await fetch(`${AGGREGATOR_API}/agents?limit=${limit}&sort=${sort}`);
+        if (res.ok && !cancelled) setAgents(await res.json());
+      } catch { /* offline */ }
+    };
+    poll();
+    const id = setInterval(poll, 30_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [sort, limit]);
+
+  return agents;
+}
+
+const MAX_FEED = 200;
+
+/**
+ * Fetches the initial activity feed then subscribes to live events via
+ * the aggregator WebSocket.
+ */
+export function useActivityFeed(limit = 50) {
+  const [events, setEvents] = useState<ActivityEvent[]>([]);
+  const wsRef = useRef<WebSocket | null>(null);
+
+  const reconnect = useCallback(() => {
+    try {
+      const ws = new WebSocket(`${AGGREGATOR_WS}/ws/activity`);
+      ws.onmessage = (e) => {
+        try {
+          const ev: ActivityEvent = JSON.parse(e.data);
+          setEvents(prev => {
+            const next = [ev, ...prev];
+            return next.length > MAX_FEED ? next.slice(0, MAX_FEED) : next;
+          });
+        } catch { /* malformed */ }
+      };
+      ws.onclose = () => {
+        setTimeout(reconnect, 3000);
+      };
+      wsRef.current = ws;
+    } catch { /* network not ready */ }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    // Initial fetch.
+    fetch(`${AGGREGATOR_API}/activity?limit=${limit}`)
+      .then(r => r.ok ? r.json() : [])
+      .then((data: ActivityEvent[]) => {
+        if (!cancelled) setEvents(data);
+      })
+      .catch(() => {});
+    // Live stream.
+    reconnect();
+    return () => {
+      cancelled = true;
+      wsRef.current?.close();
+      wsRef.current = null;
+    };
+  }, [limit, reconnect]);
+
+  return events;
+}
+
+/** Fetch profile for a single agent (reputation + capabilities + disputes). */
+export function useAgentProfile(agentId: string | null) {
+  const [profile, setProfile] = useState<any | null>(null);
+
+  useEffect(() => {
+    if (!agentId) return;
+    let cancelled = false;
+    fetch(`${AGGREGATOR_API}/agents/${agentId}/profile`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (!cancelled) setProfile(data); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [agentId]);
+
+  return profile;
 }
 
 /** Send an envelope via POST /envelopes/send (requires api_secret). */
