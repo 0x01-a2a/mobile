@@ -1,13 +1,80 @@
 /**
  * useNodeApi — hooks for the zerox1-node REST + WebSocket API.
  *
- * The node listens on 127.0.0.1:9090 (NodeService.NODE_API_PORT).
+ * Supports both local mode (node on 127.0.0.1:9090) and hosted mode
+ * (node on a remote host). Call configureNodeApi() on app start when
+ * using a remote host.
+ *
  * All hooks gracefully return empty/default state when the node is stopped.
+ *
+ * Security:
+ *   - Hosted session tokens are stored in the OS Keychain (react-native-keychain),
+ *     not AsyncStorage, so they are hardware-protected on supported devices.
+ *   - Remote host URLs must use HTTPS; HTTP is only allowed for localhost.
+ *   - The hosted-inbox WebSocket passes the token via the Authorization header,
+ *     not a query parameter, to prevent log leakage.
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Keychain from 'react-native-keychain';
 
-const API_BASE       = 'http://127.0.0.1:9090';
-const WS_BASE        = 'ws://127.0.0.1:9090';
+let _apiBase      = 'http://127.0.0.1:9090';
+let _wsBase       = 'ws://127.0.0.1:9090';
+let _hostedToken: string | null = null;
+
+// ============================================================================
+// URL validation
+// ============================================================================
+
+/** Keychain service name for the hosted session token. */
+const KEYCHAIN_SERVICE = 'zerox1.hosted_token';
+
+/**
+ * Validate a host node URL before use.
+ *
+ * Allows:
+ *   - https:// for all remote hosts
+ *   - http:// only for loopback (127.x.x.x / localhost) — dev only
+ *
+ * Throws if the URL is invalid or disallowed.
+ */
+export function assertValidHostUrl(raw: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error('Invalid URL');
+  }
+
+  const isLoopback =
+    parsed.hostname === 'localhost' ||
+    parsed.hostname === '127.0.0.1' ||
+    parsed.hostname.startsWith('127.');
+
+  if (parsed.protocol === 'https:') return;   // always allowed
+  if (parsed.protocol === 'http:' && isLoopback) return;  // dev only
+
+  throw new Error(
+    'Host node URL must use HTTPS. ' +
+    'HTTP is only permitted for local development (127.x.x.x / localhost).'
+  );
+}
+
+// ============================================================================
+// Module-level API configuration
+// ============================================================================
+
+/** Configure the API base URLs and optional hosted-agent token at runtime. */
+export function configureNodeApi(opts: {
+  apiBase?: string;
+  wsBase?:  string;
+  token?:   string;
+}) {
+  if (opts.apiBase) _apiBase = opts.apiBase;
+  if (opts.wsBase)  _wsBase  = opts.wsBase;
+  if (opts.token !== undefined) _hostedToken = opts.token;
+}
+
 const AGGREGATOR_API = 'https://api.0x01.world';
 const AGGREGATOR_WS  = 'wss://api.0x01.world';
 
@@ -34,10 +101,10 @@ export interface ReputationSnapshot {
 }
 
 export interface InboundEnvelope {
-  sender:      string;
-  msg_type:    string;
-  slot:        number;
-  payload_b64: string;
+  sender:          string;
+  msg_type:        string;
+  slot:            number;
+  payload_b64:     string;
   conversation_id: string;
 }
 
@@ -87,7 +154,9 @@ export interface AgentSummary {
 
 async function apiFetch<T>(path: string): Promise<T | null> {
   try {
-    const res = await fetch(`${API_BASE}${path}`);
+    const headers: Record<string, string> = {};
+    if (_hostedToken) headers['Authorization'] = `Bearer ${_hostedToken}`;
+    const res = await fetch(`${_apiBase}${path}`, { headers });
     if (!res.ok) return null;
     return res.json() as Promise<T>;
   } catch {
@@ -143,7 +212,6 @@ export function useNetworkStats(intervalMs = 15_000) {
   useEffect(() => {
     let cancelled = false;
     const poll = async () => {
-      // Node proxies or we hit aggregator directly — fall back gracefully.
       try {
         const res = await fetch('https://api.0x01.world/stats/network');
         if (res.ok && !cancelled) setStats(await res.json());
@@ -157,7 +225,7 @@ export function useNetworkStats(intervalMs = 15_000) {
   return stats;
 }
 
-/** Opens WS /ws/inbox and streams inbound envelopes. */
+/** Opens WS /ws/inbox (local) or WS /ws/hosted/inbox (hosted mode) and streams inbound envelopes. */
 export function useInbox(
   onEnvelope: (env: InboundEnvelope) => void,
   enabled = true,
@@ -169,7 +237,21 @@ export function useInbox(
   const reconnect = useCallback(() => {
     if (!enabled) return;
     try {
-      const ws = new WebSocket(`${WS_BASE}/ws/inbox`);
+      let ws: WebSocket;
+      if (_hostedToken) {
+        // Hosted mode: connect to the filtered hosted-inbox endpoint and pass
+        // the token via Authorization header (never in the query string to
+        // prevent log leakage). React Native's WebSocket supports headers via
+        // the third constructor argument.
+        ws = new WebSocket(
+          `${_wsBase}/ws/hosted/inbox`,
+          undefined,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          { headers: { Authorization: `Bearer ${_hostedToken}` } } as any,
+        );
+      } else {
+        ws = new WebSocket(`${_wsBase}/ws/inbox`);
+      }
       ws.onmessage = (e) => {
         try {
           const env: InboundEnvelope = JSON.parse(e.data);
@@ -177,7 +259,6 @@ export function useInbox(
         } catch { /* malformed */ }
       };
       ws.onclose = () => {
-        // Reconnect after 3s if still enabled
         setTimeout(reconnect, 3000);
       };
       wsRef.current = ws;
@@ -265,14 +346,12 @@ export function useActivityFeed(limit = 50) {
 
   useEffect(() => {
     let cancelled = false;
-    // Initial fetch.
     fetch(`${AGGREGATOR_API}/activity?limit=${limit}`)
       .then(r => r.ok ? r.json() : [])
       .then((data: ActivityEvent[]) => {
         if (!cancelled) setEvents(data);
       })
       .catch(() => {});
-    // Live stream.
     reconnect();
     return () => {
       cancelled = true;
@@ -286,6 +365,7 @@ export function useActivityFeed(limit = 50) {
 
 /** Fetch profile for a single agent (reputation + capabilities + disputes). */
 export function useAgentProfile(agentId: string | null) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [profile, setProfile] = useState<any | null>(null);
 
   useEffect(() => {
@@ -307,7 +387,7 @@ export async function sendEnvelope(
   apiSecret?: string,
 ): Promise<boolean> {
   try {
-    const res = await fetch(`${API_BASE}/envelopes/send`, {
+    const res = await fetch(`${_apiBase}/envelopes/send`, {
       method:  'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -319,4 +399,139 @@ export async function sendEnvelope(
   } catch {
     return false;
   }
+}
+
+// ============================================================================
+// Hosting node discovery and registration
+// ============================================================================
+
+export interface HostingNode {
+  node_id:      string;
+  name:         string;
+  fee_bps:      number;
+  api_url:      string;
+  first_seen:   number;
+  last_seen:    number;
+  hosted_count: number;
+  /** RTT in ms — added client-side after probing. */
+  rtt_ms?:      number;
+}
+
+/**
+ * Ping a host node's /hosted/ping endpoint and return RTT in ms,
+ * or null on failure.
+ */
+export async function probeRtt(apiUrl: string): Promise<number | null> {
+  const start = Date.now();
+  try {
+    const res = await fetch(`${apiUrl}/hosted/ping`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    return Date.now() - start;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch the hosting node list from the aggregator, then probe RTT for each
+ * candidate in parallel.
+ */
+export function useHostingNodes(): HostingNode[] {
+  const [nodes, setNodes] = useState<HostingNode[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch(`${AGGREGATOR_API}/hosting/nodes`);
+        if (!res.ok || cancelled) return;
+        const list: HostingNode[] = await res.json();
+        if (cancelled) return;
+        setNodes(list);
+        // Probe RTT for each node in parallel.
+        const probed = await Promise.all(
+          list.map(async (n) => ({
+            ...n,
+            rtt_ms: (await probeRtt(n.api_url)) ?? undefined,
+          }))
+        );
+        if (!cancelled) setNodes(probed);
+      } catch { /* offline */ }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+  return nodes;
+}
+
+/**
+ * Store the hosted session token in the OS Keychain (hardware-protected
+ * on devices with a secure enclave / Android Keystore).
+ */
+async function saveTokenToKeychain(token: string): Promise<void> {
+  await Keychain.setGenericPassword('hosted_token', token, {
+    service:     KEYCHAIN_SERVICE,
+    accessible:  Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+  });
+}
+
+/**
+ * Load the hosted session token from the OS Keychain.
+ * Returns null if not found or if Keychain access fails.
+ */
+export async function loadTokenFromKeychain(): Promise<string | null> {
+  try {
+    const creds = await Keychain.getGenericPassword({ service: KEYCHAIN_SERVICE });
+    return creds ? creds.password : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Delete the hosted session token from the OS Keychain.
+ */
+export async function clearTokenFromKeychain(): Promise<void> {
+  try {
+    await Keychain.resetGenericPassword({ service: KEYCHAIN_SERVICE });
+  } catch { /* already clear */ }
+}
+
+/**
+ * Register as a hosted agent on a remote node.
+ *
+ * - Validates that `hostApiUrl` uses HTTPS (or loopback HTTP for dev).
+ * - POSTs /hosted/register to obtain a session token.
+ * - Stores the token in the OS Keychain (not AsyncStorage).
+ * - Persists non-sensitive metadata (host URL, agent_id) in AsyncStorage.
+ * - Calls configureNodeApi() so all subsequent API calls go to the host.
+ */
+export async function registerAsHosted(
+  hostApiUrl: string,
+): Promise<{ agent_id: string }> {
+  // Enforce HTTPS before sending any credentials to the remote host.
+  assertValidHostUrl(hostApiUrl);
+
+  const res = await fetch(`${hostApiUrl}/hosted/register`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Registration failed: ${res.status}`);
+  const data: { agent_id: string; token: string } = await res.json();
+
+  // Store the session token in the OS Keychain (hardware-protected).
+  await saveTokenToKeychain(data.token);
+
+  // Store non-sensitive metadata in AsyncStorage.
+  await AsyncStorage.multiSet([
+    ['zerox1:hosted_mode',     'true'],
+    ['zerox1:host_url',        hostApiUrl],
+    ['zerox1:hosted_agent_id', data.agent_id],
+  ]);
+
+  configureNodeApi({
+    apiBase: hostApiUrl,
+    wsBase:  hostApiUrl.replace(/^https/, 'wss').replace(/^http/, 'ws'),
+    token:   data.token,
+  });
+
+  return { agent_id: data.agent_id };
 }

@@ -25,6 +25,11 @@ export interface NodeConfig {
   agentName?: string;
   /** Solana RPC endpoint. Defaults to devnet. */
   rpcUrl?: string;
+  /**
+   * When set, the app runs in hosted mode: no local node is started.
+   * All API calls are directed to this URL (e.g. "https://host.example.com:9091").
+   */
+  nodeApiUrl?: string;
 }
 
 export type NodeStatus = 'running' | 'stopped' | 'error';

@@ -7,6 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NodeModule, NodeConfig, NodeStatus, onNodeStatus } from '../native/NodeModule';
+import { configureNodeApi, loadTokenFromKeychain } from './useNodeApi';
 
 const STORAGE_KEYS = {
   CONFIG:     'zerox1:node_config',
@@ -37,11 +38,33 @@ export function useNode() {
         const auto = savedAutoStart === 'true';
         setAutoStart(auto);
         if (auto) {
-          const running = await NodeModule.isRunning();
-          if (!running) await NodeModule.startNode(cfg);
+          if (cfg.nodeApiUrl) {
+            // Hosted mode — configure API and mark running.
+            const token = await loadTokenFromKeychain();
+            configureNodeApi({
+              apiBase: cfg.nodeApiUrl,
+              wsBase:  cfg.nodeApiUrl.replace(/^https/, 'wss').replace(/^http/, 'ws'),
+              token:   token ?? undefined,
+            });
+            setStatus('running');
+          } else {
+            const running = await NodeModule.isRunning();
+            if (!running) await NodeModule.startNode(cfg);
+          }
         } else {
-          const running = await NodeModule.isRunning();
-          setStatus(running ? 'running' : 'stopped');
+          if (cfg.nodeApiUrl) {
+            // Non-auto-start hosted mode — still configure API pointers.
+            const token = await loadTokenFromKeychain();
+            configureNodeApi({
+              apiBase: cfg.nodeApiUrl,
+              wsBase:  cfg.nodeApiUrl.replace(/^https/, 'wss').replace(/^http/, 'ws'),
+              token:   token ?? undefined,
+            });
+            setStatus('running');
+          } else {
+            const running = await NodeModule.isRunning();
+            setStatus(running ? 'running' : 'stopped');
+          }
         }
       } catch (e) {
         console.warn('useNode init error:', e);
@@ -53,8 +76,21 @@ export function useNode() {
 
   const start = useCallback(async (cfg?: NodeConfig) => {
     const effective = cfg ?? config;
-    await NodeModule.startNode(effective);
-    setStatus('running');
+
+    if (effective.nodeApiUrl) {
+      // Hosted mode — skip native node, just configure API pointers.
+      const token = await loadTokenFromKeychain();
+      configureNodeApi({
+        apiBase: effective.nodeApiUrl,
+        wsBase:  effective.nodeApiUrl.replace(/^https/, 'wss').replace(/^http/, 'ws'),
+        token:   token ?? undefined,
+      });
+      setStatus('running');
+    } else {
+      await NodeModule.startNode(effective);
+      setStatus('running');
+    }
+
     await AsyncStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(effective));
   }, [config]);
 
