@@ -86,6 +86,13 @@ export const NodeModule = {
    */
   requestPermission: (permission: string): Promise<boolean> =>
     ZeroxNodeModule.requestPermission(permission),
+
+  /**
+   * Securely store the LLM API key in the Android Keystore (EncryptedSharedPreferences).
+   * This is hardware-backed on most modern devices (CRIT-4).
+   */
+  saveLlmApiKey: (key: string): Promise<void> =>
+    ZeroxNodeModule.saveLlmApiKey(key),
 };
 
 // ============================================================================

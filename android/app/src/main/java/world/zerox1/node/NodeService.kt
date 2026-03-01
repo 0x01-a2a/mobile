@@ -56,7 +56,6 @@ class NodeService : Service() {
         // Intent extras — ZeroClaw brain
         const val EXTRA_BRAIN_ENABLED = "brain_enabled"
         const val EXTRA_LLM_PROVIDER  = "llm_provider"
-        const val EXTRA_LLM_API_KEY   = "llm_api_key"
         const val EXTRA_CAPABILITIES  = "capabilities"       // JSON array string
         const val EXTRA_MIN_FEE       = "min_fee_usdc"
         const val EXTRA_MIN_REP       = "min_reputation"

@@ -8,6 +8,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Keychain from 'react-native-keychain';
+import { NodeModule } from '../native/NodeModule';
+import { Platform } from 'react-native';
 
 // ============================================================================
 // Types
@@ -24,9 +26,9 @@ export type Capability =
 
 export const CAPABILITY_LABELS: Record<Capability, string> = {
   summarization: 'Summarization',
-  qa:            'Q & A',
-  translation:   'Translation',
-  code_review:   'Code Review',
+  qa: 'Q & A',
+  translation: 'Translation',
+  code_review: 'Code Review',
   data_analysis: 'Data Analysis',
 };
 
@@ -35,38 +37,38 @@ export const ALL_CAPABILITIES: Capability[] = [
 ];
 
 export interface ProviderInfo {
-  key:   LlmProvider;
+  key: LlmProvider;
   label: string;
   model: string;
-  hint:  string;
+  hint: string;
 }
 
 export const PROVIDERS: ProviderInfo[] = [
-  { key: 'anthropic', label: 'Claude',  model: 'claude-haiku-4-5-20251001', hint: 'console.anthropic.com' },
-  { key: 'openai',    label: 'OpenAI',  model: 'gpt-4o-mini',               hint: 'platform.openai.com'   },
-  { key: 'gemini',    label: 'Gemini',  model: 'gemini-2.0-flash',          hint: 'aistudio.google.com'   },
-  { key: 'groq',      label: 'Groq',    model: 'llama-3.1-8b-instant',      hint: 'console.groq.com'      },
+  { key: 'anthropic', label: 'Claude', model: 'claude-haiku-4-5-20251001', hint: 'console.anthropic.com' },
+  { key: 'openai', label: 'OpenAI', model: 'gpt-4o-mini', hint: 'platform.openai.com' },
+  { key: 'gemini', label: 'Gemini', model: 'gemini-2.0-flash', hint: 'aistudio.google.com' },
+  { key: 'groq', label: 'Groq', model: 'llama-3.1-8b-instant', hint: 'console.groq.com' },
 ];
 
 export interface AgentBrainConfig {
-  enabled:       boolean;
-  provider:      LlmProvider;
-  capabilities:  Capability[];
-  minFeeUsdc:    number;
+  enabled: boolean;
+  provider: LlmProvider;
+  capabilities: Capability[];
+  minFeeUsdc: number;
   minReputation: number;
-  autoAccept:    boolean;
+  autoAccept: boolean;
   /** True when an API key is stored in the keychain. Never store the key here. */
-  apiKeySet:     boolean;
+  apiKeySet: boolean;
 }
 
 const DEFAULT_CONFIG: AgentBrainConfig = {
-  enabled:       false,
-  provider:      'anthropic',
-  capabilities:  ['summarization', 'qa'],
-  minFeeUsdc:    0.01,
+  enabled: false,
+  provider: 'anthropic',
+  capabilities: ['summarization', 'qa'],
+  minFeeUsdc: 0.01,
   minReputation: 50,
-  autoAccept:    true,
-  apiKeySet:     false,
+  autoAccept: true,
+  apiKeySet: false,
 };
 
 // ============================================================================
@@ -74,17 +76,24 @@ const DEFAULT_CONFIG: AgentBrainConfig = {
 // ============================================================================
 
 const BRAIN_STORAGE_KEY = 'zerox1:agent_brain';
-const KEYCHAIN_SERVICE  = 'zerox1.llm_api_key';
+const KEYCHAIN_SERVICE = 'zerox1.llm_api_key';
 
 // ============================================================================
 // Keychain helpers (exported for use in Onboarding + Settings)
 // ============================================================================
 
 export async function saveLlmApiKey(key: string): Promise<void> {
+  // 1. Store in platform keychain (standard RN practice)
   await Keychain.setGenericPassword('llm_api_key', key, {
-    service:    KEYCHAIN_SERVICE,
+    service: KEYCHAIN_SERVICE,
     accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
   });
+
+  // 2. On Android, also push to native EncryptedSharedPreferences (CRIT-4)
+  // so the NodeService background process can access it directly.
+  if (Platform.OS === 'android') {
+    await NodeModule.saveLlmApiKey(key);
+  }
 }
 
 export async function loadLlmApiKey(): Promise<string | null> {
@@ -113,7 +122,7 @@ export function useAgentBrain() {
   useEffect(() => {
     AsyncStorage.getItem(BRAIN_STORAGE_KEY)
       .then(v => { if (v) setConfig(JSON.parse(v)); })
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => setLoading(false));
   }, []);
 

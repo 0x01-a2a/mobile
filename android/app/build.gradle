@@ -82,8 +82,8 @@ android {
         applicationId "world.zerox1.node"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "0.1.0"
+        versionCode Integer.parseInt(System.getenv("VERSION_CODE") ?: "1")
+        versionName System.getenv("VERSION_NAME") ?: "0.1.0"
     }
     signingConfigs {
         debug {
@@ -92,15 +92,19 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        release {
+            storeFile file(System.getenv("ZEROX1_RELEASE_KEYSTORE") ?: "/Users/tobiasd/Desktop/zerox1/secrets/release.keystore")
+            storePassword System.getenv("ZEROX1_RELEASE_STORE_PASS") ?: 'zerox1-pass-2026'
+            keyAlias 'zerox1-release'
+            keyPassword System.getenv("ZEROX1_RELEASE_KEY_PASS") ?: 'zerox1-pass-2026'
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.release
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }

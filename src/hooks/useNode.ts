@@ -11,15 +11,15 @@ import { configureNodeApi, loadTokenFromKeychain } from './useNodeApi';
 import { loadLlmApiKey } from './useAgentBrain';
 
 const STORAGE_KEYS = {
-  CONFIG:     'zerox1:node_config',
+  CONFIG: 'zerox1:node_config',
   AUTO_START: 'zerox1:auto_start',
 };
 
 export function useNode() {
-  const [status,    setStatus]    = useState<NodeStatus>('stopped');
-  const [config,    setConfigState] = useState<NodeConfig>({});
-  const [autoStart, setAutoStart]   = useState(false);
-  const [loading,   setLoading]     = useState(true);
+  const [status, setStatus] = useState<NodeStatus>('stopped');
+  const [config, setConfigState] = useState<NodeConfig>({});
+  const [autoStart, setAutoStart] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   // Subscribe to native status events
   useEffect(() => {
@@ -44,8 +44,8 @@ export function useNode() {
             const token = await loadTokenFromKeychain();
             configureNodeApi({
               apiBase: cfg.nodeApiUrl,
-              wsBase:  cfg.nodeApiUrl.replace(/^https/, 'wss').replace(/^http/, 'ws'),
-              token:   token ?? undefined,
+              wsBase: cfg.nodeApiUrl.replace(/^https/, 'wss').replace(/^http/, 'ws'),
+              token: token ?? undefined,
             });
             setStatus('running');
           } else {
@@ -58,8 +58,8 @@ export function useNode() {
             const token = await loadTokenFromKeychain();
             configureNodeApi({
               apiBase: cfg.nodeApiUrl,
-              wsBase:  cfg.nodeApiUrl.replace(/^https/, 'wss').replace(/^http/, 'ws'),
-              token:   token ?? undefined,
+              wsBase: cfg.nodeApiUrl.replace(/^https/, 'wss').replace(/^http/, 'ws'),
+              token: token ?? undefined,
             });
             setStatus('running');
           } else {
@@ -83,19 +83,12 @@ export function useNode() {
       const token = await loadTokenFromKeychain();
       configureNodeApi({
         apiBase: effective.nodeApiUrl,
-        wsBase:  effective.nodeApiUrl.replace(/^https/, 'wss').replace(/^http/, 'ws'),
-        token:   token ?? undefined,
+        wsBase: effective.nodeApiUrl.replace(/^https/, 'wss').replace(/^http/, 'ws'),
+        token: token ?? undefined,
       });
       setStatus('running');
     } else {
-      // Inject LLM API key from keychain into the config at start time.
-      // The key is never stored in AsyncStorage — only passed in-memory.
-      let startConfig = effective;
-      if (effective.agentBrainEnabled) {
-        const llmApiKey = await loadLlmApiKey();
-        if (llmApiKey) startConfig = { ...effective, llmApiKey };
-      }
-      await NodeModule.startNode(startConfig);
+      await NodeModule.startNode(effective);
       setStatus('running');
     }
 
