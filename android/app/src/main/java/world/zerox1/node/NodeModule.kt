@@ -179,7 +179,7 @@ class NodeModule(private val ctx: ReactApplicationContext)
             promise.resolve(true)
             return
         }
-        val activity = currentActivity as? PermissionAwareActivity
+        val activity = reactApplicationContext.currentActivity as? PermissionAwareActivity
         if (activity == null) {
             promise.reject("NO_ACTIVITY", "No foreground activity available")
             return

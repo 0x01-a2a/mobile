@@ -20,6 +20,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.*
@@ -585,12 +586,11 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
         val bytes = body.toByteArray(Charsets.UTF_8)
         val out = socket.getOutputStream()
         out.write(
-            "HTTP/1.1 $statusText\r\n" +
+            ("HTTP/1.1 $statusText\r\n" +
             "Content-Type: application/json\r\n" +
             "Content-Length: ${bytes.size}\r\n" +
             "Connection: close\r\n" +
-            "\r\n"
-        .toByteArray())
+            "\r\n").toByteArray(Charsets.UTF_8))
         out.write(bytes)
         out.flush()
     }

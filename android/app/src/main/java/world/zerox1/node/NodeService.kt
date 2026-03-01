@@ -14,6 +14,7 @@ import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import kotlinx.coroutines.*
+import kotlinx.coroutines.isActive
 import org.json.JSONArray
 import java.io.File
 
@@ -204,9 +205,9 @@ class NodeService : Service() {
         agentName: String,
         rpcUrl:    String,
     ) {
-        while (isActive) {
+        while (coroutineContext.isActive) {
             launchNode(binary, relayAddr, fcmToken, agentName, rpcUrl)
-            if (!isActive) break
+            if (!coroutineContext.isActive) break
             Log.i(TAG, "Restarting node in 5s…")
             updateNotification("Restarting…")
             delay(5_000)
