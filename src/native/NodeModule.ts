@@ -30,6 +30,25 @@ export interface NodeConfig {
    * All API calls are directed to this URL (e.g. "https://host.example.com:9091").
    */
   nodeApiUrl?: string;
+
+  // ── ZeroClaw agent brain ──────────────────────────────────────────────────
+  /** Enable the ZeroClaw agent brain sidecar. */
+  agentBrainEnabled?: boolean;
+  /** LLM provider key: 'anthropic' | 'openai' | 'gemini' | 'groq' */
+  llmProvider?: string;
+  /**
+   * LLM API key — passed to the native layer in-memory only.
+   * Loaded from the OS Keychain at start; never persisted in AsyncStorage.
+   */
+  llmApiKey?: string;
+  /** JSON array string of enabled capabilities e.g. '["summarization","qa"]' */
+  capabilities?: string;
+  /** Minimum task fee in USDC — reject tasks below this. */
+  minFeeUsdc?: number;
+  /** Minimum counterparty reputation score. */
+  minReputation?: number;
+  /** Auto-accept qualifying tasks without user approval. */
+  autoAccept?: boolean;
 }
 
 export type NodeStatus = 'running' | 'stopped' | 'error';
@@ -55,6 +74,18 @@ export const NodeModule = {
   /** Returns true if the foreground service is currently running. */
   isRunning: (): Promise<boolean> =>
     ZeroxNodeModule.isRunning(),
+
+  /** Returns a map of permission name → granted status for all phone bridge permissions. */
+  checkPermissions: (): Promise<Record<string, boolean>> =>
+    ZeroxNodeModule.checkPermissions(),
+
+  /**
+   * Request a single Android runtime permission by name (e.g. "READ_CONTACTS").
+   * Returns false immediately after showing the system dialog; call checkPermissions()
+   * afterward to read the actual grant result.
+   */
+  requestPermission: (permission: string): Promise<boolean> =>
+    ZeroxNodeModule.requestPermission(permission),
 };
 
 // ============================================================================

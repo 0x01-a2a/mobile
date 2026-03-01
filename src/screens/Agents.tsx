@@ -12,7 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { AgentSummary, useAgentProfile, useAgents, useNetworkStats } from '../hooks/useNodeApi';
+import { AgentSummary, useAgentProfile, useAgents, useNetworkStats, useWatchlist } from '../hooks/useNodeApi';
 
 const C = {
   bg:      '#050505',
@@ -60,9 +60,15 @@ function trendColor(trend: string): string {
 function ProfileModal({
   agentId,
   onClose,
+  isWatched,
+  onWatch,
+  onUnwatch,
 }: {
-  agentId: string;
-  onClose: () => void;
+  agentId:   string;
+  onClose:   () => void;
+  isWatched: boolean;
+  onWatch:   () => void;
+  onUnwatch: () => void;
 }) {
   const profile = useAgentProfile(agentId);
 
@@ -79,6 +85,16 @@ function ProfileModal({
             {profile?.name || shortId(agentId)}
           </Text>
           <Text style={ps.agentId}>{shortId(agentId)}</Text>
+
+          <TouchableOpacity
+            style={[ps.watchBtn, isWatched && ps.watchBtnActive]}
+            onPress={isWatched ? onUnwatch : onWatch}
+            activeOpacity={0.8}
+          >
+            <Text style={[ps.watchBtnText, isWatched && ps.watchBtnTextActive]}>
+              {isWatched ? '\u2605 WATCHING' : '\u2606 WATCH'}
+            </Text>
+          </TouchableOpacity>
 
           {profile ? (
             <ScrollView style={ps.body}>
@@ -144,10 +160,14 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 function AgentCard({
   agent,
+  rank,
+  isWatched,
   onPress,
 }: {
-  agent: AgentSummary;
-  onPress: () => void;
+  agent:     AgentSummary;
+  rank:      number;
+  isWatched: boolean;
+  onPress:   () => void;
 }) {
   const arrow = trendArrow(agent.trend);
   const arrowColor = trendColor(agent.trend);
@@ -156,10 +176,16 @@ function AgentCard({
   return (
     <TouchableOpacity style={s.card} onPress={onPress} activeOpacity={0.7}>
       <View style={s.cardTop}>
+        <View style={s.cardRankWrap}>
+          <Text style={s.rankText}>#{rank}</Text>
+        </View>
         <View style={s.cardLeft}>
-          <Text style={s.cardName}>
-            {agent.name || shortId(agent.agent_id)}
-          </Text>
+          <View style={s.nameRow}>
+            <Text style={s.cardName}>
+              {agent.name || shortId(agent.agent_id)}
+            </Text>
+            {isWatched && <Text style={s.starText}> \u2605</Text>}
+          </View>
           <Text style={s.cardId}>{shortId(agent.agent_id)}</Text>
         </View>
         <View style={s.cardRight}>
@@ -189,6 +215,7 @@ export function AgentsScreen() {
   const [selected, setSelected]   = useState<string | null>(null);
   const stats  = useNetworkStats();
   const agents = useAgents(sort, 100);
+  const { isWatched, watch, unwatch } = useWatchlist();
 
   return (
     <View style={s.root}>
@@ -218,8 +245,13 @@ export function AgentsScreen() {
       <FlatList
         data={agents}
         keyExtractor={a => a.agent_id}
-        renderItem={({ item }) => (
-          <AgentCard agent={item} onPress={() => setSelected(item.agent_id)} />
+        renderItem={({ item, index }) => (
+          <AgentCard
+            agent={item}
+            rank={index + 1}
+            isWatched={isWatched(item.agent_id)}
+            onPress={() => setSelected(item.agent_id)}
+          />
         )}
         ListEmptyComponent={
           <View style={s.empty}>
@@ -230,7 +262,13 @@ export function AgentsScreen() {
       />
 
       {selected ? (
-        <ProfileModal agentId={selected} onClose={() => setSelected(null)} />
+        <ProfileModal
+          agentId={selected}
+          onClose={() => setSelected(null)}
+          isWatched={isWatched(selected)}
+          onWatch={() => watch(selected)}
+          onUnwatch={() => unwatch(selected)}
+        />
       ) : null}
     </View>
   );
@@ -248,9 +286,13 @@ const s = StyleSheet.create({
   sortLabelActive:{ color: C.accent },
   card:          { marginHorizontal: 16, marginTop: 10, backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, padding: 14 },
   cardTop:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  cardRankWrap:  { width: 30, paddingTop: 2 },
+  rankText:      { fontSize: 10, color: C.sub, fontFamily: 'monospace' },
   cardLeft:      { flex: 1 },
+  nameRow:       { flexDirection: 'row', alignItems: 'center' },
   cardRight:     { flexDirection: 'row', alignItems: 'center', gap: 6 },
   cardName:      { fontSize: 14, fontWeight: '700', color: C.text, fontFamily: 'monospace' },
+  starText:      { fontSize: 12, color: C.green },
   cardId:        { fontSize: 10, color: C.sub, fontFamily: 'monospace', marginTop: 2 },
   score:         { fontSize: 18, fontWeight: '700', fontFamily: 'monospace' },
   trend:         { fontSize: 16, fontWeight: '700' },
@@ -261,24 +303,28 @@ const s = StyleSheet.create({
 });
 
 const ps = StyleSheet.create({
-  overlay:      { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
-  sheet:        { backgroundColor: C.sheet, borderTopLeftRadius: 12, borderTopRightRadius: 12, paddingBottom: 40, maxHeight: '80%' },
-  handle:       { width: 40, height: 4, backgroundColor: C.border, borderRadius: 2, alignSelf: 'center', marginTop: 12 },
-  closeBtn:     { position: 'absolute', top: 16, right: 20 },
-  closeTxt:     { color: C.sub, fontFamily: 'monospace', fontSize: 13 },
-  agentName:    { fontSize: 18, fontWeight: '700', color: C.text, fontFamily: 'monospace', marginTop: 24, marginHorizontal: 20 },
-  agentId:      { fontSize: 11, color: C.sub, fontFamily: 'monospace', marginHorizontal: 20, marginTop: 2, marginBottom: 12 },
-  body:         { paddingHorizontal: 20 },
-  loading:      { color: C.sub, fontFamily: 'monospace', margin: 20 },
-  section:      { marginTop: 16 },
-  sectionLabel: { fontSize: 11, color: C.sub, letterSpacing: 3, marginBottom: 10 },
-  statsRow:     { flexDirection: 'row', gap: 12, flexWrap: 'wrap' },
-  stat:         { flex: 1, minWidth: '40%', backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, padding: 12 },
-  statVal:      { fontSize: 22, fontWeight: '700', color: C.text, fontFamily: 'monospace' },
-  statLabel:    { fontSize: 10, color: C.sub, letterSpacing: 2, marginTop: 4 },
-  capRow:       { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  capBadge:     { borderWidth: 1, borderColor: C.blue, borderRadius: 3, paddingHorizontal: 8, paddingVertical: 3 },
-  capText:      { color: C.blue, fontSize: 11, fontFamily: 'monospace' },
-  disputeRow:   { paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: C.border },
-  disputeText:  { color: C.red, fontSize: 11, fontFamily: 'monospace' },
+  overlay:          { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
+  sheet:            { backgroundColor: C.sheet, borderTopLeftRadius: 12, borderTopRightRadius: 12, paddingBottom: 40, maxHeight: '80%' },
+  handle:           { width: 40, height: 4, backgroundColor: C.border, borderRadius: 2, alignSelf: 'center', marginTop: 12 },
+  closeBtn:         { position: 'absolute', top: 16, right: 20 },
+  closeTxt:         { color: C.sub, fontFamily: 'monospace', fontSize: 13 },
+  agentName:        { fontSize: 18, fontWeight: '700', color: C.text, fontFamily: 'monospace', marginTop: 24, marginHorizontal: 20 },
+  agentId:          { fontSize: 11, color: C.sub, fontFamily: 'monospace', marginHorizontal: 20, marginTop: 2, marginBottom: 8 },
+  watchBtn:         { marginHorizontal: 20, marginBottom: 12, borderWidth: 1, borderColor: C.sub, borderRadius: 3, paddingVertical: 7, paddingHorizontal: 12, alignSelf: 'flex-start' },
+  watchBtnActive:   { borderColor: C.green + '80', backgroundColor: C.green + '12' },
+  watchBtnText:     { fontSize: 11, color: C.sub, fontFamily: 'monospace', letterSpacing: 1, fontWeight: '700' },
+  watchBtnTextActive: { color: C.green },
+  body:             { paddingHorizontal: 20 },
+  loading:          { color: C.sub, fontFamily: 'monospace', margin: 20 },
+  section:          { marginTop: 16 },
+  sectionLabel:     { fontSize: 11, color: C.sub, letterSpacing: 3, marginBottom: 10 },
+  statsRow:         { flexDirection: 'row', gap: 12, flexWrap: 'wrap' },
+  stat:             { flex: 1, minWidth: '40%', backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, padding: 12 },
+  statVal:          { fontSize: 22, fontWeight: '700', color: C.text, fontFamily: 'monospace' },
+  statLabel:        { fontSize: 10, color: C.sub, letterSpacing: 2, marginTop: 4 },
+  capRow:           { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  capBadge:         { borderWidth: 1, borderColor: C.blue, borderRadius: 3, paddingHorizontal: 8, paddingVertical: 3 },
+  capText:          { color: C.blue, fontSize: 11, fontFamily: 'monospace' },
+  disputeRow:       { paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: C.border },
+  disputeText:      { color: C.red, fontSize: 11, fontFamily: 'monospace' },
 });

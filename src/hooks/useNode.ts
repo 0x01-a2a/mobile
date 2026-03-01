@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NodeModule, NodeConfig, NodeStatus, onNodeStatus } from '../native/NodeModule';
 import { configureNodeApi, loadTokenFromKeychain } from './useNodeApi';
+import { loadLlmApiKey } from './useAgentBrain';
 
 const STORAGE_KEYS = {
   CONFIG:     'zerox1:node_config',
@@ -67,7 +68,7 @@ export function useNode() {
           }
         }
       } catch (e) {
-        console.warn('useNode init error:', e);
+        // Silently absorb init errors — node can be started manually
       } finally {
         setLoading(false);
       }
@@ -87,7 +88,14 @@ export function useNode() {
       });
       setStatus('running');
     } else {
-      await NodeModule.startNode(effective);
+      // Inject LLM API key from keychain into the config at start time.
+      // The key is never stored in AsyncStorage — only passed in-memory.
+      let startConfig = effective;
+      if (effective.agentBrainEnabled) {
+        const llmApiKey = await loadLlmApiKey();
+        if (llmApiKey) startConfig = { ...effective, llmApiKey };
+      }
+      await NodeModule.startNode(startConfig);
       setStatus('running');
     }
 

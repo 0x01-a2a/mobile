@@ -2,15 +2,16 @@
  * Feed — live activity timeline from the aggregator.
  * Events: JOIN (green), FEEDBACK+ (green), FEEDBACK- (red), DISPUTE (red), VERDICT (blue).
  */
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   FlatList,
   RefreshControl,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
-import { ActivityEvent, useActivityFeed } from '../hooks/useNodeApi';
+import { ActivityEvent, useActivityFeed, useWatchlist } from '../hooks/useNodeApi';
 
 const C = {
   bg:      '#050505',
@@ -88,15 +89,35 @@ function FeedRow({ ev }: { ev: ActivityEvent }) {
   );
 }
 
+type FeedFilter = 'all' | 'watched';
+
 export function FeedScreen() {
   const events = useActivityFeed(50);
+  const { watchlist } = useWatchlist();
+  const [filter, setFilter] = useState<FeedFilter>('all');
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = useCallback(() => {
-    // The hook auto-reconnects; just briefly show the indicator.
     setRefreshing(true);
     setTimeout(() => setRefreshing(false), 800);
   }, []);
+
+  const filtered = useMemo(() => {
+    if (filter === 'all') return events;
+    return events.filter(ev =>
+      watchlist.includes(ev.agent_id) ||
+      (ev.target_id != null && watchlist.includes(ev.target_id))
+    );
+  }, [events, filter, watchlist]);
+
+  const watchedCount = useMemo(
+    () => watchlist.length,
+    [watchlist],
+  );
+
+  const emptyText = filter === 'watched'
+    ? (watchedCount === 0 ? 'tap \u2606 on an agent to watch them' : 'no activity from watched agents yet')
+    : 'waiting for events\u2026';
 
   return (
     <View style={s.root}>
@@ -104,8 +125,25 @@ export function FeedScreen() {
         <Text style={s.title}>FEED</Text>
         <Text style={s.subtitle}>live mesh activity</Text>
       </View>
+
+      {/* Filter tabs */}
+      <View style={s.filterBar}>
+        {(['all', 'watched'] as FeedFilter[]).map(f => (
+          <TouchableOpacity
+            key={f}
+            style={[s.filterBtn, filter === f && s.filterBtnActive]}
+            onPress={() => setFilter(f)}
+            activeOpacity={0.7}
+          >
+            <Text style={[s.filterLabel, filter === f && s.filterLabelActive]}>
+              {f === 'all' ? 'ALL' : `WATCHED${watchedCount > 0 ? ` (${watchedCount})` : ''}`}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
       <FlatList
-        data={events}
+        data={filtered}
         keyExtractor={item => String(item.id)}
         renderItem={({ item }) => <FeedRow ev={item} />}
         refreshControl={
@@ -117,30 +155,35 @@ export function FeedScreen() {
         }
         ListEmptyComponent={
           <View style={s.empty}>
-            <Text style={s.emptyText}>waiting for events…</Text>
+            <Text style={s.emptyText}>{emptyText}</Text>
           </View>
         }
-        contentContainerStyle={events.length === 0 ? s.emptyContainer : undefined}
+        contentContainerStyle={filtered.length === 0 ? s.emptyContainer : undefined}
       />
     </View>
   );
 }
 
 const s = StyleSheet.create({
-  root:          { flex: 1, backgroundColor: C.bg },
-  header:        { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.border },
-  title:         { fontSize: 20, fontWeight: '700', color: C.text, letterSpacing: 4, fontFamily: 'monospace' },
-  subtitle:      { fontSize: 11, color: C.sub, letterSpacing: 2, marginTop: 2 },
-  row:           { paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.border },
-  rowMain:       { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
-  rowMeta:       { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 },
-  agentName:     { fontSize: 13, fontWeight: '700', fontFamily: 'monospace' },
-  arrow:         { fontSize: 13, color: C.sub },
-  badge:         { borderWidth: 1, borderRadius: 3, paddingHorizontal: 5, paddingVertical: 1, marginLeft: 8 },
-  badgeText:     { fontSize: 10, fontWeight: '700', letterSpacing: 1 },
-  slot:          { fontSize: 10, color: C.sub, fontFamily: 'monospace' },
-  timeAgo:       { fontSize: 10, color: C.sub, fontFamily: 'monospace' },
-  empty:         { alignItems: 'center', paddingTop: 60 },
-  emptyContainer:{ flexGrow: 1 },
-  emptyText:     { color: C.sub, fontFamily: 'monospace', letterSpacing: 2 },
+  root:             { flex: 1, backgroundColor: C.bg },
+  header:           { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.border },
+  title:            { fontSize: 20, fontWeight: '700', color: C.text, letterSpacing: 4, fontFamily: 'monospace' },
+  subtitle:         { fontSize: 11, color: C.sub, letterSpacing: 2, marginTop: 2 },
+  filterBar:        { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: C.border },
+  filterBtn:        { flex: 1, alignItems: 'center', paddingVertical: 9 },
+  filterBtnActive:  { borderBottomWidth: 2, borderBottomColor: C.accent },
+  filterLabel:      { fontSize: 11, color: C.sub, letterSpacing: 2, fontFamily: 'monospace' },
+  filterLabelActive:{ color: C.accent },
+  row:              { paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.border },
+  rowMain:          { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
+  rowMeta:          { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 },
+  agentName:        { fontSize: 13, fontWeight: '700', fontFamily: 'monospace' },
+  arrow:            { fontSize: 13, color: C.sub },
+  badge:            { borderWidth: 1, borderRadius: 3, paddingHorizontal: 5, paddingVertical: 1, marginLeft: 8 },
+  badgeText:        { fontSize: 10, fontWeight: '700', letterSpacing: 1 },
+  slot:             { fontSize: 10, color: C.sub, fontFamily: 'monospace' },
+  timeAgo:          { fontSize: 10, color: C.sub, fontFamily: 'monospace' },
+  empty:            { alignItems: 'center', paddingTop: 60 },
+  emptyContainer:   { flexGrow: 1 },
+  emptyText:        { color: C.sub, fontFamily: 'monospace', letterSpacing: 1, textAlign: 'center', paddingHorizontal: 40 },
 });

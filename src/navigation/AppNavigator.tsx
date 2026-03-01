@@ -7,6 +7,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
 import { FeedScreen }     from '../screens/Feed';
 import { AgentsScreen }   from '../screens/Agents';
+import { ChatScreen }     from '../screens/Chat';
 import { MyAgentScreen }  from '../screens/MyAgent';
 import { SettingsScreen } from '../screens/Settings';
 
@@ -22,6 +23,7 @@ const C = {
 const ICONS: Record<string, string> = {
   Feed:     '[~]',
   Agents:   '[@]',
+  Chat:     '[>]',
   'My Node':'[*]',
   Settings: '[=]',
 };
@@ -50,6 +52,7 @@ export function AppNavigator() {
     >
       <Tab.Screen name="Feed"     component={FeedScreen}    />
       <Tab.Screen name="Agents"   component={AgentsScreen}  />
+      <Tab.Screen name="Chat"     component={ChatScreen}    />
       <Tab.Screen name="My Node"  component={MyAgentScreen} />
       <Tab.Screen name="Settings" component={SettingsScreen}/>
     </Tab.Navigator>

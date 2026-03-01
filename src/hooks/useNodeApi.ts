@@ -535,3 +535,48 @@ export async function registerAsHosted(
 
   return { agent_id: data.agent_id };
 }
+
+// ============================================================================
+// Watchlist
+// ============================================================================
+
+const WATCHLIST_KEY = 'zerox1:watchlist';
+
+/**
+ * Persist a personal watchlist of agent IDs in AsyncStorage.
+ * Watch agents from the Agents screen; filter the Feed to watched agents.
+ */
+export function useWatchlist() {
+  const [list, setList] = useState<string[]>([]);
+
+  useEffect(() => {
+    AsyncStorage.getItem(WATCHLIST_KEY)
+      .then(v => { if (v) setList(JSON.parse(v)); })
+      .catch(() => {});
+  }, []);
+
+  const persist = useCallback((next: string[]) => {
+    AsyncStorage.setItem(WATCHLIST_KEY, JSON.stringify(next)).catch(() => {});
+  }, []);
+
+  const watch = useCallback((id: string) => {
+    setList(prev => {
+      if (prev.includes(id)) return prev;
+      const next = [...prev, id];
+      persist(next);
+      return next;
+    });
+  }, [persist]);
+
+  const unwatch = useCallback((id: string) => {
+    setList(prev => {
+      const next = prev.filter(x => x !== id);
+      persist(next);
+      return next;
+    });
+  }, [persist]);
+
+  const isWatched = useCallback((id: string) => list.includes(id), [list]);
+
+  return { watchlist: list, watch, unwatch, isWatched };
+}

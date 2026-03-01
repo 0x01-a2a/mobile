@@ -83,7 +83,7 @@ android {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
-        versionName "1.0"
+        versionName "0.1.0"
     }
     signingConfigs {
         debug {
@@ -110,6 +110,8 @@ android {
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
+    // Encrypted key-value storage (CRIT-4: LLM API key at rest)
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")

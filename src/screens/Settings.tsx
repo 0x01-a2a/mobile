@@ -24,12 +24,23 @@ import {
   registerAsHosted,
   useHostingNodes,
 } from '../hooks/useNodeApi';
+import {
+  ALL_CAPABILITIES,
+  CAPABILITY_LABELS,
+  Capability,
+  PROVIDERS,
+  clearLlmApiKey,
+  saveLlmApiKey,
+  useAgentBrain,
+} from '../hooks/useAgentBrain';
+import { PermissionName, usePermissions } from '../hooks/usePermissions';
 
 const C = {
   bg:          '#050505',
   card:        '#0f0f0f',
   border:      '#1a1a1a',
   green:       '#00e676',
+  red:         '#ff1744',
   text:        '#ffffff',
   sub:         '#555555',
   amber:       '#ffc107',
@@ -182,6 +193,245 @@ function HostBrowserSheet({
 
 // ── Main screen ──────────────────────────────────────────────────────────────
 
+// ── Agent Brain section ───────────────────────────────────────────────────────
+
+function AgentBrainSection() {
+  const { config, save } = useAgentBrain();
+  const [showKeyInput, setShowKeyInput] = useState(false);
+  const [newKey, setNewKey] = useState('');
+
+  const toggleEnabled = () => save({ ...config, enabled: !config.enabled });
+
+  const toggleCapability = (cap: Capability) => {
+    const next = config.capabilities.includes(cap)
+      ? config.capabilities.filter(c => c !== cap)
+      : [...config.capabilities, cap];
+    save({ ...config, capabilities: next });
+  };
+
+  const handleSaveKey = async () => {
+    if (!newKey.trim()) return;
+    await saveLlmApiKey(newKey.trim());
+    await save({ ...config, apiKeySet: true });
+    setNewKey('');
+    setShowKeyInput(false);
+    Alert.alert('Saved', 'API key updated in device keychain.');
+  };
+
+  const handleClearKey = () => {
+    Alert.alert('Remove API key', 'This will disable the agent brain.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          await clearLlmApiKey();
+          await save({ ...config, enabled: false, apiKeySet: false });
+        },
+      },
+    ]);
+  };
+
+  const providerInfo = PROVIDERS.find(p => p.key === config.provider);
+
+  return (
+    <View style={bs.section}>
+      {/* Header row */}
+      <View style={bs.headerRow}>
+        <View>
+          <Text style={bs.sectionTitle}>AGENT BRAIN</Text>
+          <Text style={bs.sectionSub}>ZeroClaw · {providerInfo?.label ?? '—'}</Text>
+        </View>
+        <Switch
+          value={config.enabled && config.apiKeySet}
+          onValueChange={toggleEnabled}
+          disabled={!config.apiKeySet}
+          trackColor={{ false: C.border, true: C.green + '66' }}
+          thumbColor={config.enabled && config.apiKeySet ? C.green : '#333'}
+        />
+      </View>
+
+      {/* API key status */}
+      <View style={bs.row}>
+        <View style={bs.rowLeft}>
+          <Text style={bs.rowLabel}>API KEY</Text>
+          <Text style={bs.rowSub}>
+            {config.apiKeySet ? '●●●●●●●● (keychain)' : 'not set'}
+          </Text>
+        </View>
+        <View style={bs.rowBtns}>
+          {config.apiKeySet && (
+            <TouchableOpacity style={bs.miniBtn} onPress={handleClearKey} activeOpacity={0.8}>
+              <Text style={[bs.miniBtnText, { color: C.red }]}>CLEAR</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            style={bs.miniBtn}
+            onPress={() => setShowKeyInput(v => !v)}
+            activeOpacity={0.8}
+          >
+            <Text style={bs.miniBtnText}>{config.apiKeySet ? 'CHANGE' : 'SET'}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {showKeyInput && (
+        <View style={bs.keyInputWrap}>
+          <TextInput
+            style={bs.keyInput}
+            value={newKey}
+            onChangeText={setNewKey}
+            placeholder="paste API key…"
+            placeholderTextColor={C.sub}
+            secureTextEntry
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <TouchableOpacity style={bs.saveKeyBtn} onPress={handleSaveKey} activeOpacity={0.8}>
+            <Text style={bs.saveKeyBtnText}>SAVE</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Provider */}
+      <View style={bs.row}>
+        <Text style={bs.rowLabel}>PROVIDER</Text>
+        <View style={bs.providerRow}>
+          {PROVIDERS.map(p => (
+            <TouchableOpacity
+              key={p.key}
+              style={[bs.providerChip, config.provider === p.key && bs.providerChipActive]}
+              onPress={() => save({ ...config, provider: p.key })}
+              activeOpacity={0.8}
+            >
+              <Text style={[bs.providerChipText, config.provider === p.key && bs.providerChipTextActive]}>
+                {p.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+
+      {/* Capabilities */}
+      <View style={[bs.row, { flexDirection: 'column', alignItems: 'flex-start' }]}>
+        <Text style={[bs.rowLabel, { marginBottom: 10 }]}>CAPABILITIES</Text>
+        <View style={bs.capWrap}>
+          {ALL_CAPABILITIES.map(cap => {
+            const active = config.capabilities.includes(cap);
+            return (
+              <TouchableOpacity
+                key={cap}
+                style={[bs.capChip, active && bs.capChipActive]}
+                onPress={() => toggleCapability(cap)}
+                activeOpacity={0.8}
+              >
+                <Text style={[bs.capChipText, active && bs.capChipTextActive]}>
+                  {CAPABILITY_LABELS[cap]}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+
+      {/* Rules */}
+      <View style={bs.row}>
+        <View style={bs.rowLeft}>
+          <Text style={bs.rowLabel}>MIN FEE</Text>
+          <Text style={bs.rowSub}>Reject tasks below this USDC amount</Text>
+        </View>
+        <TextInput
+          style={bs.ruleInput}
+          value={String(config.minFeeUsdc)}
+          onChangeText={v => save({ ...config, minFeeUsdc: parseFloat(v) || 0 })}
+          keyboardType="decimal-pad"
+          placeholderTextColor={C.sub}
+        />
+      </View>
+
+      <View style={bs.row}>
+        <View style={bs.rowLeft}>
+          <Text style={bs.rowLabel}>MIN REPUTATION</Text>
+          <Text style={bs.rowSub}>Only accept from agents above this score</Text>
+        </View>
+        <TextInput
+          style={bs.ruleInput}
+          value={String(config.minReputation)}
+          onChangeText={v => save({ ...config, minReputation: parseInt(v, 10) || 0 })}
+          keyboardType="number-pad"
+          placeholderTextColor={C.sub}
+        />
+      </View>
+
+      <View style={[bs.row, { borderBottomWidth: 0 }]}>
+        <View style={bs.rowLeft}>
+          <Text style={bs.rowLabel}>AUTO-ACCEPT</Text>
+          <Text style={bs.rowSub}>Accept qualifying tasks without approval</Text>
+        </View>
+        <Switch
+          value={config.autoAccept}
+          onValueChange={v => save({ ...config, autoAccept: v })}
+          trackColor={{ false: C.border, true: C.green + '66' }}
+          thumbColor={config.autoAccept ? C.green : '#333'}
+        />
+      </View>
+    </View>
+  );
+}
+
+// ── Phone Capabilities section ────────────────────────────────────────────────
+
+const CAPABILITY_GROUPS: { label: string; perms: PermissionName[] }[] = [
+  { label: 'Contacts',   perms: ['READ_CONTACTS', 'WRITE_CONTACTS'] },
+  { label: 'SMS',        perms: ['READ_SMS', 'SEND_SMS'] },
+  { label: 'Location',   perms: ['ACCESS_FINE_LOCATION'] },
+  { label: 'Calendar',   perms: ['READ_CALENDAR', 'WRITE_CALENDAR'] },
+  { label: 'Call Log',   perms: ['READ_CALL_LOG'] },
+  { label: 'Camera',     perms: ['CAMERA'] },
+  { label: 'Microphone', perms: ['RECORD_AUDIO'] },
+  { label: 'Files',      perms: ['READ_MEDIA_IMAGES'] },
+];
+
+function PhoneCapabilitiesSection() {
+  const { perms, request } = usePermissions();
+
+  const handlePress = (needed: PermissionName[]) => {
+    for (const p of needed) {
+      if (!perms?.[p]) request(p);
+    }
+  };
+
+  return (
+    <View style={ps.section}>
+      <View style={ps.headerRow}>
+        <View>
+          <Text style={ps.sectionTitle}>PHONE CAPABILITIES</Text>
+          <Text style={ps.sectionSub}>Grant to let your agent act on your phone.</Text>
+        </View>
+      </View>
+      <View style={ps.chipGrid}>
+        {CAPABILITY_GROUPS.map(({ label, perms: needed }) => {
+          const granted = needed.every(p => perms?.[p]);
+          return (
+            <TouchableOpacity
+              key={label}
+              style={[ps.chip, granted && ps.chipActive]}
+              onPress={() => handlePress(needed)}
+              activeOpacity={0.8}
+            >
+              <Text style={[ps.chipText, granted && ps.chipTextActive]}>
+                {granted ? '[x]' : '[ ]'} {label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+// ── Main screen ───────────────────────────────────────────────────────────────
+
 export function SettingsScreen() {
   const { config, autoStart, saveConfig, setAutoStart, status, start, stop } = useNode();
 
@@ -229,6 +479,12 @@ export function SettingsScreen() {
     >
       <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
         <Text style={s.heading}>SETTINGS</Text>
+
+        {/* Agent Brain */}
+        <AgentBrainSection />
+
+        {/* Phone capabilities (only relevant when brain is enabled) */}
+        <PhoneCapabilitiesSection />
 
         {/* Node config fields */}
         <View style={s.section}>
@@ -421,4 +677,47 @@ const s = StyleSheet.create({
   barsRow:      { flexDirection: 'row', alignItems: 'flex-end', gap: 2 },
   bar:          { width: 4, borderRadius: 1 },
   signalNull:   { fontSize: 14, color: C.sub },
+});
+
+// Phone Capabilities stylesheet
+const ps = StyleSheet.create({
+  section:       { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, marginBottom: 16, overflow: 'hidden' },
+  headerRow:     { padding: 16, borderBottomWidth: 1, borderBottomColor: C.border },
+  sectionTitle:  { fontSize: 11, color: C.text, letterSpacing: 3, fontWeight: '700' },
+  sectionSub:    { fontSize: 10, color: C.sub, letterSpacing: 1, marginTop: 2 },
+  chipGrid:      { flexDirection: 'row', flexWrap: 'wrap', gap: 8, padding: 14 },
+  chip:          { borderWidth: 1, borderColor: C.border, borderRadius: 3, paddingHorizontal: 10, paddingVertical: 6 },
+  chipActive:    { borderColor: C.green, backgroundColor: C.green + '18' },
+  chipText:      { fontSize: 10, color: C.sub, fontFamily: 'monospace', letterSpacing: 1 },
+  chipTextActive:{ color: C.green },
+});
+
+// Agent Brain stylesheet
+const bs = StyleSheet.create({
+  section:           { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, marginBottom: 16, overflow: 'hidden' },
+  headerRow:         { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: C.border },
+  sectionTitle:      { fontSize: 11, color: C.text, letterSpacing: 3, fontWeight: '700' },
+  sectionSub:        { fontSize: 10, color: C.sub, letterSpacing: 1, marginTop: 2 },
+  row:               { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14, borderBottomWidth: 1, borderBottomColor: C.border },
+  rowLeft:           { flex: 1, marginRight: 12 },
+  rowLabel:          { fontSize: 10, color: C.sub, letterSpacing: 2 },
+  rowSub:            { fontSize: 11, color: C.sub, marginTop: 3, opacity: 0.7 },
+  rowBtns:           { flexDirection: 'row', gap: 6 },
+  miniBtn:           { borderWidth: 1, borderColor: C.border, borderRadius: 3, paddingHorizontal: 8, paddingVertical: 4 },
+  miniBtnText:       { fontSize: 9, color: C.green, letterSpacing: 2, fontWeight: '700' },
+  keyInputWrap:      { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingBottom: 12, gap: 8, borderBottomWidth: 1, borderBottomColor: C.border },
+  keyInput:          { flex: 1, color: C.text, fontFamily: 'monospace', fontSize: 13, backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 3, paddingHorizontal: 10, paddingVertical: 6 },
+  saveKeyBtn:        { backgroundColor: C.green, borderRadius: 3, paddingHorizontal: 10, paddingVertical: 6 },
+  saveKeyBtnText:    { fontSize: 10, fontWeight: '700', color: '#000', letterSpacing: 1 },
+  providerRow:       { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
+  providerChip:      { borderWidth: 1, borderColor: C.border, borderRadius: 3, paddingHorizontal: 8, paddingVertical: 4 },
+  providerChipActive:{ borderColor: C.green, backgroundColor: C.green + '18' },
+  providerChipText:  { fontSize: 10, color: C.sub, fontFamily: 'monospace', letterSpacing: 1 },
+  providerChipTextActive: { color: C.green },
+  capWrap:           { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  capChip:           { borderWidth: 1, borderColor: C.border, borderRadius: 3, paddingHorizontal: 8, paddingVertical: 4 },
+  capChipActive:     { borderColor: C.green + '80', backgroundColor: C.green + '12' },
+  capChipText:       { fontSize: 10, color: C.sub, fontFamily: 'monospace' },
+  capChipTextActive: { color: C.green },
+  ruleInput:         { color: C.green, fontFamily: 'monospace', fontSize: 15, fontWeight: '700', width: 56, textAlign: 'right' },
 });
