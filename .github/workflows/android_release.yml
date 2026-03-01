@@ -49,17 +49,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p android/app/src/main/assets
-          gh release download v0.1.28 \
+          gh release download v0.2.2 \
             --repo 0x01-a2a/node \
             --pattern 'zerox1-node-android-arm64' \
             --output android/app/src/main/assets/zerox1-node
           chmod +x android/app/src/main/assets/zerox1-node
 
       - name: Download zeroclaw binary
+        # Non-fatal: zeroclaw releases are published separately; app runs without brain if missing
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download v0.1.0 \
+          ZEROCLAW_TAG=$(gh release view --repo 0x01-a2a/zeroclaw --json tagName --jq '.tagName')
+          gh release download "$ZEROCLAW_TAG" \
             --repo 0x01-a2a/zeroclaw \
             --pattern 'zeroclaw-android-arm64' \
             --output android/app/src/main/assets/zeroclaw
