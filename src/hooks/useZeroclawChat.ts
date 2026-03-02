@@ -21,7 +21,7 @@ export interface ChatMessage {
   ts:      number;
 }
 
-export interface UseCeroclawChatResult {
+export interface UseZeroclawChatResult {
   messages:     ChatMessage[];
   loading:      boolean;
   error:        string | null;
@@ -33,7 +33,7 @@ function genId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export function useZeroclawChat(): UseCeroclawChatResult {
+export function useZeroclawChat(): UseZeroclawChatResult {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState<string | null>(null);

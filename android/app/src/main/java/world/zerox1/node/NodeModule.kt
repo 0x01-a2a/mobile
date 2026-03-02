@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Base64
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -15,6 +16,19 @@ import com.facebook.react.bridge.*
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.facebook.react.modules.core.PermissionAwareActivity
 import com.facebook.react.modules.core.PermissionListener
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import net.i2p.crypto.eddsa.EdDSAEngine
+import net.i2p.crypto.eddsa.EdDSAPrivateKey
+import net.i2p.crypto.eddsa.EdDSAPublicKey
+import net.i2p.crypto.eddsa.spec.EdDSANamedCurveTable
+import net.i2p.crypto.eddsa.spec.EdDSAPrivateKeySpec
+import net.i2p.crypto.eddsa.spec.EdDSAPublicKeySpec
+import org.json.JSONObject
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 
 /**
  * NodeModule — React Native native module exposing node lifecycle to JS.
@@ -131,6 +145,94 @@ class NodeModule(private val ctx: ReactApplicationContext)
     @ReactMethod
     fun isRunning(promise: Promise) {
         promise.resolve(isNodeRunning)
+    }
+
+    // -------------------------------------------------------------------------
+    // Blob upload — signs with identity key, POSTs to aggregator /blobs
+    // -------------------------------------------------------------------------
+
+    /**
+     * Upload a binary blob to the aggregator on behalf of the local agent.
+     *
+     * Signs the request using the agent's Ed25519 identity key (same key the
+     * Rust node uses — 32-byte raw seed stored at zerox1-identity.key).
+     *
+     * @param dataBase64  Base64-encoded bytes to upload.
+     * @param mimeType    MIME type for the Content-Type header.
+     * @param promise     Resolves with the CID string on success.
+     */
+    @ReactMethod
+    fun uploadBlob(dataBase64: String, mimeType: String, promise: Promise) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                // ── 1. Load the 32-byte identity key seed ──────────────────
+                val keyFile = File(ctx.filesDir, "zerox1-identity.key")
+                if (!keyFile.exists()) {
+                    promise.reject("NO_KEYPAIR", "Identity key not found — start the node first.")
+                    return@launch
+                }
+                val seed = keyFile.readBytes()
+                if (seed.size != 32) {
+                    promise.reject("BAD_KEY", "Expected 32-byte key, got ${seed.size} bytes.")
+                    return@launch
+                }
+
+                // ── 2. Derive Ed25519 key pair from seed ───────────────────
+                val spec       = EdDSANamedCurveTable.getByName("Ed25519")
+                val privSpec   = EdDSAPrivateKeySpec(seed, spec)
+                val privKey    = EdDSAPrivateKey(privSpec)
+                val pubKey     = EdDSAPublicKey(EdDSAPublicKeySpec(privSpec.a, spec))
+                val agentIdHex = pubKey.abyte.joinToString("") { "%02x".format(it) }
+
+                // ── 3. Decode body ─────────────────────────────────────────
+                val body = Base64.decode(dataBase64, Base64.DEFAULT)
+
+                // ── 4. Build message: body || timestamp_le_u64 ────────────
+                val timestamp = System.currentTimeMillis() / 1000L
+                val tsBytes   = ByteArray(8) { i -> ((timestamp shr (i * 8)) and 0xFF).toByte() }
+                val message   = body + tsBytes
+
+                // ── 5. Sign ────────────────────────────────────────────────
+                val signer = EdDSAEngine()
+                signer.initSign(privKey)
+                signer.update(message)
+                val sigHex = signer.sign().joinToString("") { "%02x".format(it) }
+
+                // ── 6. POST to aggregator ──────────────────────────────────
+                val conn = URL("https://api.0x01.world/blobs").openConnection() as HttpURLConnection
+                conn.apply {
+                    requestMethod = "POST"
+                    doOutput      = true
+                    connectTimeout = 30_000
+                    readTimeout    = 30_000
+                    setRequestProperty("Content-Type",       mimeType)
+                    setRequestProperty("X-0x01-Agent-Id",   agentIdHex)
+                    setRequestProperty("X-0x01-Signer",     agentIdHex)
+                    setRequestProperty("X-0x01-Timestamp",  timestamp.toString())
+                    setRequestProperty("X-0x01-Signature",  sigHex)
+                    outputStream.use { it.write(body) }
+                }
+
+                val code = conn.responseCode
+                if (code != 201) {
+                    val err = conn.errorStream?.bufferedReader()?.readText() ?: "no body"
+                    conn.disconnect()
+                    promise.reject("HTTP_$code", "Upload failed ($code): $err")
+                    return@launch
+                }
+
+                val responseText = conn.inputStream.bufferedReader().readText()
+                conn.disconnect()
+
+                // ── 7. Parse and return CID ────────────────────────────────
+                val cid = JSONObject(responseText).getString("cid")
+                promise.resolve(cid)
+
+            } catch (e: Exception) {
+                Log.e(TAG, "uploadBlob failed: $e")
+                promise.reject("UPLOAD_ERROR", e.message ?: "unknown error", e)
+            }
+        }
     }
 
     // -------------------------------------------------------------------------

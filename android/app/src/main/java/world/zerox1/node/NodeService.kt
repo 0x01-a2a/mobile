@@ -367,7 +367,7 @@ timeout_secs = 10
      * Ensures ZeroClaw doesn't start before the node is ready.
      */
     private suspend fun waitForNodeApi() = withContext(Dispatchers.IO) {
-        val url = "http://127.0.0.1:$NODE_API_PORT/identity"
+        val url = "http://127.0.0.1:$NODE_API_PORT/peers"
         repeat(30) {
             try {
                 val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection

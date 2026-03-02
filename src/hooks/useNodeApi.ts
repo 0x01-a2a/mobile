@@ -157,9 +157,13 @@ async function apiFetch<T>(path: string): Promise<T | null> {
     const headers: Record<string, string> = {};
     if (_hostedToken) headers['Authorization'] = `Bearer ${_hostedToken}`;
     const res = await fetch(`${_apiBase}${path}`, { headers });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.warn(`[nodeApi] ${path} → HTTP ${res.status}`);
+      return null;
+    }
     return res.json() as Promise<T>;
-  } catch {
+  } catch (e) {
+    console.warn(`[nodeApi] ${path} failed:`, e);
     return null;
   }
 }

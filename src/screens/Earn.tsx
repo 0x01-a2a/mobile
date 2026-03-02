@@ -1,0 +1,307 @@
+/**
+ * Earn — bounty feed.
+ *
+ * Listens for incoming PROPOSE envelopes, shows them as actionable bounty
+ * cards. User picks which agent handles the task, ACCEPT is sent, then
+ * the app routes to Chat with the task loaded as context.
+ */
+import React, { useCallback, useState } from 'react';
+import {
+  FlatList,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { useInbox, InboundEnvelope, sendEnvelope } from '../hooks/useNodeApi';
+import { useOwnedAgents, OwnedAgent } from '../hooks/useOwnedAgents';
+import { useNode } from '../hooks/useNode';
+
+const C = {
+  bg:     '#050505',
+  card:   '#0f0f0f',
+  border: '#1a1a1a',
+  green:  '#00e676',
+  red:    '#ff1744',
+  amber:  '#ffc107',
+  text:   '#ffffff',
+  sub:    '#555555',
+  dim:    '#333333',
+};
+
+// ── Types ─────────────────────────────────────────────────────────────────
+
+interface ProposalTerms {
+  description?:        string;
+  reward?:             string;
+  escrow_amount_usdc?: number;
+  quest?:              string;
+  from?:               string;
+  [key: string]:       unknown;
+}
+
+export interface BountyTask {
+  description: string;
+  reward:      string;
+  fromAgent:   string;
+}
+
+interface Bounty {
+  conversationId: string;
+  sender:         string;
+  slot:           number;
+  terms:          ProposalTerms;
+  receivedAt:     number;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+
+function decodeTerms(payloadB64: string): ProposalTerms | null {
+  try {
+    const json = JSON.parse(atob(payloadB64));
+    return json?.terms ?? json ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function shortId(id: string): string {
+  return id.length > 14 ? `${id.slice(0, 6)}…${id.slice(-4)}` : id;
+}
+
+function timeAgo(ts: number): string {
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 60)   return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  return `${Math.floor(s / 3600)}h ago`;
+}
+
+function rewardLabel(terms: ProposalTerms): string {
+  if (terms.escrow_amount_usdc) return `${terms.escrow_amount_usdc} USDC`;
+  if (terms.reward)             return String(terms.reward);
+  return 'reputation';
+}
+
+// ── Agent picker ──────────────────────────────────────────────────────────
+
+function AgentPicker({
+  agents,
+  onSelect,
+  onClose,
+}: {
+  agents:   OwnedAgent[];
+  onSelect: (a: OwnedAgent) => void;
+  onClose:  () => void;
+}) {
+  return (
+    <Modal transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={s.overlay} onPress={onClose} />
+      <View style={s.sheet}>
+        <Text style={s.sheetTitle}>ASSIGN TO AGENT</Text>
+        {agents.map(a => (
+          <TouchableOpacity
+            key={a.id || a.mode}
+            style={s.agentRow}
+            onPress={() => onSelect(a)}
+            activeOpacity={0.7}
+          >
+            <View>
+              <Text style={s.agentName}>{a.name}</Text>
+              <Text style={s.agentId}>{a.id ? shortId(a.id) : 'starting…'}</Text>
+            </View>
+            <View style={[s.badge, a.mode === 'local' ? s.badgeLocal : s.badgeHosted]}>
+              <Text style={s.badgeText}>
+                {a.mode === 'local' ? 'PHONE' : 'HOSTED'}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </Modal>
+  );
+}
+
+// ── Bounty card ───────────────────────────────────────────────────────────
+
+function BountyCard({
+  bounty,
+  onAccept,
+  onSkip,
+}: {
+  bounty:   Bounty;
+  onAccept: () => void;
+  onSkip:   () => void;
+}) {
+  return (
+    <View style={s.card}>
+      <Text style={s.desc} numberOfLines={4}>
+        {bounty.terms.description ?? 'No description'}
+      </Text>
+      <View style={s.meta}>
+        <Text style={s.reward}>{rewardLabel(bounty.terms)}</Text>
+        <Text style={s.dot}> · </Text>
+        <Text style={s.from}>
+          from {shortId(bounty.terms.from ?? bounty.sender)}
+        </Text>
+        <Text style={s.dot}> · </Text>
+        <Text style={s.time}>{timeAgo(bounty.receivedAt)}</Text>
+      </View>
+      <View style={s.actions}>
+        <TouchableOpacity style={s.skipBtn} onPress={onSkip} activeOpacity={0.7}>
+          <Text style={s.skipText}>SKIP</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={s.acceptBtn} onPress={onAccept} activeOpacity={0.8}>
+          <Text style={s.acceptText}>ACCEPT</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+// ── Main screen ───────────────────────────────────────────────────────────
+
+export function EarnScreen() {
+  const navigation    = useNavigation<any>();
+  const agents        = useOwnedAgents();
+  const { status }    = useNode();
+  const [bounties, setBounties]       = useState<Bounty[]>([]);
+  const [pickerTarget, setPickerTarget] = useState<Bounty | null>(null);
+
+  const onEnvelope = useCallback((env: InboundEnvelope) => {
+    if (env.msg_type !== 'PROPOSE') return;
+    const terms = decodeTerms(env.payload_b64);
+    if (!terms) return;
+    setBounties(prev => {
+      if (prev.some(b => b.conversationId === env.conversation_id)) return prev;
+      return [
+        {
+          conversationId: env.conversation_id,
+          sender:         env.sender,
+          slot:           env.slot,
+          terms,
+          receivedAt:     Date.now(),
+        },
+        ...prev,
+      ].slice(0, 50);
+    });
+  }, []);
+
+  useInbox(onEnvelope, status === 'running');
+
+  const assignAndNavigate = useCallback(async (bounty: Bounty, agent: OwnedAgent) => {
+    setPickerTarget(null);
+    setBounties(prev => prev.filter(b => b.conversationId !== bounty.conversationId));
+    await sendEnvelope({
+      msg_type:        'ACCEPT',
+      recipient:       bounty.sender,
+      conversation_id: bounty.conversationId,
+    });
+    navigation.navigate('Chat', {
+      agentId:        agent.id,
+      conversationId: bounty.conversationId,
+      task: {
+        description: bounty.terms.description ?? 'Task',
+        reward:      rewardLabel(bounty.terms),
+        fromAgent:   bounty.terms.from ?? bounty.sender,
+      } as BountyTask,
+    });
+  }, [navigation]);
+
+  const handleAccept = useCallback((bounty: Bounty) => {
+    if (agents.length > 1) {
+      setPickerTarget(bounty);
+    } else if (agents.length === 1) {
+      assignAndNavigate(bounty, agents[0]);
+    }
+  }, [agents, assignAndNavigate]);
+
+  const handleSkip = useCallback((bounty: Bounty) => {
+    setBounties(prev => prev.filter(b => b.conversationId !== bounty.conversationId));
+  }, []);
+
+  const isRunning = status === 'running';
+
+  return (
+    <View style={s.root}>
+      <View style={s.header}>
+        <Text style={s.title}>EARN</Text>
+        <Text style={s.sub}>
+          {isRunning
+            ? bounties.length > 0
+              ? `${bounties.length} open ${bounties.length === 1 ? 'bounty' : 'bounties'}`
+              : 'listening for bounties…'
+            : 'start node to receive bounties'}
+        </Text>
+      </View>
+
+      {bounties.length === 0 ? (
+        <View style={s.empty}>
+          <Text style={s.emptyText}>
+            {isRunning
+              ? 'No bounties yet.\n\nBounties appear when agents on the\nmesh broadcast tasks your way.'
+              : 'Your node is not running.\n\nGo to My Node to start it.'}
+          </Text>
+        </View>
+      ) : (
+        <FlatList
+          data={bounties}
+          keyExtractor={b => b.conversationId}
+          renderItem={({ item }) => (
+            <BountyCard
+              bounty={item}
+              onAccept={() => handleAccept(item)}
+              onSkip={() => handleSkip(item)}
+            />
+          )}
+          contentContainerStyle={s.list}
+        />
+      )}
+
+      {pickerTarget && (
+        <AgentPicker
+          agents={agents}
+          onSelect={a => assignAndNavigate(pickerTarget, a)}
+          onClose={() => setPickerTarget(null)}
+        />
+      )}
+    </View>
+  );
+}
+
+// ── Styles ────────────────────────────────────────────────────────────────
+
+const s = StyleSheet.create({
+  root:      { flex: 1, backgroundColor: C.bg },
+  header:    { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.border },
+  title:     { fontSize: 13, fontWeight: '700', color: C.text, letterSpacing: 3, fontFamily: 'monospace' },
+  sub:       { fontSize: 11, color: C.sub, fontFamily: 'monospace', marginTop: 4 },
+  list:      { padding: 16, gap: 12 },
+  card:      { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, padding: 16 },
+  desc:      { fontSize: 14, color: C.text, fontFamily: 'monospace', lineHeight: 20, marginBottom: 10 },
+  meta:      { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 },
+  reward:    { fontSize: 11, color: C.green, fontFamily: 'monospace', fontWeight: '700' },
+  dot:       { fontSize: 11, color: C.dim },
+  from:      { fontSize: 11, color: C.sub, fontFamily: 'monospace' },
+  time:      { fontSize: 11, color: C.sub, fontFamily: 'monospace' },
+  actions:   { flexDirection: 'row', gap: 10 },
+  skipBtn:   { flex: 1, borderWidth: 1, borderColor: C.dim, borderRadius: 3, paddingVertical: 9, alignItems: 'center' },
+  skipText:  { fontSize: 11, color: C.sub, letterSpacing: 2, fontWeight: '700' },
+  acceptBtn: { flex: 2, backgroundColor: C.green, borderRadius: 3, paddingVertical: 9, alignItems: 'center' },
+  acceptText:{ fontSize: 11, color: '#000', letterSpacing: 2, fontWeight: '700' },
+  empty:     { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 },
+  emptyText: { color: C.sub, fontFamily: 'monospace', textAlign: 'center', lineHeight: 22, fontSize: 13 },
+  // agent picker
+  overlay:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)' },
+  sheet:     { backgroundColor: '#111', borderTopWidth: 1, borderTopColor: C.border, padding: 24, gap: 4 },
+  sheetTitle:{ fontSize: 11, color: C.sub, letterSpacing: 3, marginBottom: 12, fontFamily: 'monospace' },
+  agentRow:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.border },
+  agentName: { fontSize: 14, color: C.text, fontFamily: 'monospace', fontWeight: '700' },
+  agentId:   { fontSize: 10, color: C.sub, fontFamily: 'monospace', marginTop: 2 },
+  badge:     { borderRadius: 3, paddingHorizontal: 8, paddingVertical: 3 },
+  badgeLocal:   { backgroundColor: C.green + '20', borderWidth: 1, borderColor: C.green + '60' },
+  badgeHosted:  { backgroundColor: C.amber + '20', borderWidth: 1, borderColor: C.amber + '60' },
+  badgeText: { fontSize: 9, fontWeight: '700', letterSpacing: 2 },
+});

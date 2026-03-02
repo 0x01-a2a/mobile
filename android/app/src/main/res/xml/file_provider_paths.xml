@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Camera capture temp files -->
+    <external-cache-path name="camera_output" path="." />
+    <cache-path name="camera_output_internal" path="." />
+</paths>

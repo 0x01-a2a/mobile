@@ -1,30 +1,30 @@
 /**
  * AppNavigator — bottom tab navigation for the 0x01 node app.
+ *
+ * Tabs: Earn | Chat | My | Settings
  */
 import React from 'react';
 import { StyleSheet, Text } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
-import { FeedScreen }     from '../screens/Feed';
-import { AgentsScreen }   from '../screens/Agents';
+import { EarnScreen }     from '../screens/Earn';
 import { ChatScreen }     from '../screens/Chat';
-import { MyAgentScreen }  from '../screens/MyAgent';
+import { MyScreen }       from '../screens/My';
 import { SettingsScreen } from '../screens/Settings';
 
 const Tab = createBottomTabNavigator();
 
 const C = {
-  bg:      '#0a0a0a',
-  border:  '#1a1a1a',
-  active:  '#00e676',
-  inactive:'#444444',
+  bg:       '#0a0a0a',
+  border:   '#1a1a1a',
+  active:   '#00e676',
+  inactive: '#444444',
 };
 
 const ICONS: Record<string, string> = {
-  Feed:     '[~]',
-  Agents:   '[@]',
+  Earn:     '[~]',
   Chat:     '[>]',
-  'My Node':'[*]',
+  My:       '[*]',
   Settings: '[=]',
 };
 
@@ -50,11 +50,10 @@ export function AppNavigator() {
         ),
       })}
     >
-      <Tab.Screen name="Feed"     component={FeedScreen}    />
-      <Tab.Screen name="Agents"   component={AgentsScreen}  />
-      <Tab.Screen name="Chat"     component={ChatScreen}    />
-      <Tab.Screen name="My Node"  component={MyAgentScreen} />
-      <Tab.Screen name="Settings" component={SettingsScreen}/>
+      <Tab.Screen name="Earn"     component={EarnScreen}     />
+      <Tab.Screen name="Chat"     component={ChatScreen}     />
+      <Tab.Screen name="My"       component={MyScreen}       />
+      <Tab.Screen name="Settings" component={SettingsScreen} />
     </Tab.Navigator>
   );
 }

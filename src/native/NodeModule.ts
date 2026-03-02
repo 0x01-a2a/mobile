@@ -93,6 +93,17 @@ export const NodeModule = {
    */
   saveLlmApiKey: (key: string): Promise<void> =>
     ZeroxNodeModule.saveLlmApiKey(key),
+
+  /**
+   * Upload a blob to the aggregator, signing the request with the agent's
+   * Ed25519 identity key. Only works in local node mode (key is on device).
+   *
+   * @param dataBase64  Base64-encoded bytes of the file to upload.
+   * @param mimeType    MIME type string, e.g. "image/jpeg".
+   * @returns           CID (Keccak-256 hex string) of the uploaded blob.
+   */
+  uploadBlob: (dataBase64: string, mimeType: string): Promise<string> =>
+    ZeroxNodeModule.uploadBlob(dataBase64, mimeType),
 };
 
 // ============================================================================

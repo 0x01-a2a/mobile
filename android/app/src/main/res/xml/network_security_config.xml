@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Allow cleartext HTTP only for localhost addresses used by the node process.
+  All other traffic (aggregator, hosting nodes) remains HTTPS-only.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- zerox1-node REST + WS API -->
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <!-- ZeroClaw agent brain gateway -->
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+</network-security-config>

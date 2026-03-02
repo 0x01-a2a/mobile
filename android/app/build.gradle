@@ -116,6 +116,8 @@ dependencies {
     implementation("com.facebook.react:react-android")
     // Encrypted key-value storage (CRIT-4: LLM API key at rest)
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    // Ed25519 signing for blob uploads — pure Java, works all API levels
+    implementation("net.i2p.crypto:eddsa:0.3.0")
 
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")
