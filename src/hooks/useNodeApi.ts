@@ -428,7 +428,7 @@ export interface HostingNode {
 export async function probeRtt(apiUrl: string): Promise<number | null> {
   const start = Date.now();
   try {
-    const res = await fetch(`${apiUrl}/hosted/ping`, { cache: 'no-store' });
+    const res = await fetch(`${apiUrl}/hosted/ping`);
     if (!res.ok) return null;
     return Date.now() - start;
   } catch {

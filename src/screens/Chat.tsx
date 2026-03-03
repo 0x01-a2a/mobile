@@ -196,7 +196,7 @@ export function ChatScreen() {
       includeBase64: true,
       maxWidth:     1920,
       maxHeight:    1920,
-      quality:      0.85 as const,
+      quality:      0.8 as const,
     };
 
     const result = source === 'camera'
