@@ -3,10 +3,11 @@
  *
  * Steps:
  *   0 — Welcome (enable or skip)
- *   1 — LLM provider selection
- *   2 — API key entry
- *   3 — Capability selection
- *   4 — Auto-accept rules + finish
+ *   1 — Agent name
+ *   2 — LLM provider selection
+ *   3 — API key entry
+ *   4 — Capability selection
+ *   5 — Auto-accept rules + finish
  *
  * On completion calls onDone(config) with the saved config,
  * or onDone(null) if the user skipped.
@@ -64,7 +65,7 @@ const C = {
 function StepShell({
   children,
   step,
-  total = 4,
+  total = 5,
 }: {
   children: React.ReactNode;
   step: number;
@@ -182,7 +183,51 @@ function WelcomeStep({
 }
 
 // ============================================================================
-// Step 1 — Provider selection
+// Step 1 — Agent name
+// ============================================================================
+
+function NameStep({
+  agentName,
+  onChange,
+  onNext,
+  onSkip,
+}: {
+  agentName: string;
+  onChange:  (v: string) => void;
+  onNext:    () => void;
+  onSkip:    () => void;
+}) {
+  return (
+    <StepShell step={1}>
+      <Heading label="NAME YOUR AGENT" />
+      <Sub>
+        This is how your agent appears on the mesh — in the discovery feed, reputation
+        leaderboard, and task threads. You can change it anytime in Settings.
+      </Sub>
+
+      <View style={s.keyCard}>
+        <Text style={s.keyLabel}>AGENT NAME</Text>
+        <TextInput
+          style={s.keyInput}
+          value={agentName}
+          onChangeText={onChange}
+          placeholder="e.g. fast-eddie, databot-9"
+          placeholderTextColor={C.sub}
+          autoCapitalize="none"
+          autoCorrect={false}
+          maxLength={32}
+        />
+      </View>
+      <Text style={s.keyHint}>Max 32 characters. Leave blank to use your agent ID prefix.</Text>
+
+      <PrimaryBtn label="CONTINUE →" onPress={onNext} />
+      <GhostBtn label="skip" onPress={onSkip} />
+    </StepShell>
+  );
+}
+
+// ============================================================================
+// Step 2 — Provider selection
 // ============================================================================
 
 function ProviderStep({
@@ -193,7 +238,7 @@ function ProviderStep({
   onSelect: (p: LlmProvider) => void;
 }) {
   return (
-    <StepShell step={1}>
+    <StepShell step={2}>
       <Heading label="CHOOSE LLM PROVIDER" />
       <Sub>
         Your agent uses a fast, low-cost model for decisions. All inference calls go
@@ -222,7 +267,7 @@ function ProviderStep({
 }
 
 // ============================================================================
-// Step 2 — API key
+// Step 3 — API key
 // ============================================================================
 
 function KeyStep({
@@ -249,7 +294,7 @@ function KeyStep({
   };
 
   return (
-    <StepShell step={2}>
+    <StepShell step={3}>
       <BackBtn onPress={onBack} />
       <Heading label={`${providerInfo.label.toUpperCase()} API KEY`} />
       <Sub>
@@ -282,7 +327,7 @@ function KeyStep({
 }
 
 // ============================================================================
-// Step 3 — Capabilities
+// Step 4 — Capabilities
 // ============================================================================
 
 function CapabilitiesStep({
@@ -297,7 +342,7 @@ function CapabilitiesStep({
   onNext:       () => void;
 }) {
   return (
-    <StepShell step={3}>
+    <StepShell step={4}>
       <BackBtn onPress={onBack} />
       <Heading label="CAPABILITIES" />
       <Sub>
@@ -336,7 +381,7 @@ function CapabilitiesStep({
 }
 
 // ============================================================================
-// Step 4 — Rules
+// Step 5 — Rules
 // ============================================================================
 
 function RulesStep({
@@ -361,7 +406,7 @@ function RulesStep({
   saving:        boolean;
 }) {
   return (
-    <StepShell step={4}>
+    <StepShell step={5}>
       <BackBtn onPress={onBack} />
       <Heading label="AUTO-ACCEPT RULES" />
       <Sub>
@@ -431,8 +476,11 @@ function RulesStep({
 // Root
 // ============================================================================
 
+const NODE_CONFIG_KEY = 'zerox1:node_config';
+
 export function OnboardingScreen({ onDone }: { onDone: (config: AgentBrainConfig | null) => void }) {
   const [step,         setStep]         = useState(0);
+  const [agentName,    setAgentName]    = useState('');
   const [provider,     setProvider]     = useState<LlmProvider>('anthropic');
   const [apiKey,       setApiKey]       = useState('');
   const [capabilities, setCapabilities] = useState<Capability[]>(['summarization', 'qa']);
@@ -455,6 +503,16 @@ export function OnboardingScreen({ onDone }: { onDone: (config: AgentBrainConfig
   const handleFinish = async () => {
     setSaving(true);
     try {
+      // Persist agent name into the node config so the node binary picks it up.
+      if (agentName.trim()) {
+        const raw = await AsyncStorage.getItem(NODE_CONFIG_KEY);
+        const existing = raw ? JSON.parse(raw) : {};
+        await AsyncStorage.setItem(
+          NODE_CONFIG_KEY,
+          JSON.stringify({ ...existing, agentName: agentName.trim() }),
+        );
+      }
+
       await saveLlmApiKey(apiKey.trim());
       const config: AgentBrainConfig = {
         enabled:       true,
@@ -479,28 +537,37 @@ export function OnboardingScreen({ onDone }: { onDone: (config: AgentBrainConfig
       return <WelcomeStep onEnable={() => setStep(1)} onSkip={handleSkip} />;
     case 1:
       return (
-        <ProviderStep
-          provider={provider}
-          onSelect={p => { setProvider(p); setStep(2); }}
+        <NameStep
+          agentName={agentName}
+          onChange={setAgentName}
+          onNext={() => setStep(2)}
+          onSkip={() => setStep(2)}
         />
       );
     case 2:
+      return (
+        <ProviderStep
+          provider={provider}
+          onSelect={p => { setProvider(p); setStep(3); }}
+        />
+      );
+    case 3:
       return (
         <KeyStep
           provider={provider}
           apiKey={apiKey}
           onChange={setApiKey}
-          onBack={() => setStep(1)}
-          onNext={() => setStep(3)}
+          onBack={() => setStep(2)}
+          onNext={() => setStep(4)}
         />
       );
-    case 3:
+    case 4:
       return (
         <CapabilitiesStep
           capabilities={capabilities}
           onToggle={toggleCapability}
-          onBack={() => setStep(2)}
-          onNext={() => setStep(4)}
+          onBack={() => setStep(3)}
+          onNext={() => setStep(5)}
         />
       );
     default:
@@ -512,7 +579,7 @@ export function OnboardingScreen({ onDone }: { onDone: (config: AgentBrainConfig
           onMinFee={setMinFeeUsdc}
           onMinRep={setMinRep}
           onAutoAccept={setAutoAccept}
-          onBack={() => setStep(3)}
+          onBack={() => setStep(4)}
           onFinish={handleFinish}
           saving={saving}
         />

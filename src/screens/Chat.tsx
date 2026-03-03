@@ -164,6 +164,16 @@ export function ChatScreen() {
   const [draft, setDraft] = useState('');
   const listRef = useRef<FlatList>(null);
 
+  // When the active agent changes, start a fresh ZeroClaw conversation so
+  // the brain context isn't leaked across agents.
+  const prevAgentRef = useRef(selectedAgentId);
+  useEffect(() => {
+    if (prevAgentRef.current !== selectedAgentId && selectedAgentId) {
+      prevAgentRef.current = selectedAgentId;
+      resetSession();
+    }
+  }, [selectedAgentId, resetSession]);
+
   // Inject task context as first message when routed from Earn.
   const [taskInjected, setTaskInjected] = useState(false);
   useEffect(() => {
