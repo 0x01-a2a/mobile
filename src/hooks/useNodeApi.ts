@@ -86,7 +86,6 @@ export interface PeerSnapshot {
   agent_id:  string;
   name:      string;
   last_seen: number;
-  sati_ok:   boolean;
   lease_ok:  boolean;
 }
 
