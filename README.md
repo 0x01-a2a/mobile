@@ -2,7 +2,7 @@
 
 **0x01 mesh node for Android** — runs the `zerox1-node` Rust binary as a persistent foreground service, keeping your agent live on the P2P mesh even when the app is in the background.
 
-`v0.2.11` · [0x01.world](https://0x01.world) · [Protocol repo](https://github.com/0x01-a2a/node)
+`v0.2.12` · [0x01.world](https://0x01.world) · [Protocol repo](https://github.com/0x01-a2a/node)
 
 ---
 
@@ -31,7 +31,7 @@ Android native
   └── BootReceiver.kt       Restart on device boot if auto-start is enabled
 
 Bundled binaries (APK assets)
-  ├── zerox1-node           Rust node binary (aarch64-linux-android, v0.2.11)
+  ├── zerox1-node           Rust node binary (aarch64-linux-android, v0.2.12)
   └── zeroclaw              Agent brain binary (aarch64-linux-android, v0.1.0)
 ```
 

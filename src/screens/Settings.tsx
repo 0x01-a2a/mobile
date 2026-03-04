@@ -199,14 +199,17 @@ function AgentBrainSection() {
   const { config, save } = useAgentBrain();
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [newKey, setNewKey] = useState('');
+  const [dirty, setDirty] = useState(false);
 
-  const toggleEnabled = () => save({ ...config, enabled: !config.enabled });
+  const saveAndDirty = (cfg: typeof config) => { save(cfg); setDirty(true); };
+
+  const toggleEnabled = () => saveAndDirty({ ...config, enabled: !config.enabled });
 
   const toggleCapability = (cap: Capability) => {
     const next = config.capabilities.includes(cap)
       ? config.capabilities.filter(c => c !== cap)
       : [...config.capabilities, cap];
-    save({ ...config, capabilities: next });
+    saveAndDirty({ ...config, capabilities: next });
   };
 
   const handleSaveKey = async () => {
@@ -215,6 +218,7 @@ function AgentBrainSection() {
     await save({ ...config, apiKeySet: true });
     setNewKey('');
     setShowKeyInput(false);
+    setDirty(true);
     Alert.alert('Saved', 'API key updated in device keychain.');
   };
 
@@ -236,6 +240,15 @@ function AgentBrainSection() {
 
   return (
     <View style={bs.section}>
+      {/* Restart-required banner */}
+      {dirty && (
+        <View style={bs.restartBanner}>
+          <Text style={bs.restartBannerText}>Changes apply after node restart.</Text>
+          <TouchableOpacity onPress={() => setDirty(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Text style={bs.restartBannerDismiss}>[×]</Text>
+          </TouchableOpacity>
+        </View>
+      )}
       {/* Header row */}
       <View style={bs.headerRow}>
         <View>
@@ -301,7 +314,7 @@ function AgentBrainSection() {
             <TouchableOpacity
               key={p.key}
               style={[bs.providerChip, config.provider === p.key && bs.providerChipActive]}
-              onPress={() => save({ ...config, provider: p.key })}
+              onPress={() => saveAndDirty({ ...config, provider: p.key })}
               activeOpacity={0.8}
             >
               <Text style={[bs.providerChipText, config.provider === p.key && bs.providerChipTextActive]}>
@@ -343,7 +356,7 @@ function AgentBrainSection() {
         <TextInput
           style={bs.ruleInput}
           value={String(config.minFeeUsdc)}
-          onChangeText={v => save({ ...config, minFeeUsdc: parseFloat(v) || 0 })}
+          onChangeText={v => saveAndDirty({ ...config, minFeeUsdc: parseFloat(v) || 0 })}
           keyboardType="decimal-pad"
           placeholderTextColor={C.sub}
         />
@@ -357,7 +370,7 @@ function AgentBrainSection() {
         <TextInput
           style={bs.ruleInput}
           value={String(config.minReputation)}
-          onChangeText={v => save({ ...config, minReputation: parseInt(v, 10) || 0 })}
+          onChangeText={v => saveAndDirty({ ...config, minReputation: parseInt(v, 10) || 0 })}
           keyboardType="number-pad"
           placeholderTextColor={C.sub}
         />
@@ -370,7 +383,7 @@ function AgentBrainSection() {
         </View>
         <Switch
           value={config.autoAccept}
-          onValueChange={v => save({ ...config, autoAccept: v })}
+          onValueChange={v => saveAndDirty({ ...config, autoAccept: v })}
           trackColor={{ false: C.border, true: C.green + '66' }}
           thumbColor={config.autoAccept ? C.green : '#333'}
         />
@@ -395,9 +408,9 @@ const CAPABILITY_GROUPS: { label: string; perms: PermissionName[] }[] = [
 function PhoneCapabilitiesSection() {
   const { perms, request } = usePermissions();
 
-  const handlePress = (needed: PermissionName[]) => {
+  const handlePress = async (needed: PermissionName[]) => {
     for (const p of needed) {
-      if (!perms?.[p]) request(p);
+      if (!perms?.[p]) await request(p);
     }
   };
 
@@ -459,11 +472,16 @@ export function SettingsScreen() {
         return;
       }
     }
+    const trimmedRpcUrl = rpcUrl.trim() || undefined;
+    if (trimmedRpcUrl && !trimmedRpcUrl.startsWith('https://')) {
+      Alert.alert('Invalid RPC URL', 'RPC URL must use HTTPS to prevent transaction interception.');
+      return;
+    }
     const newConfig = {
       ...config,
       agentName:  agentName.trim()  || undefined,
       relayAddr:  relayAddr.trim()  || undefined,
-      rpcUrl:     rpcUrl.trim()     || undefined,
+      rpcUrl:     trimmedRpcUrl,
       nodeApiUrl: trimmedNodeApiUrl,
     };
     await saveConfig(newConfig);
@@ -695,6 +713,9 @@ const ps = StyleSheet.create({
 // Agent Brain stylesheet
 const bs = StyleSheet.create({
   section:           { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, marginBottom: 16, overflow: 'hidden' },
+  restartBanner:        { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#1a1000', borderBottomWidth: 1, borderBottomColor: C.amber + '50', paddingHorizontal: 14, paddingVertical: 8 },
+  restartBannerText:    { fontSize: 10, color: C.amber, fontFamily: 'monospace', letterSpacing: 1 },
+  restartBannerDismiss: { fontSize: 12, color: C.amber, fontFamily: 'monospace', paddingLeft: 12 },
   headerRow:         { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: C.border },
   sectionTitle:      { fontSize: 11, color: C.text, letterSpacing: 3, fontWeight: '700' },
   sectionSub:        { fontSize: 10, color: C.sub, letterSpacing: 1, marginTop: 2 },

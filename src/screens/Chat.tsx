@@ -27,24 +27,24 @@ import { sendEnvelope } from '../hooks/useNodeApi';
 import type { BountyTask } from './Earn';
 
 const C = {
-  bg:      '#050505',
-  card:    '#0f0f0f',
-  border:  '#1a1a1a',
-  green:   '#00e676',
-  dim:     '#1a2e1a',
-  text:    '#ffffff',
-  sub:     '#555555',
-  red:     '#ff1744',
-  amber:   '#ffc107',
-  input:   '#111111',
+  bg: '#050505',
+  card: '#0f0f0f',
+  border: '#1a1a1a',
+  green: '#00e676',
+  dim: '#1a2e1a',
+  text: '#ffffff',
+  sub: '#555555',
+  red: '#ff1744',
+  amber: '#ffc107',
+  input: '#111111',
 };
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
 interface ChatRouteParams {
-  agentId?:        string;
+  agentId?: string;
   conversationId?: string;
-  task?:           BountyTask;
+  task?: BountyTask;
 }
 
 // ── Task banner ───────────────────────────────────────────────────────────
@@ -55,10 +55,10 @@ function TaskBanner({
   uploading,
   onDeliver,
 }: {
-  task:           BountyTask;
+  task: BountyTask;
   conversationId: string;
-  uploading:      boolean;
-  onDeliver:      () => void;
+  uploading: boolean;
+  onDeliver: () => void;
 }) {
   return (
     <View style={s.taskBanner}>
@@ -88,9 +88,9 @@ function AgentSelector({
   selectedId,
   onSelect,
 }: {
-  agents:     OwnedAgent[];
+  agents: OwnedAgent[];
   selectedId: string;
-  onSelect:   (a: OwnedAgent) => void;
+  onSelect: (a: OwnedAgent) => void;
 }) {
   if (agents.length <= 1) return null;
   return (
@@ -142,10 +142,10 @@ function Bubble({ msg }: { msg: ChatMessage }) {
 // ── Main screen ───────────────────────────────────────────────────────────
 
 export function ChatScreen() {
-  const route  = useRoute();
+  const route = useRoute();
   const params = (route.params ?? {}) as ChatRouteParams;
 
-  const agents  = useOwnedAgents();
+  const agents = useOwnedAgents().filter(a => a.mode !== 'linked');
   const [selectedAgentId, setSelectedAgentId] = useState<string>(
     params.agentId ?? agents[0]?.id ?? '',
   );
@@ -160,7 +160,7 @@ export function ChatScreen() {
   }, [params.agentId, agents]);
 
   const { messages, loading, error, send, resetSession } = useZeroclawChat();
-  const { upload, uploading } = useBlobs();
+  const { upload, uploading, error: uploadError } = useBlobs();
   const [draft, setDraft] = useState('');
   const listRef = useRef<FlatList>(null);
 
@@ -179,9 +179,12 @@ export function ChatScreen() {
   useEffect(() => {
     if (params.task && !taskInjected && messages.length === 0) {
       setTaskInjected(true);
+      // Use JSON.stringify to safely embed untrusted mesh data in the prompt,
+      // preventing prompt injection via crafted task descriptions.
       send(
-        `You have accepted a new task. Task: "${params.task.description}". ` +
-        `Reward: ${params.task.reward}. Requester: ${params.task.fromAgent}. ` +
+        `You have accepted a new task. Task: ${JSON.stringify(String(params.task.description).slice(0, 500))}. ` +
+        `Reward: ${JSON.stringify(String(params.task.reward))}. ` +
+        `Requester: ${JSON.stringify(String(params.task.fromAgent))}. ` +
         `Let me know when you are ready to deliver.`,
       );
     }
@@ -202,11 +205,11 @@ export function ChatScreen() {
 
   const pickAndDeliver = useCallback(async (source: 'camera' | 'gallery') => {
     const pickerOptions = {
-      mediaType:    'photo' as const,
+      mediaType: 'photo' as const,
       includeBase64: true,
-      maxWidth:     1920,
-      maxHeight:    1920,
-      quality:      0.8 as const,
+      maxWidth: 1920,
+      maxHeight: 1920,
+      quality: 0.8 as const,
     };
 
     const result = source === 'camera'
@@ -215,8 +218,8 @@ export function ChatScreen() {
 
     if (result.didCancel || !result.assets?.[0]) return;
 
-    const asset    = result.assets[0];
-    const b64      = asset.base64;
+    const asset = result.assets[0];
+    const b64 = asset.base64;
     const mimeType = asset.type ?? 'image/jpeg';
 
     if (!b64) {
@@ -227,12 +230,24 @@ export function ChatScreen() {
     const cid = await upload(b64, mimeType);
     if (!cid) return; // error surfaced by useBlobs
 
-    await sendEnvelope({
-      msg_type:        'DELIVER',
+    let payload: string;
+    try {
+      payload = btoa(JSON.stringify({ cid, mime_type: mimeType }));
+    } catch {
+      Alert.alert('Error', 'Failed to encode delivery payload.');
+      return;
+    }
+
+    const ok = await sendEnvelope({
+      msg_type: 'DELIVER',
       conversation_id: params.conversationId,
-      payload:         btoa(JSON.stringify({ cid, mime_type: mimeType })),
+      payload,
     });
-    Alert.alert('Delivered', 'Photo uploaded. DELIVER sent — awaiting feedback.');
+    if (ok) {
+      Alert.alert('Delivered', 'Photo uploaded. DELIVER sent — awaiting feedback.');
+    } else {
+      Alert.alert('Error', 'DELIVER failed. Check your connection and try again.');
+    }
   }, [upload, params.conversationId]);
 
   const handleDeliver = useCallback(() => {
@@ -241,7 +256,7 @@ export function ChatScreen() {
       'Deliver task',
       'Attach proof of completion:',
       [
-        { text: 'Take Photo',          onPress: () => pickAndDeliver('camera') },
+        { text: 'Take Photo', onPress: () => pickAndDeliver('camera') },
         { text: 'Choose from Gallery', onPress: () => pickAndDeliver('gallery') },
         { text: 'Cancel', style: 'cancel' },
       ],
@@ -306,13 +321,20 @@ export function ChatScreen() {
         }
       />
 
-      {/* Error banner */}
+      {/* ZeroClaw error banner */}
       {error ? (
         <View style={s.errorBanner}>
           <Text style={s.errorText}>{error}</Text>
           <Text style={s.errorHint}>
             Enable AGENT BRAIN in Settings, then restart the node.
           </Text>
+        </View>
+      ) : null}
+
+      {/* Upload error banner */}
+      {uploadError ? (
+        <View style={s.errorBanner}>
+          <Text style={s.errorText}>{uploadError}</Text>
         </View>
       ) : null}
 
@@ -345,50 +367,50 @@ export function ChatScreen() {
 // ── Styles ────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
-  root:    { flex: 1, backgroundColor: C.bg },
-  header:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 52, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.border },
+  root: { flex: 1, backgroundColor: C.bg },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 52, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.border },
   headerTitle: { color: C.green, fontFamily: 'monospace', fontSize: 13, fontWeight: '700', letterSpacing: 2 },
-  resetBtn:     { paddingVertical: 4, paddingHorizontal: 8 },
+  resetBtn: { paddingVertical: 4, paddingHorizontal: 8 },
   resetBtnText: { color: C.sub, fontFamily: 'monospace', fontSize: 11 },
   // agent selector
-  agentBar:        { maxHeight: 48, borderBottomWidth: 1, borderBottomColor: C.border },
+  agentBar: { maxHeight: 48, borderBottomWidth: 1, borderBottomColor: C.border },
   agentBarContent: { paddingHorizontal: 12, paddingVertical: 8, gap: 8, flexDirection: 'row' },
-  agentPill:       { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: C.border, backgroundColor: C.card },
+  agentPill: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: C.border, backgroundColor: C.card },
   agentPillActive: { borderColor: C.green, backgroundColor: '#00e67615' },
-  agentPillText:   { fontSize: 11, color: C.sub, fontFamily: 'monospace' },
+  agentPillText: { fontSize: 11, color: C.sub, fontFamily: 'monospace' },
   agentPillTextActive: { color: C.green },
-  agentPillBadge:  { fontSize: 11 },
+  agentPillBadge: { fontSize: 11 },
   // task banner
-  taskBanner:     { flexDirection: 'row', alignItems: 'center', backgroundColor: '#0a1a0a', borderBottomWidth: 1, borderBottomColor: C.green + '40', paddingHorizontal: 16, paddingVertical: 12, gap: 12 },
+  taskBanner: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#0a1a0a', borderBottomWidth: 1, borderBottomColor: C.green + '40', paddingHorizontal: 16, paddingVertical: 12, gap: 12 },
   taskBannerLeft: { flex: 1 },
-  taskLabel:      { fontSize: 9, color: C.green, letterSpacing: 3, fontWeight: '700', fontFamily: 'monospace', marginBottom: 3 },
-  taskDesc:       { fontSize: 12, color: C.text, fontFamily: 'monospace', lineHeight: 17 },
-  taskMeta:       { fontSize: 10, color: C.sub, fontFamily: 'monospace', marginTop: 4 },
-  deliverBtn:     { backgroundColor: C.green, borderRadius: 3, paddingHorizontal: 12, paddingVertical: 8 },
+  taskLabel: { fontSize: 9, color: C.green, letterSpacing: 3, fontWeight: '700', fontFamily: 'monospace', marginBottom: 3 },
+  taskDesc: { fontSize: 12, color: C.text, fontFamily: 'monospace', lineHeight: 17 },
+  taskMeta: { fontSize: 10, color: C.sub, fontFamily: 'monospace', marginTop: 4 },
+  deliverBtn: { backgroundColor: C.green, borderRadius: 3, paddingHorizontal: 12, paddingVertical: 8 },
   deliverBtnBusy: { backgroundColor: C.sub },
-  deliverText:    { fontSize: 10, color: '#000', fontWeight: '700', letterSpacing: 2 },
+  deliverText: { fontSize: 10, color: '#000', fontWeight: '700', letterSpacing: 2 },
   // messages
-  listContent:    { padding: 12, paddingBottom: 8, flexGrow: 1 },
-  bubbleRow:      { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 10, gap: 6 },
-  rowLeft:        { justifyContent: 'flex-start' },
-  rowRight:       { justifyContent: 'flex-end' },
-  roleLabel:      { color: C.sub, fontFamily: 'monospace', fontSize: 9, marginBottom: 2 },
-  bubble:         { maxWidth: '78%', borderRadius: 4, padding: 10 },
-  bubbleUser:     { backgroundColor: C.dim, borderWidth: 1, borderColor: C.green },
-  bubbleAgent:    { backgroundColor: C.card, borderWidth: 1, borderColor: C.border },
-  bubbleText:     { color: C.text, fontFamily: 'monospace', fontSize: 13, lineHeight: 19 },
+  listContent: { padding: 12, paddingBottom: 8, flexGrow: 1 },
+  bubbleRow: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 10, gap: 6 },
+  rowLeft: { justifyContent: 'flex-start' },
+  rowRight: { justifyContent: 'flex-end' },
+  roleLabel: { color: C.sub, fontFamily: 'monospace', fontSize: 9, marginBottom: 2 },
+  bubble: { maxWidth: '78%', borderRadius: 4, padding: 10 },
+  bubbleUser: { backgroundColor: C.dim, borderWidth: 1, borderColor: C.green },
+  bubbleAgent: { backgroundColor: C.card, borderWidth: 1, borderColor: C.border },
+  bubbleText: { color: C.text, fontFamily: 'monospace', fontSize: 13, lineHeight: 19 },
   bubbleTextUser: { color: C.green },
-  thinkingWrap:   { padding: 12 },
-  thinkingText:   { color: C.sub, fontFamily: 'monospace', fontSize: 12 },
-  emptyWrap:      { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80 },
-  emptyLine:      { color: C.sub, fontFamily: 'monospace', fontSize: 11, lineHeight: 17 },
-  emptyHint:      { color: C.sub, fontFamily: 'monospace', fontSize: 12, textAlign: 'center' },
-  errorBanner:    { backgroundColor: '#1a0505', borderTopWidth: 1, borderTopColor: C.red, padding: 12 },
-  errorText:      { color: C.red, fontFamily: 'monospace', fontSize: 11, marginBottom: 2 },
-  errorHint:      { color: C.sub, fontFamily: 'monospace', fontSize: 10 },
-  inputRow:       { flexDirection: 'row', alignItems: 'flex-end', padding: 12, borderTopWidth: 1, borderTopColor: C.border, gap: 8 },
-  input:          { flex: 1, backgroundColor: C.input, borderWidth: 1, borderColor: C.border, borderRadius: 4, paddingHorizontal: 12, paddingVertical: 10, color: C.text, fontFamily: 'monospace', fontSize: 13, maxHeight: 120 },
-  sendBtn:        { backgroundColor: C.green, width: 44, height: 44, borderRadius: 4, alignItems: 'center', justifyContent: 'center' },
-  sendBtnDisabled:{ backgroundColor: C.border },
-  sendBtnText:    { color: '#000000', fontFamily: 'monospace', fontSize: 18, fontWeight: '700' },
+  thinkingWrap: { padding: 12 },
+  thinkingText: { color: C.sub, fontFamily: 'monospace', fontSize: 12 },
+  emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80 },
+  emptyLine: { color: C.sub, fontFamily: 'monospace', fontSize: 11, lineHeight: 17 },
+  emptyHint: { color: C.sub, fontFamily: 'monospace', fontSize: 12, textAlign: 'center' },
+  errorBanner: { backgroundColor: '#1a0505', borderTopWidth: 1, borderTopColor: C.red, padding: 12 },
+  errorText: { color: C.red, fontFamily: 'monospace', fontSize: 11, marginBottom: 2 },
+  errorHint: { color: C.sub, fontFamily: 'monospace', fontSize: 10 },
+  inputRow: { flexDirection: 'row', alignItems: 'flex-end', padding: 12, borderTopWidth: 1, borderTopColor: C.border, gap: 8 },
+  input: { flex: 1, backgroundColor: C.input, borderWidth: 1, borderColor: C.border, borderRadius: 4, paddingHorizontal: 12, paddingVertical: 10, color: C.text, fontFamily: 'monospace', fontSize: 13, maxHeight: 120 },
+  sendBtn: { backgroundColor: C.green, width: 44, height: 44, borderRadius: 4, alignItems: 'center', justifyContent: 'center' },
+  sendBtnDisabled: { backgroundColor: C.border },
+  sendBtnText: { color: '#000000', fontFamily: 'monospace', fontSize: 18, fontWeight: '700' },
 });

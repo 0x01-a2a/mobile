@@ -506,7 +506,8 @@ export function OnboardingScreen({ onDone }: { onDone: (config: AgentBrainConfig
       // Persist agent name into the node config so the node binary picks it up.
       if (agentName.trim()) {
         const raw = await AsyncStorage.getItem(NODE_CONFIG_KEY);
-        const existing = raw ? JSON.parse(raw) : {};
+        let existing: Record<string, unknown> = {};
+        try { existing = raw ? JSON.parse(raw) : {}; } catch { /* corrupted — start fresh */ }
         await AsyncStorage.setItem(
           NODE_CONFIG_KEY,
           JSON.stringify({ ...existing, agentName: agentName.trim() }),

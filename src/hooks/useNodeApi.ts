@@ -15,12 +15,17 @@
  *     not a query parameter, to prevent log leakage.
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Keychain from 'react-native-keychain';
 
-let _apiBase      = 'http://127.0.0.1:9090';
-let _wsBase       = 'ws://127.0.0.1:9090';
+let _apiBase = 'http://127.0.0.1:9090';
+let _wsBase = 'ws://127.0.0.1:9090';
 let _hostedToken: string | null = null;
+
+// Skip HTTP polls while the screen is off — saves CPU and radio wakeups.
+let _appActive = AppState.currentState === 'active';
+AppState.addEventListener('change', (state) => { _appActive = state === 'active'; });
 
 // ============================================================================
 // URL validation
@@ -67,51 +72,51 @@ export function assertValidHostUrl(raw: string): void {
 /** Configure the API base URLs and optional hosted-agent token at runtime. */
 export function configureNodeApi(opts: {
   apiBase?: string;
-  wsBase?:  string;
-  token?:   string;
+  wsBase?: string;
+  token?: string;
 }) {
   if (opts.apiBase) _apiBase = opts.apiBase;
-  if (opts.wsBase)  _wsBase  = opts.wsBase;
+  if (opts.wsBase) _wsBase = opts.wsBase;
   if (opts.token !== undefined) _hostedToken = opts.token;
 }
 
 const AGGREGATOR_API = 'https://api.0x01.world';
-const AGGREGATOR_WS  = 'wss://api.0x01.world';
+const AGGREGATOR_WS = 'wss://api.0x01.world';
 
 // ============================================================================
 // Types (mirrors node API responses)
 // ============================================================================
 
 export interface PeerSnapshot {
-  agent_id:  string;
-  name:      string;
+  agent_id: string;
+  name: string;
   last_seen: number;
-  lease_ok:  boolean;
+  lease_ok: boolean;
 }
 
 export interface ReputationSnapshot {
-  agent_id:         string;
-  feedback_count:   number;
-  total_score:      number;
-  positive_count:   number;
-  negative_count:   number;
-  verdict_count:    number;
-  trend:            string;
+  agent_id: string;
+  feedback_count: number;
+  total_score: number;
+  positive_count: number;
+  negative_count: number;
+  verdict_count: number;
+  trend: string;
 }
 
 export interface InboundEnvelope {
-  sender:          string;
-  msg_type:        string;
-  slot:            number;
-  payload_b64:     string;
+  sender: string;
+  msg_type: string;
+  slot: number;
+  payload_b64: string;
   conversation_id: string;
 }
 
 export interface NetworkStats {
-  agent_count:       number;
+  agent_count: number;
   interaction_count: number;
-  beacon_count:      number;
-  beacon_bpm:        number;
+  beacon_count: number;
+  beacon_bpm: number;
 }
 
 export interface IdentityInfo {
@@ -122,29 +127,29 @@ export interface IdentityInfo {
 }
 
 export interface ActivityEvent {
-  id:               number;
-  ts:               number;
-  event_type:       'JOIN' | 'FEEDBACK' | 'DISPUTE' | 'VERDICT';
-  agent_id:         string;
-  target_id?:       string;
-  score?:           number;
-  name?:            string;
-  target_name?:     string;
-  slot?:            number;
+  id: number;
+  ts: number;
+  event_type: 'JOIN' | 'FEEDBACK' | 'DISPUTE' | 'VERDICT';
+  agent_id: string;
+  target_id?: string;
+  score?: number;
+  name?: string;
+  target_name?: string;
+  slot?: number;
   conversation_id?: string;
 }
 
 export interface AgentSummary {
-  agent_id:       string;
-  name:           string;
+  agent_id: string;
+  name: string;
   feedback_count: number;
-  total_score:    number;
-  average_score:  number;
+  total_score: number;
+  average_score: number;
   positive_count: number;
   negative_count: number;
-  verdict_count:  number;
-  trend:          string;
-  last_seen:      number;
+  verdict_count: number;
+  trend: string;
+  last_seen: number;
 }
 
 // ============================================================================
@@ -172,12 +177,13 @@ async function apiFetch<T>(path: string): Promise<T | null> {
 // ============================================================================
 
 /** Polls GET /peers every `intervalMs` ms. */
-export function usePeers(intervalMs = 5000) {
+export function usePeers(intervalMs = 15_000) {
   const [peers, setPeers] = useState<PeerSnapshot[]>([]);
 
   useEffect(() => {
     let cancelled = false;
     const poll = async () => {
+      if (!_appActive) return;
       const data = await apiFetch<PeerSnapshot[]>('/peers');
       if (!cancelled && data) setPeers(data);
     };
@@ -197,6 +203,7 @@ export function useOwnReputation(agentId: string | null, intervalMs = 30_000) {
     if (!agentId) return;
     let cancelled = false;
     const poll = async () => {
+      if (!_appActive) return;
       const data = await apiFetch<ReputationSnapshot>(`/reputation/${agentId}`);
       if (!cancelled && data) setRep(data);
     };
@@ -215,6 +222,7 @@ export function useNetworkStats(intervalMs = 15_000) {
   useEffect(() => {
     let cancelled = false;
     const poll = async () => {
+      if (!_appActive) return;
       try {
         const res = await fetch('https://api.0x01.world/stats/network');
         if (res.ok && !cancelled) setStats(await res.json());
@@ -233,8 +241,9 @@ export function useInbox(
   onEnvelope: (env: InboundEnvelope) => void,
   enabled = true,
 ) {
-  const wsRef      = useRef<WebSocket | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
   const handlerRef = useRef(onEnvelope);
+  const reconnectDelay = useRef(1_000);
   handlerRef.current = onEnvelope;
 
   const reconnect = useCallback(() => {
@@ -255,14 +264,26 @@ export function useInbox(
       } else {
         ws = new WebSocket(`${_wsBase}/ws/inbox`);
       }
+      ws.onopen = () => { reconnectDelay.current = 1_000; };
       ws.onmessage = (e) => {
         try {
           const env: InboundEnvelope = JSON.parse(e.data);
           handlerRef.current(env);
         } catch { /* malformed */ }
       };
+      ws.onerror = (e: WebSocketErrorEvent) => {
+        // HTTP 401/403 surfaces here in React Native. Stop reconnecting so
+        // we don't spin forever with a bad hosted token.
+        const msg = (e as any)?.message ?? '';
+        if (msg.includes('401') || msg.includes('403') || msg.includes('Unauthorized') || msg.includes('Forbidden')) {
+          reconnectDelay.current = -1; // sentinel: do not reconnect
+        }
+      };
       ws.onclose = () => {
-        setTimeout(reconnect, 3000);
+        if (reconnectDelay.current < 0) return; // auth failure — stop
+        const delay = reconnectDelay.current;
+        reconnectDelay.current = Math.min(delay * 2, 30_000);
+        setTimeout(reconnect, delay);
       };
       wsRef.current = ws;
     } catch { /* node not running */ }
@@ -284,6 +305,7 @@ export function useIdentity() {
   useEffect(() => {
     let cancelled = false;
     const poll = async () => {
+      if (!_appActive) return;
       const data = await apiFetch<IdentityInfo>('/identity');
       if (!cancelled && data) setIdentity(data);
     };
@@ -305,6 +327,7 @@ export function useAgents(
   useEffect(() => {
     let cancelled = false;
     const poll = async () => {
+      if (!_appActive) return;
       try {
         const res = await fetch(`${AGGREGATOR_API}/agents?limit=${limit}&sort=${sort}`);
         if (res.ok && !cancelled) setAgents(await res.json());
@@ -327,10 +350,19 @@ const MAX_FEED = 200;
 export function useActivityFeed(limit = 50) {
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
+  const reconnectDelay = useRef(1_000);
+
+  const fetchInitial = useCallback(async () => {
+    try {
+      const res = await fetch(`${AGGREGATOR_API}/activity?limit=${limit}`);
+      if (res.ok) setEvents(await res.json());
+    } catch { /* offline */ }
+  }, [limit]);
 
   const reconnect = useCallback(() => {
     try {
       const ws = new WebSocket(`${AGGREGATOR_WS}/ws/activity`);
+      ws.onopen = () => { reconnectDelay.current = 1_000; };
       ws.onmessage = (e) => {
         try {
           const ev: ActivityEvent = JSON.parse(e.data);
@@ -341,29 +373,24 @@ export function useActivityFeed(limit = 50) {
         } catch { /* malformed */ }
       };
       ws.onclose = () => {
-        setTimeout(reconnect, 3000);
+        const delay = reconnectDelay.current;
+        reconnectDelay.current = Math.min(delay * 2, 30_000);
+        setTimeout(reconnect, delay);
       };
       wsRef.current = ws;
     } catch { /* network not ready */ }
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    fetch(`${AGGREGATOR_API}/activity?limit=${limit}`)
-      .then(r => r.ok ? r.json() : [])
-      .then((data: ActivityEvent[]) => {
-        if (!cancelled) setEvents(data);
-      })
-      .catch(() => {});
+    fetchInitial();
     reconnect();
     return () => {
-      cancelled = true;
       wsRef.current?.close();
       wsRef.current = null;
     };
-  }, [limit, reconnect]);
+  }, [limit, reconnect, fetchInitial]);
 
-  return events;
+  return { events, refresh: fetchInitial };
 }
 
 /** Fetch profile for a single agent (reputation + capabilities + disputes). */
@@ -377,7 +404,7 @@ export function useAgentProfile(agentId: string | null) {
     fetch(`${AGGREGATOR_API}/agents/${agentId}/profile`)
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (!cancelled) setProfile(data); })
-      .catch(() => {});
+      .catch(() => { });
     return () => { cancelled = true; };
   }, [agentId]);
 
@@ -390,12 +417,17 @@ export async function sendEnvelope(
   apiSecret?: string,
 ): Promise<boolean> {
   try {
+    const auth = apiSecret || _hostedToken;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (auth) {
+      headers['Authorization'] = `Bearer ${auth}`;
+    }
+
     const res = await fetch(`${_apiBase}/envelopes/send`, {
-      method:  'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(apiSecret ? { Authorization: `Bearer ${apiSecret}` } : {}),
-      },
+      method: 'POST',
+      headers,
       body: JSON.stringify(payload),
     });
     return res.ok;
@@ -409,15 +441,15 @@ export async function sendEnvelope(
 // ============================================================================
 
 export interface HostingNode {
-  node_id:      string;
-  name:         string;
-  fee_bps:      number;
-  api_url:      string;
-  first_seen:   number;
-  last_seen:    number;
+  node_id: string;
+  name: string;
+  fee_bps: number;
+  api_url: string;
+  first_seen: number;
+  last_seen: number;
   hosted_count: number;
   /** RTT in ms — added client-side after probing. */
-  rtt_ms?:      number;
+  rtt_ms?: number;
 }
 
 /**
@@ -474,8 +506,8 @@ export function useHostingNodes(): HostingNode[] {
  */
 async function saveTokenToKeychain(token: string): Promise<void> {
   await Keychain.setGenericPassword('hosted_token', token, {
-    service:     KEYCHAIN_SERVICE,
-    accessible:  Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+    service: KEYCHAIN_SERVICE,
+    accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
   });
 }
 
@@ -525,15 +557,15 @@ export async function registerAsHosted(
 
   // Store non-sensitive metadata in AsyncStorage.
   await AsyncStorage.multiSet([
-    ['zerox1:hosted_mode',     'true'],
-    ['zerox1:host_url',        hostApiUrl],
+    ['zerox1:hosted_mode', 'true'],
+    ['zerox1:host_url', hostApiUrl],
     ['zerox1:hosted_agent_id', data.agent_id],
   ]);
 
   configureNodeApi({
     apiBase: hostApiUrl,
-    wsBase:  hostApiUrl.replace(/^https/, 'wss').replace(/^http/, 'ws'),
-    token:   data.token,
+    wsBase: hostApiUrl.replace(/^https/, 'wss').replace(/^http/, 'ws'),
+    token: data.token,
   });
 
   return { agent_id: data.agent_id };
@@ -554,12 +586,20 @@ export function useWatchlist() {
 
   useEffect(() => {
     AsyncStorage.getItem(WATCHLIST_KEY)
-      .then(v => { if (v) setList(JSON.parse(v)); })
-      .catch(() => {});
+      .then(v => {
+        if (!v) return;
+        try {
+          const parsed = JSON.parse(v);
+          if (Array.isArray(parsed) && parsed.every(x => typeof x === 'string')) {
+            setList(parsed);
+          }
+        } catch { /* corrupt storage — start fresh */ }
+      })
+      .catch(() => { });
   }, []);
 
   const persist = useCallback((next: string[]) => {
-    AsyncStorage.setItem(WATCHLIST_KEY, JSON.stringify(next)).catch(() => {});
+    AsyncStorage.setItem(WATCHLIST_KEY, JSON.stringify(next)).catch(() => { });
   }, []);
 
   const watch = useCallback((id: string) => {

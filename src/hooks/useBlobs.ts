@@ -34,7 +34,14 @@ export async function uploadBlob(
  * Returns base64-encoded bytes.
  */
 export async function fetchBlob(cid: string): Promise<string> {
-  const res = await fetch(`${AGGREGATOR}/blobs/${cid}`);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+  let res: Response;
+  try {
+    res = await fetch(`${AGGREGATOR}/blobs/${cid}`, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
   if (!res.ok) throw new Error(`Fetch blob failed: HTTP ${res.status}`);
   const buffer = await res.arrayBuffer();
   // Convert ArrayBuffer → base64

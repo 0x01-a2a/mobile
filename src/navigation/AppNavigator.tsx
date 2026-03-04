@@ -1,12 +1,14 @@
 /**
  * AppNavigator — bottom tab navigation for the 0x01 node app.
  *
- * Tabs: Earn | Chat | My | Settings
+ * Tabs: Feed | Agents | Earn | Chat | My | Settings
  */
 import React from 'react';
 import { StyleSheet, Text } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
+import { FeedScreen }     from '../screens/Feed';
+import { AgentsScreen }   from '../screens/Agents';
 import { EarnScreen }     from '../screens/Earn';
 import { ChatScreen }     from '../screens/Chat';
 import { MyScreen }       from '../screens/My';
@@ -22,6 +24,8 @@ const C = {
 };
 
 const ICONS: Record<string, string> = {
+  Feed:     '[#]',
+  Agents:   '[@]',
   Earn:     '[~]',
   Chat:     '[>]',
   My:       '[*]',
@@ -50,6 +54,8 @@ export function AppNavigator() {
         ),
       })}
     >
+      <Tab.Screen name="Feed"     component={FeedScreen}     />
+      <Tab.Screen name="Agents"   component={AgentsScreen}   />
       <Tab.Screen name="Earn"     component={EarnScreen}     />
       <Tab.Screen name="Chat"     component={ChatScreen}     />
       <Tab.Screen name="My"       component={MyScreen}       />

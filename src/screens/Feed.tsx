@@ -92,15 +92,16 @@ function FeedRow({ ev }: { ev: ActivityEvent }) {
 type FeedFilter = 'all' | 'watched';
 
 export function FeedScreen() {
-  const events = useActivityFeed(50);
+  const { events, refresh } = useActivityFeed(50);
   const { watchlist } = useWatchlist();
   const [filter, setFilter] = useState<FeedFilter>('all');
   const [refreshing, setRefreshing] = useState(false);
 
-  const onRefresh = useCallback(() => {
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 800);
-  }, []);
+    await refresh();
+    setRefreshing(false);
+  }, [refresh]);
 
   const filtered = useMemo(() => {
     if (filter === 'all') return events;

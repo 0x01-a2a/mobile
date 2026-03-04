@@ -286,7 +286,12 @@ class NodeModule(private val ctx: ReactApplicationContext)
             promise.reject("NO_ACTIVITY", "No foreground activity available")
             return
         }
-        permissionListener = PermissionListener { requestCode, _, grantResults ->
+        // Reject if a previous request dialog is still open; only one can be shown at a time.
+        if (permissionListener != null) {
+            promise.reject("PENDING", "Another permission request is already in progress")
+            return
+        }
+        val listener = PermissionListener { requestCode, _, grantResults ->
             if (requestCode == PERMISSION_REQUEST_CODE) {
                 val granted = grantResults.isNotEmpty() &&
                               grantResults[0] == PackageManager.PERMISSION_GRANTED
@@ -297,7 +302,8 @@ class NodeModule(private val ctx: ReactApplicationContext)
                 false
             }
         }
-        activity.requestPermissions(arrayOf(manifest), PERMISSION_REQUEST_CODE, permissionListener!!)
+        permissionListener = listener
+        activity.requestPermissions(arrayOf(manifest), PERMISSION_REQUEST_CODE, listener)
     }
 
     // Required for addListener / removeListeners (RN event emitter contract)

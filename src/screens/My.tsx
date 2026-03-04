@@ -12,6 +12,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -25,7 +26,7 @@ import {
   useInbox,
   useOwnReputation,
 } from '../hooks/useNodeApi';
-import { useOwnedAgents, OwnedAgent } from '../hooks/useOwnedAgents';
+import { useOwnedAgents, notifyLinkedAgentsUpdated, OwnedAgent } from '../hooks/useOwnedAgents';
 
 const C = {
   bg:     '#050505',
@@ -87,7 +88,10 @@ function SignalBars({ rtt }: { rtt: number | null }) {
 
 function AgentCard({ agent }: { agent: OwnedAgent }) {
   const rep = useOwnReputation(agent.id || null, 60_000);
-  const dotColor = agent.status === 'running' ? C.green : C.sub;
+  const dotColor   = agent.status === 'running' ? C.green : C.sub;
+  const badgeStyle = agent.mode === 'local' ? s.badgeLocal : agent.mode === 'hosted' ? s.badgeHosted : s.badgeLinked;
+  const badgeColor = agent.mode === 'local' ? C.green : agent.mode === 'hosted' ? C.amber : C.blue;
+  const badgeLabel = agent.mode === 'local' ? 'PHONE' : agent.mode === 'hosted' ? 'HOSTED' : 'LINKED';
 
   return (
     <View style={s.agentCard}>
@@ -96,10 +100,13 @@ function AgentCard({ agent }: { agent: OwnedAgent }) {
         <View style={s.agentCardInfo}>
           <Text style={s.agentCardName}>{agent.name}</Text>
           <Text style={s.agentCardId}>{agent.id ? shortId(agent.id) : 'pending…'}</Text>
+          {agent.mode === 'linked' && agent.ownerWallet && (
+            <Text style={s.agentCardOwner}>owner {shortId(agent.ownerWallet)}</Text>
+          )}
         </View>
-        <View style={[s.modeBadge, agent.mode === 'local' ? s.badgeLocal : s.badgeHosted]}>
-          <Text style={[s.modeBadgeText, { color: agent.mode === 'local' ? C.green : C.amber }]}>
-            {agent.mode === 'local' ? 'PHONE' : 'HOSTED'}
+        <View style={[s.modeBadge, badgeStyle]}>
+          <Text style={[s.modeBadgeText, { color: badgeColor }]}>
+            {badgeLabel}
           </Text>
         </View>
       </View>
@@ -119,6 +126,139 @@ function AgentCard({ agent }: { agent: OwnedAgent }) {
   );
 }
 
+// ── Link Agent section ────────────────────────────────────────────────────
+
+type LinkPreview = { agentId: string; ownerWallet: string; ownerStatus: 'claimed' | 'pending' };
+
+function LinkAgentSection() {
+  const [expanded, setExpanded] = useState(false);
+  const [inputId, setInputId]   = useState('');
+  const [fetching, setFetching] = useState(false);
+  const [preview, setPreview]   = useState<LinkPreview | null>(null);
+  const [error, setError]       = useState<string | null>(null);
+
+  const handleLookup = useCallback(async () => {
+    const id = inputId.trim();
+    if (!id) return;
+    setFetching(true);
+    setError(null);
+    setPreview(null);
+    try {
+      const res = await fetch(`https://api.0x01.world/agents/${id}/owner`);
+      if (!res.ok) { setError(`lookup failed (${res.status})`); return; }
+      const data = await res.json();
+      if (data.status === 'claimed') {
+        setPreview({ agentId: id, ownerWallet: data.owner, ownerStatus: 'claimed' });
+      } else if (data.status === 'pending') {
+        setPreview({ agentId: id, ownerWallet: data.proposed_owner, ownerStatus: 'pending' });
+      } else {
+        setError('no owner claimed for this agent id');
+      }
+    } catch {
+      setError('network error');
+    } finally {
+      setFetching(false);
+    }
+  }, [inputId]);
+
+  const handleConfirm = useCallback(async () => {
+    if (!preview) return;
+    try {
+      const raw = await AsyncStorage.getItem('zerox1:linked_agents');
+      const existing: OwnedAgent[] = raw ? JSON.parse(raw) : [];
+      if (existing.some(a => a.id === preview.agentId)) {
+        setError('already linked');
+        return;
+      }
+      const newAgent: OwnedAgent = {
+        id:          preview.agentId,
+        name:        `linked:${preview.agentId.slice(0, 8)}`,
+        mode:        'linked',
+        status:      'unknown',
+        ownerWallet: preview.ownerWallet,
+      };
+      await AsyncStorage.setItem(
+        'zerox1:linked_agents',
+        JSON.stringify([...existing, newAgent]),
+      );
+      notifyLinkedAgentsUpdated();
+      setPreview(null);
+      setInputId('');
+      setExpanded(false);
+    } catch {
+      setError('failed to save');
+    }
+  }, [preview]);
+
+  const handleCancel = useCallback(() => {
+    setExpanded(false);
+    setInputId('');
+    setPreview(null);
+    setError(null);
+  }, []);
+
+  if (!expanded) {
+    return (
+      <TouchableOpacity style={s.linkBtn} onPress={() => setExpanded(true)} activeOpacity={0.7}>
+        <Text style={s.linkBtnText}>+ LINK EXISTING AGENT</Text>
+      </TouchableOpacity>
+    );
+  }
+
+  return (
+    <View style={s.linkSection}>
+      <Text style={s.sectionLabel}>LINK EXISTING AGENT</Text>
+      <View style={s.card}>
+        <Text style={s.linkHint}>enter agent id (hex ed25519 pubkey)</Text>
+        <View style={s.linkInputRow}>
+          <TextInput
+            style={s.linkInput}
+            value={inputId}
+            onChangeText={text => { setInputId(text); setError(null); setPreview(null); }}
+            placeholder="0000000000000000..."
+            placeholderTextColor={C.sub}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <TouchableOpacity
+            style={[s.lookupBtn, fetching && s.lookupBtnDisabled]}
+            onPress={handleLookup}
+            disabled={fetching}
+            activeOpacity={0.8}
+          >
+            {fetching
+              ? <ActivityIndicator size="small" color="#fff" />
+              : <Text style={s.lookupBtnText}>LOOK UP</Text>
+            }
+          </TouchableOpacity>
+        </View>
+        {error && <Text style={s.linkError}>{error}</Text>}
+        {preview && (
+          <View style={s.previewBox}>
+            <View style={s.previewRow}>
+              <Text style={s.previewLabel}>AGENT</Text>
+              <Text style={s.previewVal}>{shortId(preview.agentId)}</Text>
+            </View>
+            <View style={s.previewRow}>
+              <Text style={s.previewLabel}>OWNER</Text>
+              <Text style={s.previewVal}>{shortId(preview.ownerWallet)}</Text>
+            </View>
+            {preview.ownerStatus === 'pending' && (
+              <Text style={s.previewPending}>ownership claim pending</Text>
+            )}
+            <TouchableOpacity style={s.confirmBtn} onPress={handleConfirm} activeOpacity={0.8}>
+              <Text style={s.confirmBtnText}>YES, THIS IS MY AGENT</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+      <TouchableOpacity style={s.cancelLink} onPress={handleCancel}>
+        <Text style={s.cancelLinkText}>cancel</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 function AgentsSubtab() {
   const agents = useOwnedAgents();
 
@@ -128,6 +268,7 @@ function AgentsSubtab() {
       {agents.map(a => (
         <AgentCard key={a.id || a.mode} agent={a} />
       ))}
+      <LinkAgentSection />
       <Text style={s.hint}>
         Each agent runs on a node — your phone or a hosted server.
         Agents earn reputation and USDC by completing tasks on the mesh.
@@ -390,8 +531,10 @@ const s = StyleSheet.create({
   modeBadge:       { borderRadius: 3, paddingHorizontal: 7, paddingVertical: 3, borderWidth: 1 },
   badgeLocal:      { backgroundColor: '#00e67615', borderColor: '#00e67640' },
   badgeHosted:     { backgroundColor: '#ffc10715', borderColor: '#ffc10740' },
+  badgeLinked:     { backgroundColor: '#2979ff15', borderColor: '#2979ff40' },
   modeBadgeText:   { fontSize: 9, fontWeight: '700', letterSpacing: 2 },
   dot:             { width: 10, height: 10, borderRadius: 5, marginRight: 12 },
+  agentCardOwner:  { fontSize: 9, color: C.blue, fontFamily: 'monospace', marginTop: 2 },
   // node subtab
   identityRow:     { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
   agentName:       { fontSize: 16, fontWeight: '700', color: C.text, fontFamily: 'monospace' },
@@ -415,4 +558,24 @@ const s = StyleSheet.create({
   barsRow:         { flexDirection: 'row', alignItems: 'flex-end', gap: 2 },
   bar:             { width: 4, borderRadius: 1 },
   signalNull:      { fontSize: 14, color: C.sub },
+  // link agent
+  linkBtn:         { borderWidth: 1, borderColor: C.border, borderRadius: 4, padding: 14, alignItems: 'center', marginTop: 12 },
+  linkBtnText:     { fontSize: 11, color: C.sub, letterSpacing: 2, fontFamily: 'monospace' },
+  linkSection:     { marginTop: 12 },
+  linkHint:        { fontSize: 10, color: C.sub, fontFamily: 'monospace', marginBottom: 10 },
+  linkInputRow:    { flexDirection: 'row', gap: 8 },
+  linkInput:       { flex: 1, backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 4, paddingHorizontal: 10, paddingVertical: 8, color: C.text, fontFamily: 'monospace', fontSize: 12 },
+  lookupBtn:       { backgroundColor: C.blue, borderRadius: 4, paddingHorizontal: 14, justifyContent: 'center', alignItems: 'center', minWidth: 80 },
+  lookupBtnDisabled: { opacity: 0.5 },
+  lookupBtnText:   { fontSize: 10, fontWeight: '700', color: '#fff', letterSpacing: 2 },
+  linkError:       { fontSize: 10, color: C.red, fontFamily: 'monospace', marginTop: 8 },
+  previewBox:      { marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: C.border },
+  previewRow:      { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
+  previewLabel:    { fontSize: 10, color: C.sub, fontFamily: 'monospace', letterSpacing: 2 },
+  previewVal:      { fontSize: 11, color: C.text, fontFamily: 'monospace' },
+  previewPending:  { fontSize: 10, color: C.amber, fontFamily: 'monospace', marginBottom: 6 },
+  confirmBtn:      { backgroundColor: C.blue, borderRadius: 4, paddingVertical: 10, alignItems: 'center', marginTop: 10 },
+  confirmBtnText:  { fontSize: 11, fontWeight: '700', color: '#fff', letterSpacing: 2 },
+  cancelLink:      { alignItems: 'center', paddingVertical: 10 },
+  cancelLinkText:  { fontSize: 10, color: C.sub, fontFamily: 'monospace' },
 });

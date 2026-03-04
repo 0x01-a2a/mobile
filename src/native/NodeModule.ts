@@ -32,15 +32,12 @@ export interface NodeConfig {
   nodeApiUrl?: string;
 
   // ── ZeroClaw agent brain ──────────────────────────────────────────────────
+  // NOTE: The LLM API key is NEVER passed through this bridge.
+  //       NodeService.kt loads it directly from EncryptedSharedPreferences.
   /** Enable the ZeroClaw agent brain sidecar. */
   agentBrainEnabled?: boolean;
   /** LLM provider key: 'anthropic' | 'openai' | 'gemini' | 'groq' */
   llmProvider?: string;
-  /**
-   * LLM API key — passed to the native layer in-memory only.
-   * Loaded from the OS Keychain at start; never persisted in AsyncStorage.
-   */
-  llmApiKey?: string;
   /** JSON array string of enabled capabilities e.g. '["summarization","qa"]' */
   capabilities?: string;
   /** Minimum task fee in USDC — reject tasks below this. */

@@ -13,7 +13,33 @@ import { loadLlmApiKey } from './useAgentBrain';
 const STORAGE_KEYS = {
   CONFIG: 'zerox1:node_config',
   AUTO_START: 'zerox1:auto_start',
+  BRAIN: 'zerox1:agent_brain',
 };
+
+/**
+ * Read the agent brain config from AsyncStorage and merge it into a
+ * startNode config object. Returns the base config unchanged if brain is
+ * disabled, not set up, or the read fails.
+ */
+async function withBrainConfig(base: NodeConfig): Promise<NodeConfig> {
+  try {
+    const raw = await AsyncStorage.getItem(STORAGE_KEYS.BRAIN);
+    if (!raw) return base;
+    const brain = JSON.parse(raw);
+    if (!brain.enabled || !brain.apiKeySet) return base;
+    return {
+      ...base,
+      agentBrainEnabled: true,
+      llmProvider:   brain.provider  ?? 'anthropic',
+      capabilities:  JSON.stringify(brain.capabilities ?? []),
+      minFeeUsdc:    brain.minFeeUsdc    ?? 0.01,
+      minReputation: brain.minReputation ?? 50,
+      autoAccept:    brain.autoAccept    ?? true,
+    };
+  } catch {
+    return base;
+  }
+}
 
 export function useNode() {
   const [status, setStatus] = useState<NodeStatus>('stopped');
@@ -50,7 +76,7 @@ export function useNode() {
             setStatus('running');
           } else {
             const running = await NodeModule.isRunning();
-            if (!running) await NodeModule.startNode(cfg);
+            if (!running) await NodeModule.startNode(await withBrainConfig(cfg));
           }
         } else {
           if (cfg.nodeApiUrl) {
@@ -88,7 +114,7 @@ export function useNode() {
       });
       setStatus('running');
     } else {
-      await NodeModule.startNode(effective);
+      await NodeModule.startNode(await withBrainConfig(effective));
       setStatus('running');
     }
 

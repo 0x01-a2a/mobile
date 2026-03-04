@@ -40,7 +40,7 @@ class NodeService : Service() {
         const val NOTIF_ID         = 1
         const val NODE_API_PORT    = 9090
         const val BINARY_NAME      = "zerox1-node"
-        const val ASSET_VERSION    = "0.2.11"   // bump when binary changes
+        const val ASSET_VERSION    = "0.2.14"   // bump when binary changes
 
         // ZeroClaw agent brain binary
         const val AGENT_BINARY_NAME    = "zeroclaw"
@@ -88,13 +88,17 @@ class NodeService : Service() {
         super.onCreate()
         createNotificationChannel()
         val wm = getSystemService(POWER_SERVICE) as PowerManager
-        // MED-3: wakeLock.acquire() with 1-hour timeout instead of no timeout
         wakeLock = wm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "zerox1:NodeWakeLock")
-            .also { it.acquire(60 * 60 * 1000L) }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(NOTIF_ID, buildNotification("Starting…"))
+
+        // Re-acquire wake lock for this session. 8-hour timeout keeps the CPU awake
+        // for overnight use while still being bounded against leaks if onDestroy is
+        // skipped. Release first so a user restart doesn't double-hold.
+        if (wakeLock?.isHeld == true) wakeLock?.release()
+        wakeLock?.acquire(8 * 60 * 60 * 1000L)
 
         val relayAddr    = intent?.getStringExtra(EXTRA_RELAY_ADDR)
         val fcmToken     = intent?.getStringExtra(EXTRA_FCM_TOKEN)
@@ -324,6 +328,7 @@ class NodeService : Service() {
         // CRIT-4: Read API key from secure storage, not from intent.
         val apiKey = getLlmApiKey() ?: ""
         val escapedKey = apiKey.replace("\\", "\\\\").replace("\"", "\\\"")
+            .replace("\n", "\\n").replace("\r", "\\r")
 
         // MED-1: Validate capabilities is a proper JSON array to prevent TOML injection.
         val tomlCaps = try {

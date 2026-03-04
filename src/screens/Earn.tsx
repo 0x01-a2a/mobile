@@ -7,6 +7,7 @@
  */
 import React, { useCallback, useState } from 'react';
 import {
+  Alert,
   FlatList,
   Modal,
   Pressable,
@@ -21,40 +22,40 @@ import { useOwnedAgents, OwnedAgent } from '../hooks/useOwnedAgents';
 import { useNode } from '../hooks/useNode';
 
 const C = {
-  bg:     '#050505',
-  card:   '#0f0f0f',
+  bg: '#050505',
+  card: '#0f0f0f',
   border: '#1a1a1a',
-  green:  '#00e676',
-  red:    '#ff1744',
-  amber:  '#ffc107',
-  text:   '#ffffff',
-  sub:    '#555555',
-  dim:    '#333333',
+  green: '#00e676',
+  red: '#ff1744',
+  amber: '#ffc107',
+  text: '#ffffff',
+  sub: '#555555',
+  dim: '#333333',
 };
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
 interface ProposalTerms {
-  description?:        string;
-  reward?:             string;
+  description?: string;
+  reward?: string;
   escrow_amount_usdc?: number;
-  quest?:              string;
-  from?:               string;
-  [key: string]:       unknown;
+  quest?: string;
+  from?: string;
+  [key: string]: unknown;
 }
 
 export interface BountyTask {
   description: string;
-  reward:      string;
-  fromAgent:   string;
+  reward: string;
+  fromAgent: string;
 }
 
 interface Bounty {
   conversationId: string;
-  sender:         string;
-  slot:           number;
-  terms:          ProposalTerms;
-  receivedAt:     number;
+  sender: string;
+  slot: number;
+  terms: ProposalTerms;
+  receivedAt: number;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -74,14 +75,14 @@ function shortId(id: string): string {
 
 function timeAgo(ts: number): string {
   const s = Math.floor((Date.now() - ts) / 1000);
-  if (s < 60)   return `${s}s ago`;
+  if (s < 60) return `${s}s ago`;
   if (s < 3600) return `${Math.floor(s / 60)}m ago`;
   return `${Math.floor(s / 3600)}h ago`;
 }
 
 function rewardLabel(terms: ProposalTerms): string {
   if (terms.escrow_amount_usdc) return `${terms.escrow_amount_usdc} USDC`;
-  if (terms.reward)             return String(terms.reward);
+  if (terms.reward) return String(terms.reward);
   return 'reputation';
 }
 
@@ -92,9 +93,9 @@ function AgentPicker({
   onSelect,
   onClose,
 }: {
-  agents:   OwnedAgent[];
+  agents: OwnedAgent[];
   onSelect: (a: OwnedAgent) => void;
-  onClose:  () => void;
+  onClose: () => void;
 }) {
   return (
     <Modal transparent animationType="slide" onRequestClose={onClose}>
@@ -131,9 +132,9 @@ function BountyCard({
   onAccept,
   onSkip,
 }: {
-  bounty:   Bounty;
+  bounty: Bounty;
   onAccept: () => void;
-  onSkip:   () => void;
+  onSkip: () => void;
 }) {
   return (
     <View style={s.card}>
@@ -164,10 +165,10 @@ function BountyCard({
 // ── Main screen ───────────────────────────────────────────────────────────
 
 export function EarnScreen() {
-  const navigation    = useNavigation<any>();
-  const agents        = useOwnedAgents();
-  const { status }    = useNode();
-  const [bounties, setBounties]       = useState<Bounty[]>([]);
+  const navigation = useNavigation<any>();
+  const agents = useOwnedAgents().filter(a => a.mode !== 'linked');
+  const { status } = useNode();
+  const [bounties, setBounties] = useState<Bounty[]>([]);
   const [pickerTarget, setPickerTarget] = useState<Bounty | null>(null);
 
   const onEnvelope = useCallback((env: InboundEnvelope) => {
@@ -179,10 +180,10 @@ export function EarnScreen() {
       return [
         {
           conversationId: env.conversation_id,
-          sender:         env.sender,
-          slot:           env.slot,
+          sender: env.sender,
+          slot: env.slot,
           terms,
-          receivedAt:     Date.now(),
+          receivedAt: Date.now(),
         },
         ...prev,
       ].slice(0, 50);
@@ -193,19 +194,23 @@ export function EarnScreen() {
 
   const assignAndNavigate = useCallback(async (bounty: Bounty, agent: OwnedAgent) => {
     setPickerTarget(null);
-    setBounties(prev => prev.filter(b => b.conversationId !== bounty.conversationId));
-    await sendEnvelope({
-      msg_type:        'ACCEPT',
-      recipient:       bounty.sender,
+    const ok = await sendEnvelope({
+      msg_type: 'ACCEPT',
+      recipient: bounty.sender,
       conversation_id: bounty.conversationId,
     });
+    if (!ok) {
+      Alert.alert('Error', 'Failed to send ACCEPT. Check node connection and try again.');
+      return;
+    }
+    setBounties(prev => prev.filter(b => b.conversationId !== bounty.conversationId));
     navigation.navigate('Chat', {
-      agentId:        agent.id,
+      agentId: agent.id,
       conversationId: bounty.conversationId,
       task: {
         description: bounty.terms.description ?? 'Task',
-        reward:      rewardLabel(bounty.terms),
-        fromAgent:   bounty.terms.from ?? bounty.sender,
+        reward: rewardLabel(bounty.terms),
+        fromAgent: bounty.terms.from ?? bounty.sender,
       } as BountyTask,
     });
   }, [navigation]);
@@ -274,34 +279,34 @@ export function EarnScreen() {
 // ── Styles ────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
-  root:      { flex: 1, backgroundColor: C.bg },
-  header:    { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.border },
-  title:     { fontSize: 13, fontWeight: '700', color: C.text, letterSpacing: 3, fontFamily: 'monospace' },
-  sub:       { fontSize: 11, color: C.sub, fontFamily: 'monospace', marginTop: 4 },
-  list:      { padding: 16, gap: 12 },
-  card:      { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, padding: 16 },
-  desc:      { fontSize: 14, color: C.text, fontFamily: 'monospace', lineHeight: 20, marginBottom: 10 },
-  meta:      { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 },
-  reward:    { fontSize: 11, color: C.green, fontFamily: 'monospace', fontWeight: '700' },
-  dot:       { fontSize: 11, color: C.dim },
-  from:      { fontSize: 11, color: C.sub, fontFamily: 'monospace' },
-  time:      { fontSize: 11, color: C.sub, fontFamily: 'monospace' },
-  actions:   { flexDirection: 'row', gap: 10 },
-  skipBtn:   { flex: 1, borderWidth: 1, borderColor: C.dim, borderRadius: 3, paddingVertical: 9, alignItems: 'center' },
-  skipText:  { fontSize: 11, color: C.sub, letterSpacing: 2, fontWeight: '700' },
+  root: { flex: 1, backgroundColor: C.bg },
+  header: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.border },
+  title: { fontSize: 13, fontWeight: '700', color: C.text, letterSpacing: 3, fontFamily: 'monospace' },
+  sub: { fontSize: 11, color: C.sub, fontFamily: 'monospace', marginTop: 4 },
+  list: { padding: 16, gap: 12 },
+  card: { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, padding: 16 },
+  desc: { fontSize: 14, color: C.text, fontFamily: 'monospace', lineHeight: 20, marginBottom: 10 },
+  meta: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 },
+  reward: { fontSize: 11, color: C.green, fontFamily: 'monospace', fontWeight: '700' },
+  dot: { fontSize: 11, color: C.dim },
+  from: { fontSize: 11, color: C.sub, fontFamily: 'monospace' },
+  time: { fontSize: 11, color: C.sub, fontFamily: 'monospace' },
+  actions: { flexDirection: 'row', gap: 10 },
+  skipBtn: { flex: 1, borderWidth: 1, borderColor: C.dim, borderRadius: 3, paddingVertical: 9, alignItems: 'center' },
+  skipText: { fontSize: 11, color: C.sub, letterSpacing: 2, fontWeight: '700' },
   acceptBtn: { flex: 2, backgroundColor: C.green, borderRadius: 3, paddingVertical: 9, alignItems: 'center' },
-  acceptText:{ fontSize: 11, color: '#000', letterSpacing: 2, fontWeight: '700' },
-  empty:     { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 },
+  acceptText: { fontSize: 11, color: '#000', letterSpacing: 2, fontWeight: '700' },
+  empty: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 },
   emptyText: { color: C.sub, fontFamily: 'monospace', textAlign: 'center', lineHeight: 22, fontSize: 13 },
   // agent picker
-  overlay:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)' },
-  sheet:     { backgroundColor: '#111', borderTopWidth: 1, borderTopColor: C.border, padding: 24, gap: 4 },
-  sheetTitle:{ fontSize: 11, color: C.sub, letterSpacing: 3, marginBottom: 12, fontFamily: 'monospace' },
-  agentRow:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.border },
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)' },
+  sheet: { backgroundColor: '#111', borderTopWidth: 1, borderTopColor: C.border, padding: 24, gap: 4 },
+  sheetTitle: { fontSize: 11, color: C.sub, letterSpacing: 3, marginBottom: 12, fontFamily: 'monospace' },
+  agentRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.border },
   agentName: { fontSize: 14, color: C.text, fontFamily: 'monospace', fontWeight: '700' },
-  agentId:   { fontSize: 10, color: C.sub, fontFamily: 'monospace', marginTop: 2 },
-  badge:     { borderRadius: 3, paddingHorizontal: 8, paddingVertical: 3 },
-  badgeLocal:   { backgroundColor: C.green + '20', borderWidth: 1, borderColor: C.green + '60' },
-  badgeHosted:  { backgroundColor: C.amber + '20', borderWidth: 1, borderColor: C.amber + '60' },
+  agentId: { fontSize: 10, color: C.sub, fontFamily: 'monospace', marginTop: 2 },
+  badge: { borderRadius: 3, paddingHorizontal: 8, paddingVertical: 3 },
+  badgeLocal: { backgroundColor: C.green + '20', borderWidth: 1, borderColor: C.green + '60' },
+  badgeHosted: { backgroundColor: C.amber + '20', borderWidth: 1, borderColor: C.amber + '60' },
   badgeText: { fontSize: 9, fontWeight: '700', letterSpacing: 2 },
 });
