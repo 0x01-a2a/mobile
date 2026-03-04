@@ -28,6 +28,18 @@
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
+    <!-- Foreground service types for camera + microphone access from background service -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <!-- Device info + sensor endpoints -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+    <!-- Bluetooth paired device list (API 31+ requires BLUETOOTH_CONNECT) -->
+    <uses-permission android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
     <application
       android:name=".MainApplication"
@@ -55,7 +67,7 @@
       <!-- Node foreground service — keeps zerox1-node running in background -->
       <service
         android:name=".NodeService"
-        android:foregroundServiceType="dataSync"
+        android:foregroundServiceType="dataSync|camera|microphone"
         android:exported="false" />
 
       <!-- Restart node on boot if it was running when device was shut down -->
