@@ -5,6 +5,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      node_tag:
+        description: 'Node release tag to bundle (e.g. v0.2.14). Defaults to current tag on tag push.'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -48,8 +53,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          NODE_TAG="${{ github.event.inputs.node_tag || github.ref_name }}"
           mkdir -p android/app/src/main/assets
-          gh release download v0.2.2 \
+          gh release download "$NODE_TAG" \
             --repo 0x01-a2a/node \
             --pattern 'zerox1-node-android-arm64' \
             --output android/app/src/main/assets/zerox1-node
