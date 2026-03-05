@@ -572,6 +572,132 @@ export async function registerAsHosted(
 }
 
 // ============================================================================
+// Hot wallet balance + sweep
+// ============================================================================
+
+const USDC_MINT_DEVNET = '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU';
+
+export interface HotKeyBalanceResult {
+  /** USDC balance (6-decimal float), or null while loading / not available. */
+  balance: number | null;
+  loading: boolean;
+  /** Agent hot wallet address in Solana base58, or null when node is not running. */
+  solanaAddress: string | null;
+}
+
+/**
+ * Polls the USDC balance of the node's hot wallet every 30 seconds.
+ *
+ * Only works in local mode (node running on 127.0.0.1:9090).
+ * In hosted mode this returns `{ balance: null, loading: false, solanaAddress: null }`.
+ */
+export function useHotKeyBalance(): HotKeyBalanceResult {
+  const identity = useIdentity();
+  const [balance, setBalance] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [solanaAddress, setSolanaAddress] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Only poll in local mode and when the node is running.
+    if (_hostedToken || !identity) {
+      setBalance(null);
+      setSolanaAddress(null);
+      return;
+    }
+
+    // Convert hex agent_id → Solana base58 address.
+    let addr: string;
+    try {
+      const { PublicKey } = require('@solana/web3.js');
+      const bytes = Uint8Array.from(
+        (identity.agent_id.match(/.{1,2}/g) ?? []).map((b: string) => parseInt(b, 16))
+      );
+      addr = new PublicKey(bytes).toBase58();
+    } catch {
+      return;
+    }
+    setSolanaAddress(addr);
+
+    let cancelled = false;
+
+    const poll = async () => {
+      if (!_appActive || cancelled) return;
+      setLoading(true);
+      try {
+        // Read rpcUrl from node config stored in AsyncStorage (falls back to devnet).
+        let rpcUrl = 'https://api.devnet.solana.com';
+        try {
+          const raw = await AsyncStorage.getItem('zerox1:node_config');
+          if (raw) {
+            const cfg = JSON.parse(raw);
+            if (cfg.rpcUrl) rpcUrl = cfg.rpcUrl;
+          }
+        } catch { /* use default */ }
+
+        const res = await fetch(rpcUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'getTokenAccountsByOwner',
+            params: [
+              addr,
+              { mint: USDC_MINT_DEVNET },
+              { encoding: 'jsonParsed' },
+            ],
+          }),
+        });
+        const data = await res.json();
+        const accounts = data?.result?.value ?? [];
+        if (accounts.length === 0) {
+          if (!cancelled) setBalance(0);
+        } else {
+          const raw = accounts[0]?.account?.data?.parsed?.info?.tokenAmount?.amount;
+          if (!cancelled) setBalance(raw != null ? Number(raw) / 1_000_000 : 0);
+        }
+      } catch {
+        // Network error — leave previous balance
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    poll();
+    const id = setInterval(poll, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [identity]);
+
+  return { balance, loading, solanaAddress };
+}
+
+export interface SweepResult {
+  signature: string;
+  amount_usdc: number;
+  destination: string;
+}
+
+/**
+ * Transfer all USDC from the node's hot wallet to `destination` (base58 wallet).
+ * Calls POST /wallet/sweep on the local node API.
+ */
+export async function sweepUsdc(destination: string): Promise<SweepResult> {
+  const res = await fetch(`${_apiBase}/wallet/sweep`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ destination }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+// ============================================================================
 // Watchlist
 // ============================================================================
 

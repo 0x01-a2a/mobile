@@ -20,8 +20,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNode } from '../hooks/useNode';
 import {
   InboundEnvelope,
+  SweepResult,
   clearTokenFromKeychain,
   probeRtt,
+  sweepUsdc,
+  useHotKeyBalance,
   useIdentity,
   useInbox,
   useOwnReputation,
@@ -128,38 +131,116 @@ function AgentCard({ agent }: { agent: OwnedAgent }) {
 
 // ── Link Agent section ────────────────────────────────────────────────────
 
+const AGGREGATOR_API_URL = 'https://api.0x01.world';
+
 type LinkPreview = { agentId: string; ownerWallet: string; ownerStatus: 'claimed' | 'pending' };
+type WalletAgent  = { agent_id: string; name?: string };
 
 function LinkAgentSection() {
-  const [expanded, setExpanded] = useState(false);
-  const [inputId, setInputId]   = useState('');
-  const [fetching, setFetching] = useState(false);
-  const [preview, setPreview]   = useState<LinkPreview | null>(null);
-  const [error, setError]       = useState<string | null>(null);
+  const [expanded, setExpanded]         = useState(false);
+  const [inputId, setInputId]           = useState('');
+  const [fetching, setFetching]         = useState(false);
+  const [preview, setPreview]           = useState<LinkPreview | null>(null);
+  const [walletAgents, setWalletAgents] = useState<WalletAgent[]>([]);
+  const [selectedIdx, setSelectedIdx]   = useState<number | null>(null);
+  const [resolvedWallet, setResolvedWallet] = useState<string | null>(null);
+  const [error, setError]               = useState<string | null>(null);
 
-  const handleLookup = useCallback(async () => {
-    const id = inputId.trim();
-    if (!id) return;
-    setFetching(true);
+  const resetState = useCallback(() => {
     setError(null);
     setPreview(null);
+    setWalletAgents([]);
+    setSelectedIdx(null);
+    setResolvedWallet(null);
+  }, []);
+
+  const handleLookup = useCallback(async () => {
+    const trimmed = inputId.trim();
+    if (!trimmed) return;
+    setFetching(true);
+    resetState();
+
     try {
-      const res = await fetch(`https://api.0x01.world/agents/${id}/owner`);
-      if (!res.ok) { setError(`lookup failed (${res.status})`); return; }
-      const data = await res.json();
-      if (data.status === 'claimed') {
-        setPreview({ agentId: id, ownerWallet: data.owner, ownerStatus: 'claimed' });
-      } else if (data.status === 'pending') {
-        setPreview({ agentId: id, ownerWallet: data.proposed_owner, ownerStatus: 'pending' });
+      let agentId: string | null = null;
+      let ownerWallet: string | null = null;
+
+      if (trimmed.toLowerCase().endsWith('.sol')) {
+        // Resolve .sol domain via Bonfida SNS proxy.
+        const domain = trimmed.slice(0, -4);
+        const snsRes = await fetch(
+          `https://sns-sdk-proxy.bonfida.workers.dev/resolve/${domain}`,
+        );
+        const sns = await snsRes.json();
+        if (sns.s !== 'ok') {
+          setError('Could not resolve .sol domain');
+          return;
+        }
+        ownerWallet = sns.result as string;
+      } else if (
+        /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(trimmed) &&
+        !/^[0-9a-f]{64}$/i.test(trimmed)
+      ) {
+        // Looks like a Solana base58 wallet address.
+        ownerWallet = trimmed;
       } else {
-        setError('no owner claimed for this agent id');
+        // Treat as raw hex agent_id (existing flow).
+        agentId = trimmed;
+      }
+
+      if (ownerWallet) {
+        setResolvedWallet(ownerWallet);
+        const res = await fetch(
+          `${AGGREGATOR_API_URL}/agents/by-owner/${ownerWallet}`,
+        );
+        if (!res.ok) {
+          setError(`lookup failed (${res.status})`);
+          return;
+        }
+        const agents: WalletAgent[] = await res.json();
+        if (agents.length === 0) {
+          setError('No agents found for this wallet');
+        } else if (agents.length === 1) {
+          // Auto-select the single result.
+          setPreview({
+            agentId:     agents[0].agent_id,
+            ownerWallet,
+            ownerStatus: 'claimed',
+          });
+        } else {
+          setWalletAgents(agents);
+          setSelectedIdx(0);
+        }
+      } else if (agentId) {
+        // Existing hex agent_id lookup.
+        const res = await fetch(`${AGGREGATOR_API_URL}/agents/${agentId}/owner`);
+        if (!res.ok) { setError(`lookup failed (${res.status})`); return; }
+        const data = await res.json();
+        if (data.status === 'claimed') {
+          setPreview({ agentId, ownerWallet: data.owner, ownerStatus: 'claimed' });
+        } else if (data.status === 'pending') {
+          setPreview({ agentId, ownerWallet: data.proposed_owner, ownerStatus: 'pending' });
+        } else {
+          setError('no owner claimed for this agent id');
+        }
       }
     } catch {
       setError('network error');
     } finally {
       setFetching(false);
     }
-  }, [inputId]);
+  }, [inputId, resetState]);
+
+  // Called when the user confirms a multi-agent picker selection.
+  const handlePickerConfirm = useCallback(() => {
+    if (selectedIdx === null || walletAgents.length === 0 || !resolvedWallet) return;
+    const picked = walletAgents[selectedIdx];
+    setPreview({
+      agentId:     picked.agent_id,
+      ownerWallet: resolvedWallet,
+      ownerStatus: 'claimed',
+    });
+    setWalletAgents([]);
+  }, [selectedIdx, walletAgents, resolvedWallet]);
 
   const handleConfirm = useCallback(async () => {
     if (!preview) return;
@@ -193,9 +274,8 @@ function LinkAgentSection() {
   const handleCancel = useCallback(() => {
     setExpanded(false);
     setInputId('');
-    setPreview(null);
-    setError(null);
-  }, []);
+    resetState();
+  }, [resetState]);
 
   if (!expanded) {
     return (
@@ -209,13 +289,15 @@ function LinkAgentSection() {
     <View style={s.linkSection}>
       <Text style={s.sectionLabel}>LINK EXISTING AGENT</Text>
       <View style={s.card}>
-        <Text style={s.linkHint}>enter agent id (hex ed25519 pubkey)</Text>
+        <Text style={s.linkHint}>
+          enter agent id (hex), Solana wallet address, or .sol domain
+        </Text>
         <View style={s.linkInputRow}>
           <TextInput
             style={s.linkInput}
             value={inputId}
-            onChangeText={text => { setInputId(text); setError(null); setPreview(null); }}
-            placeholder="0000000000000000..."
+            onChangeText={text => { setInputId(text); resetState(); }}
+            placeholder="agent id / wallet / name.sol"
             placeholderTextColor={C.sub}
             autoCapitalize="none"
             autoCorrect={false}
@@ -233,6 +315,35 @@ function LinkAgentSection() {
           </TouchableOpacity>
         </View>
         {error && <Text style={s.linkError}>{error}</Text>}
+
+        {/* Multi-agent picker (wallet owns multiple agents) */}
+        {walletAgents.length > 1 && (
+          <View style={s.pickerBox}>
+            <Text style={s.pickerHint}>select your agent:</Text>
+            {walletAgents.map((a, i) => (
+              <TouchableOpacity
+                key={a.agent_id}
+                style={[s.pickerRow, selectedIdx === i && s.pickerRowSelected]}
+                onPress={() => setSelectedIdx(i)}
+                activeOpacity={0.7}
+              >
+                <View style={[s.pickerRadio, selectedIdx === i && s.pickerRadioSelected]} />
+                <View style={{ flex: 1 }}>
+                  {a.name ? <Text style={s.pickerName}>{a.name}</Text> : null}
+                  <Text style={s.pickerAgentId}>{shortId(a.agent_id)}</Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity
+              style={s.confirmBtn}
+              onPress={handlePickerConfirm}
+              activeOpacity={0.8}
+            >
+              <Text style={s.confirmBtnText}>SELECT THIS AGENT</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {preview && (
           <View style={s.previewBox}>
             <View style={s.previewRow}>
@@ -345,8 +456,12 @@ function NodeSubtab() {
   const { status, loading, start, stop, config, saveConfig } = useNode();
   const identity   = useIdentity();
   const rep        = useOwnReputation(identity?.agent_id ?? null);
+  const { balance, loading: balLoading, solanaAddress } = useHotKeyBalance();
   const [inbox, setInbox] = useState<InboundEnvelope[]>([]);
   const [hostedAgentId, setHostedAgentId] = useState<string | null>(null);
+  const [coldWallet, setColdWallet] = useState<string | null>(null);
+  const [sweeping, setSweeping] = useState(false);
+  const [lastSweep, setLastSweep] = useState<SweepResult | null>(null);
 
   const isHosted = Boolean(config.nodeApiUrl);
 
@@ -356,6 +471,32 @@ function NodeSubtab() {
       .then(id => setHostedAgentId(id))
       .catch(() => {});
   }, [isHosted]);
+
+  // Load the cold wallet from the first linked agent (used as sweep destination).
+  useEffect(() => {
+    AsyncStorage.getItem('zerox1:linked_agents')
+      .then(raw => {
+        if (!raw) return;
+        const agents: Array<{ ownerWallet?: string }> = JSON.parse(raw);
+        const first = agents.find(a => a.ownerWallet);
+        setColdWallet(first?.ownerWallet ?? null);
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleSweep = useCallback(async () => {
+    if (!coldWallet) return;
+    setSweeping(true);
+    setLastSweep(null);
+    try {
+      const result = await sweepUsdc(coldWallet);
+      setLastSweep(result);
+    } catch (e: unknown) {
+      Alert.alert('Sweep failed', e instanceof Error ? e.message : String(e));
+    } finally {
+      setSweeping(false);
+    }
+  }, [coldWallet]);
 
   const onEnvelope = useCallback((env: InboundEnvelope) => {
     setInbox(prev => {
@@ -456,6 +597,47 @@ function NodeSubtab() {
           <Text style={s.noData}>no reputation data yet</Text>
         )}
       </View>
+
+      {/* Hot wallet balance + sweep */}
+      {!isHosted && (
+        <>
+          <Text style={s.sectionLabel}>HOT WALLET</Text>
+          <View style={s.card}>
+            <View style={s.hotWalletRow}>
+              <Text style={s.hotBalance}>
+                {balLoading
+                  ? '-- USDC'
+                  : balance !== null
+                    ? `USDC ${balance.toFixed(6)}`
+                    : '-- USDC'}
+              </Text>
+              {solanaAddress && (
+                <Text style={s.hotAddr} selectable>
+                  {solanaAddress.slice(0, 6)}…{solanaAddress.slice(-6)}
+                </Text>
+              )}
+            </View>
+            {lastSweep && (
+              <Text style={s.sweepTx} selectable numberOfLines={1}>
+                swept {lastSweep.amount_usdc.toFixed(6)} USDC · tx {lastSweep.signature.slice(0, 12)}…
+              </Text>
+            )}
+            {!isHosted && balance !== null && balance > 0 && coldWallet && (
+              <TouchableOpacity
+                style={[s.btn, { backgroundColor: C.amber, marginTop: 12 }, sweeping && { opacity: 0.5 }]}
+                onPress={handleSweep}
+                disabled={sweeping}
+                activeOpacity={0.8}
+              >
+                {sweeping
+                  ? <ActivityIndicator size="small" color="#000" />
+                  : <Text style={[s.btnText, { color: '#000' }]}>SWEEP TO COLD WALLET</Text>
+                }
+              </TouchableOpacity>
+            )}
+          </View>
+        </>
+      )}
 
       <Text style={s.sectionLabel}>RECENT ACTIVITY</Text>
       <View style={s.card}>
@@ -558,6 +740,11 @@ const s = StyleSheet.create({
   barsRow:         { flexDirection: 'row', alignItems: 'flex-end', gap: 2 },
   bar:             { width: 4, borderRadius: 1 },
   signalNull:      { fontSize: 14, color: C.sub },
+  // hot wallet
+  hotWalletRow:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  hotBalance:     { fontSize: 18, fontWeight: '700', color: C.amber, fontFamily: 'monospace' },
+  hotAddr:        { fontSize: 9, color: C.sub, fontFamily: 'monospace' },
+  sweepTx:        { fontSize: 9, color: C.green, fontFamily: 'monospace', marginTop: 8 },
   // link agent
   linkBtn:         { borderWidth: 1, borderColor: C.border, borderRadius: 4, padding: 14, alignItems: 'center', marginTop: 12 },
   linkBtnText:     { fontSize: 11, color: C.sub, letterSpacing: 2, fontFamily: 'monospace' },
@@ -578,4 +765,13 @@ const s = StyleSheet.create({
   confirmBtnText:  { fontSize: 11, fontWeight: '700', color: '#fff', letterSpacing: 2 },
   cancelLink:      { alignItems: 'center', paddingVertical: 10 },
   cancelLinkText:  { fontSize: 10, color: C.sub, fontFamily: 'monospace' },
+  // multi-agent picker
+  pickerBox:       { marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: C.border },
+  pickerHint:      { fontSize: 10, color: C.sub, fontFamily: 'monospace', marginBottom: 8 },
+  pickerRow:       { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 8, borderRadius: 4, marginBottom: 4, borderWidth: 1, borderColor: C.border },
+  pickerRowSelected: { borderColor: C.blue, backgroundColor: '#2979ff15' },
+  pickerRadio:     { width: 12, height: 12, borderRadius: 6, borderWidth: 1, borderColor: C.sub, marginRight: 10 },
+  pickerRadioSelected: { borderColor: C.blue, backgroundColor: C.blue },
+  pickerName:      { fontSize: 11, color: C.text, fontFamily: 'monospace', fontWeight: '700' },
+  pickerAgentId:   { fontSize: 9, color: C.sub, fontFamily: 'monospace', marginTop: 2 },
 });

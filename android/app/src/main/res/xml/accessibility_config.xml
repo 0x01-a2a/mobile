@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Accessibility service configuration for ZeroClaw agent.
+  - retrieveWindowContent: allows reading the UI tree of foreground apps
+  - flagRequestScreenshot: allows taking silent screenshots (Android 11+)
+  - canPerformGestures: allows injecting taps/swipes
+  - feedbackGeneric: required for the service to register
+-->
+<accessibility-service
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeAllMask"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagRetrieveInteractiveWindows|flagRequestScreenshot"
+    android:canRetrieveWindowContent="true"
+    android:canPerformGestures="true"
+    android:canTakeScreenshot="true"
+    android:description="@string/a11y_service_description"
+    android:notificationTimeout="100"
+    android:settingsActivity="world.zerox1.node.MainActivity" />

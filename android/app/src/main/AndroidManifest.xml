@@ -91,5 +91,38 @@
           android:resource="@xml/file_provider_paths" />
       </provider>
 
+      <!-- ZeroClaw Accessibility Service — reads UI tree, injects gestures, takes screenshots -->
+      <service
+        android:name=".AgentAccessibilityService"
+        android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+        android:exported="false">
+        <intent-filter>
+          <action android:name="android.accessibilityservice.AccessibilityService" />
+        </intent-filter>
+        <meta-data
+          android:name="android.accessibilityservice"
+          android:resource="@xml/accessibility_config" />
+      </service>
+
+      <!-- ZeroClaw Notification Listener — intercepts and replies to all notifications -->
+      <service
+        android:name=".AgentNotificationListener"
+        android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+        android:exported="false">
+        <intent-filter>
+          <action android:name="android.service.notification.NotificationListenerService" />
+        </intent-filter>
+      </service>
+
+      <!-- ZeroClaw Call Screening — intercepts incoming phone calls -->
+      <service
+        android:name=".AgentCallScreeningService"
+        android:permission="android.permission.BIND_SCREENING_SERVICE"
+        android:exported="true">
+        <intent-filter>
+          <action android:name="android.telecom.CallScreeningService" />
+        </intent-filter>
+      </service>
+
     </application>
 </manifest>

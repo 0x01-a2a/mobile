@@ -204,6 +204,26 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
                 handleContactsUpdate(path.substringAfterLast("/"), body)
             method == "PUT"  && path.startsWith("/phone/calendar/") ->
                 handleCalendarUpdate(path.substringAfterLast("/"), body)
+
+            // ---- Accessibility Service (God Mode) ----
+            method == "GET"  && path == "/phone/a11y/status"      -> handleA11yStatus()
+            method == "GET"  && path == "/phone/a11y/tree"        -> handleA11yTree()
+            method == "POST" && path == "/phone/a11y/action"      -> handleA11yAction(body)
+            method == "POST" && path == "/phone/a11y/click"       -> handleA11yClick(body)
+            method == "POST" && path == "/phone/a11y/global"      -> handleA11yGlobal(body)
+            method == "GET"  && path == "/phone/a11y/screenshot"  -> handleA11yScreenshot()
+
+            // ---- Notification Listener ----
+            method == "GET"  && path == "/phone/notifications"          -> handleNotificationsGet()
+            method == "GET"  && path == "/phone/notifications/history"  -> handleNotificationsHistory()
+            method == "POST" && path == "/phone/notifications/reply"    -> handleNotificationsReply(body)
+            method == "POST" && path == "/phone/notifications/dismiss"  -> handleNotificationsDismiss(body)
+
+            // ---- Call Screening ----
+            method == "GET"  && path == "/phone/calls/pending"    -> handleCallsPending()
+            method == "GET"  && path == "/phone/calls/history"    -> handleCallsHistory()
+            method == "POST" && path == "/phone/calls/respond"    -> handleCallsRespond(body)
+
             else -> jsonError("NOT_FOUND: $method $path", 404)
         }
     }
@@ -1065,6 +1085,126 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
             arrayOf(id.toString())
         )
         return jsonOk(JSONObject().put("rows_updated", updated))
+    }
+
+    // -------------------------------------------------------------------------
+    // Accessibility Service endpoints
+    // -------------------------------------------------------------------------
+
+    private fun handleA11yStatus(): BridgeResponse {
+        return jsonOk(JSONObject().apply {
+            put("connected", AgentAccessibilityService.isConnected())
+        })
+    }
+
+    private fun handleA11yTree(): BridgeResponse {
+        val svc = AgentAccessibilityService.instance
+            ?: return jsonError("accessibility service not connected — enable in Settings", 503)
+        return jsonOk(svc.dumpUiTree())
+    }
+
+    private fun handleA11yAction(body: JSONObject?): BridgeResponse {
+        if (body == null) return jsonError("missing body", 400)
+        val svc = AgentAccessibilityService.instance
+            ?: return jsonError("accessibility service not connected", 503)
+        val viewId = body.optString("viewId", "")
+        val action = body.optString("action", "")
+        val text   = body.optString("text", null)
+        if (viewId.isBlank() || action.isBlank()) return jsonError("viewId and action required", 400)
+        val result = svc.performNodeAction(viewId, action, text)
+        return jsonOk(JSONObject().put("success", result))
+    }
+
+    private fun handleA11yClick(body: JSONObject?): BridgeResponse {
+        if (body == null) return jsonError("missing body", 400)
+        val svc = AgentAccessibilityService.instance
+            ?: return jsonError("accessibility service not connected", 503)
+        val x = body.optInt("x", -1)
+        val y = body.optInt("y", -1)
+        if (x < 0 || y < 0) return jsonError("x and y coordinates required", 400)
+        val result = svc.clickAtCoordinates(x, y)
+        return jsonOk(JSONObject().put("success", result))
+    }
+
+    private fun handleA11yGlobal(body: JSONObject?): BridgeResponse {
+        if (body == null) return jsonError("missing body", 400)
+        val svc = AgentAccessibilityService.instance
+            ?: return jsonError("accessibility service not connected", 503)
+        val action = body.optString("action", "")
+        if (action.isBlank()) return jsonError("action required", 400)
+        val result = svc.performGlobalAction(action)
+        return jsonOk(JSONObject().put("success", result))
+    }
+
+    private fun handleA11yScreenshot(): BridgeResponse {
+        val svc = AgentAccessibilityService.instance
+            ?: return jsonError("accessibility service not connected", 503)
+        val b64 = svc.captureScreenshot()
+            ?: return jsonError("screenshot failed (requires Android 11+)", 500)
+        return jsonOk(JSONObject().apply {
+            put("format", "jpeg")
+            put("data_base64", b64)
+        })
+    }
+
+    // -------------------------------------------------------------------------
+    // Notification Listener endpoints
+    // -------------------------------------------------------------------------
+
+    private fun handleNotificationsGet(): BridgeResponse {
+        val svc = AgentNotificationListener.instance
+            ?: return jsonError("notification listener not connected — enable in Settings", 503)
+        return jsonOk(svc.getActiveNotificationsJson())
+    }
+
+    private fun handleNotificationsHistory(): BridgeResponse {
+        val svc = AgentNotificationListener.instance
+            ?: return jsonError("notification listener not connected", 503)
+        return jsonOk(svc.getHistoryJson())
+    }
+
+    private fun handleNotificationsReply(body: JSONObject?): BridgeResponse {
+        if (body == null) return jsonError("missing body", 400)
+        val svc = AgentNotificationListener.instance
+            ?: return jsonError("notification listener not connected", 503)
+        val key  = body.optString("key", "")
+        val text = body.optString("text", "")
+        if (key.isBlank() || text.isBlank()) return jsonError("key and text required", 400)
+        val result = svc.replyToNotification(key, text)
+        return if (result) jsonOk(JSONObject().put("replied", true))
+        else jsonError("no reply action found on notification", 404)
+    }
+
+    private fun handleNotificationsDismiss(body: JSONObject?): BridgeResponse {
+        if (body == null) return jsonError("missing body", 400)
+        val svc = AgentNotificationListener.instance
+            ?: return jsonError("notification listener not connected", 503)
+        val key = body.optString("key", "")
+        if (key.isBlank()) return jsonError("key required", 400)
+        val result = svc.dismissNotificationByKey(key)
+        return jsonOk(JSONObject().put("dismissed", result))
+    }
+
+    // -------------------------------------------------------------------------
+    // Call Screening endpoints
+    // -------------------------------------------------------------------------
+
+    private fun handleCallsPending(): BridgeResponse {
+        return jsonOk(AgentCallScreeningService.getPendingCallsJson())
+    }
+
+    private fun handleCallsHistory(): BridgeResponse {
+        return jsonOk(AgentCallScreeningService.getHistoryJson())
+    }
+
+    private fun handleCallsRespond(body: JSONObject?): BridgeResponse {
+        if (body == null) return jsonError("missing body", 400)
+        val callId = body.optString("callId", "")
+        val action = body.optString("action", "")
+        if (callId.isBlank() || action.isBlank()) return jsonError("callId and action required", 400)
+        val result = AgentCallScreeningService.respondToCall(callId, action)
+        return if (result) jsonOk(JSONObject().put("responded", true))
+        else jsonError("call not found or already decided", 404)
     }
 
     // -------------------------------------------------------------------------
