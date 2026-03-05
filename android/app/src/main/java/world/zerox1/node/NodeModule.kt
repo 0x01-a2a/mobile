@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.os.Build
 import android.util.Base64
 import android.util.Log
 import androidx.core.app.ActivityCompat
@@ -63,11 +62,7 @@ class NodeModule(private val ctx: ReactApplicationContext)
 
     init {
         val filter = IntentFilter(NodeService.ACTION_STATUS)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ctx.registerReceiver(statusReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            ctx.registerReceiver(statusReceiver, filter)
-        }
+        ctx.registerReceiver(statusReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
     }
 
     override fun getName() = "ZeroxNodeModule"
@@ -119,11 +114,7 @@ class NodeModule(private val ctx: ReactApplicationContext)
                 if (config.hasKey("autoAccept"))       putExtra(NodeService.EXTRA_AUTO_ACCEPT,    config.getBoolean("autoAccept"))
                 if (config.hasKey("agentBrainEnabled")) putExtra(NodeService.EXTRA_BRAIN_ENABLED, config.getBoolean("agentBrainEnabled"))
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                ctx.startForegroundService(intent)
-            } else {
-                ctx.startService(intent)
-            }
+            ctx.startForegroundService(intent)
             isNodeRunning = true
             promise.resolve(null)
         } catch (e: Exception) {
@@ -304,6 +295,67 @@ class NodeModule(private val ctx: ReactApplicationContext)
         }
         permissionListener = listener
         activity.requestPermissions(arrayOf(manifest), PERMISSION_REQUEST_CODE, listener)
+    }
+
+    // -------------------------------------------------------------------------
+    // Bridge capability settings (read/write SharedPreferences)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Set or clear a bridge capability toggle.
+     * Keys: "messaging", "contacts", "location", "camera", "microphone",
+     *       "screen", "calls", "calendar", "media"
+     * Default for all keys is enabled (true) — disable explicitly.
+     */
+    @ReactMethod
+    fun setBridgeCapability(capability: String, enabled: Boolean, promise: Promise) {
+        try {
+            ctx.getSharedPreferences("zerox1_bridge", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("bridge_cap_$capability", enabled)
+                .apply()
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("PREFS_ERROR", e.message)
+        }
+    }
+
+    /**
+     * Read all bridge capability toggles. Returns a map of capability → boolean.
+     */
+    @ReactMethod
+    fun getBridgeCapabilities(promise: Promise) {
+        try {
+            val prefs = ctx.getSharedPreferences("zerox1_bridge", android.content.Context.MODE_PRIVATE)
+            val caps  = listOf(
+                "messaging", "contacts", "location", "camera",
+                "microphone", "screen", "calls", "calendar", "media",
+            )
+            val result = WritableNativeMap()
+            for (cap in caps) {
+                result.putBoolean(cap, prefs.getBoolean("bridge_cap_$cap", true))
+            }
+            promise.resolve(result)
+        } catch (e: Exception) {
+            promise.reject("PREFS_ERROR", e.message)
+        }
+    }
+
+    /**
+     * Fetch the bridge activity log from the PhoneBridgeServer.
+     * Returns a JSON string (array of {time, capability, action, outcome}).
+     * Only works while the node/agent is running.
+     */
+    @ReactMethod
+    fun getBridgeActivityLog(limit: Int, promise: Promise) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val json = BridgeActivityLog.toJson(limit.coerceIn(1, 200))
+                promise.resolve(json.toString())
+            } catch (e: Exception) {
+                promise.reject("LOG_ERROR", e.message)
+            }
+        }
     }
 
     // Required for addListener / removeListeners (RN event emitter contract)

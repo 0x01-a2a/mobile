@@ -15,7 +15,7 @@ import { Platform } from 'react-native';
 // Types
 // ============================================================================
 
-export type LlmProvider = 'anthropic' | 'openai' | 'gemini' | 'groq';
+export type LlmProvider = 'anthropic' | 'openai' | 'gemini' | 'groq' | 'custom';
 
 export type Capability =
   | 'summarization'
@@ -44,10 +44,11 @@ export interface ProviderInfo {
 }
 
 export const PROVIDERS: ProviderInfo[] = [
+  { key: 'gemini', label: 'Gemini', model: 'gemini-2.5-flash', hint: 'aistudio.google.com' },
   { key: 'anthropic', label: 'Claude', model: 'claude-haiku-4-5-20251001', hint: 'console.anthropic.com' },
   { key: 'openai', label: 'OpenAI', model: 'gpt-4o-mini', hint: 'platform.openai.com' },
-  { key: 'gemini', label: 'Gemini', model: 'gemini-2.0-flash', hint: 'aistudio.google.com' },
   { key: 'groq', label: 'Groq', model: 'llama-3.1-8b-instant', hint: 'console.groq.com' },
+  { key: 'custom', label: 'Custom', model: 'Any supported SDK model', hint: 'Your custom endpoint URL' },
 ];
 
 export interface AgentBrainConfig {
@@ -59,16 +60,20 @@ export interface AgentBrainConfig {
   autoAccept: boolean;
   /** True when an API key is stored in the keychain. Never store the key here. */
   apiKeySet: boolean;
+  customModel?: string;
+  customBaseUrl?: string;
 }
 
 const DEFAULT_CONFIG: AgentBrainConfig = {
   enabled: false,
-  provider: 'anthropic',
+  provider: 'gemini',
   capabilities: ['summarization', 'qa'],
   minFeeUsdc: 0.01,
   minReputation: 50,
   autoAccept: true,
   apiKeySet: false,
+  customModel: '',
+  customBaseUrl: '',
 };
 
 // ============================================================================

@@ -105,7 +105,7 @@ class NodeService : Service() {
         val agentName    = intent?.getStringExtra(EXTRA_AGENT_NAME) ?: "zerox1-agent"
         val rpcUrl       = intent?.getStringExtra(EXTRA_RPC_URL) ?: "https://api.devnet.solana.com"
         val brainEnabled = intent?.getBooleanExtra(EXTRA_BRAIN_ENABLED, false) ?: false
-        val llmProvider  = intent?.getStringExtra(EXTRA_LLM_PROVIDER) ?: "anthropic"
+        val llmProvider  = intent?.getStringExtra(EXTRA_LLM_PROVIDER) ?: "gemini"
         val capabilities = intent?.getStringExtra(EXTRA_CAPABILITIES) ?: "[]"
         val minFee       = intent?.getDoubleExtra(EXTRA_MIN_FEE, 0.01) ?: 0.01
         val minRep       = intent?.getIntExtra(EXTRA_MIN_REP, 50) ?: 50
@@ -318,12 +318,12 @@ class NodeService : Service() {
         autoAccept:   Boolean,
     ) {
         val modelMap = mapOf(
+            "gemini"    to "gemini-2.5-flash",
             "anthropic" to "claude-haiku-4-5-20251001",
             "openai"    to "gpt-4o-mini",
-            "gemini"    to "gemini-2.0-flash",
             "groq"      to "llama-3.1-8b-instant",
         )
-        val model = modelMap[provider] ?: "claude-haiku-4-5-20251001"
+        val model = modelMap[provider] ?: "gemini-2.5-flash"
 
         // CRIT-4: Read API key from secure storage, not from intent.
         val apiKey = getLlmApiKey() ?: ""

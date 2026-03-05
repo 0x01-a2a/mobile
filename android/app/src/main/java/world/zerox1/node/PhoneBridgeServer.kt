@@ -30,7 +30,6 @@ import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.VibrationEffect
-import android.os.Vibrator
 import android.os.VibratorManager
 import android.provider.MediaStore
 import android.telephony.TelephonyManager
@@ -52,6 +51,7 @@ import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.*
+import java.net.HttpURLConnection
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
@@ -161,6 +161,18 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
 
                 val response = route(method, path, params, bodyJson)
                 writeResponse(socket, response.body, response.status)
+                // Log every bridge call to the activity log (skip health-check paths).
+                if (path != "/phone/permissions" && path != "/phone/activity_log") {
+                    val outcome = when {
+                        response.status == 403 -> if (response.body.contains("CAPABILITY_DISABLED"))
+                            "disabled" else "denied"
+                        response.status == 429 -> "rate_limited"
+                        response.status in 200..299 -> "ok"
+                        else -> "error"
+                    }
+                    val (cap, action) = describeRequest(method, path, params, bodyJson)
+                    BridgeActivityLog.record(cap, action, outcome)
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "Client error: $e")
                 val err = jsonError("INTERNAL_ERROR: ${e.message}", 500)
@@ -169,6 +181,18 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
         }
     }
 
+    // ── Capability gate ──────────────────────────────────────────────────────
+    // SharedPreferences key: bridge_cap_<name> → Boolean (default true)
+    private fun isCapEnabled(cap: String): Boolean =
+        context.getSharedPreferences("zerox1_bridge", android.content.Context.MODE_PRIVATE)
+            .getBoolean("bridge_cap_$cap", true)
+
+    private fun capDisabled(cap: String): BridgeResponse =
+        BridgeResponse(
+            JSONObject().apply { put("ok", false); put("error", "CAPABILITY_DISABLED"); put("capability", cap) }.toString(),
+            403
+        )
+
     private fun route(
         method: String,
         path: String,
@@ -176,56 +200,170 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
         body: JSONObject?,
     ): BridgeResponse {
         return when {
-            method == "GET"  && path == "/phone/contacts"        -> handleContactsRead(params)
-            method == "POST" && path == "/phone/contacts"        -> handleContactsWrite(body)
-            method == "GET"  && path == "/phone/sms"             -> handleSmsRead(params)
-            method == "POST" && path == "/phone/sms/send"        -> handleSmsSend(body)
-            method == "GET"  && path == "/phone/location"        -> handleLocation()
-            method == "GET"  && path == "/phone/calendar"        -> handleCalendarRead(params)
-            method == "POST" && path == "/phone/calendar"        -> handleCalendarWrite(body)
-            method == "POST" && path == "/phone/notify"          -> handleNotify(body)
-            method == "GET"  && path == "/phone/call_log"        -> handleCallLog(params)
-            method == "GET"  && path == "/phone/clipboard"       -> handleClipboardRead()
-            method == "POST" && path == "/phone/clipboard"       -> handleClipboardWrite(body)
-            method == "POST" && path == "/phone/camera/capture"  -> handleCameraCapture(body)
-            method == "POST" && path == "/phone/audio/record"    -> handleAudioRecord(body)
-            method == "GET"  && path == "/phone/permissions"     -> handlePermissions()
-            method == "GET"  && path == "/phone/device"          -> handleDevice()
-            method == "GET"  && path == "/phone/battery"         -> handleBattery()
-            method == "POST" && path == "/phone/vibrate"         -> handleVibrate(body)
-            method == "GET"  && path == "/phone/timezone"        -> handleTimezone()
-            method == "GET"  && path == "/phone/network"         -> handleNetwork()
-            method == "GET"  && path == "/phone/wifi"            -> handleWifi()
-            method == "GET"  && path == "/phone/carrier"         -> handleCarrier()
-            method == "GET"  && path == "/phone/bluetooth"       -> handleBluetooth()
-            method == "GET"  && path == "/phone/activity"        -> handleActivity()
-            method == "GET"  && path == "/phone/media/images"    -> handleMediaImages(params)
+            // ---- Contacts ----
+            method == "GET"  && path == "/phone/contacts" ->
+                if (!isCapEnabled("contacts")) capDisabled("contacts") else handleContactsRead(params)
+            method == "POST" && path == "/phone/contacts" ->
+                if (!isCapEnabled("contacts")) capDisabled("contacts") else handleContactsWrite(body)
             method == "PUT"  && path.startsWith("/phone/contacts/") ->
-                handleContactsUpdate(path.substringAfterLast("/"), body)
-            method == "PUT"  && path.startsWith("/phone/calendar/") ->
-                handleCalendarUpdate(path.substringAfterLast("/"), body)
+                if (!isCapEnabled("contacts")) capDisabled("contacts")
+                else handleContactsUpdate(path.substringAfterLast("/"), body)
 
-            // ---- Accessibility Service (God Mode) ----
-            method == "GET"  && path == "/phone/a11y/status"      -> handleA11yStatus()
-            method == "GET"  && path == "/phone/a11y/tree"        -> handleA11yTree()
-            method == "POST" && path == "/phone/a11y/action"      -> handleA11yAction(body)
-            method == "POST" && path == "/phone/a11y/click"       -> handleA11yClick(body)
-            method == "POST" && path == "/phone/a11y/global"      -> handleA11yGlobal(body)
-            method == "GET"  && path == "/phone/a11y/screenshot"  -> handleA11yScreenshot()
+            // ---- SMS / Messaging ----
+            method == "GET"  && path == "/phone/sms" ->
+                if (!isCapEnabled("messaging")) capDisabled("messaging") else handleSmsRead(params)
+            method == "POST" && path == "/phone/sms/send" ->
+                if (!isCapEnabled("messaging")) capDisabled("messaging") else handleSmsSend(body)
+
+            // ---- Location ----
+            method == "GET"  && path == "/phone/location" ->
+                if (!isCapEnabled("location")) capDisabled("location") else handleLocation()
+
+            // ---- Calendar ----
+            method == "GET"  && path == "/phone/calendar" ->
+                if (!isCapEnabled("calendar")) capDisabled("calendar") else handleCalendarRead(params)
+            method == "POST" && path == "/phone/calendar" ->
+                if (!isCapEnabled("calendar")) capDisabled("calendar") else handleCalendarWrite(body)
+            method == "PUT"  && path.startsWith("/phone/calendar/") ->
+                if (!isCapEnabled("calendar")) capDisabled("calendar")
+                else handleCalendarUpdate(path.substringAfterLast("/"), body)
+
+            // ---- Notifications (push from app) ----
+            method == "POST" && path == "/phone/notify"  -> handleNotify(body)
+
+            // ---- Call log ----
+            method == "GET"  && path == "/phone/call_log" ->
+                if (!isCapEnabled("calls")) capDisabled("calls") else handleCallLog(params)
+
+            // ---- Clipboard ----
+            method == "POST" && path == "/phone/clipboard"  -> handleClipboardWrite(body)
+
+            // ---- Camera ----
+            method == "POST" && path == "/phone/camera/capture" ->
+                if (!isCapEnabled("camera")) capDisabled("camera") else handleCameraCapture(body)
+
+            // ---- Microphone ----
+            method == "POST" && path == "/phone/audio/record" ->
+                if (!isCapEnabled("microphone")) capDisabled("microphone") else handleAudioRecord(body)
+
+            // ---- Audio profile (volume + DND) ----
+            method == "GET"  && path == "/phone/audio/profile" -> handleAudioProfileGet()
+            method == "POST" && path == "/phone/audio/profile" -> handleAudioProfileSet(body)
+
+            // ---- Alarm ----
+            method == "POST" && path == "/phone/alarm" -> handleAlarmSet(body)
+
+            // ---- App usage (screen time) ----
+            method == "GET"  && path == "/phone/app_usage" -> handleAppUsage(params)
+
+            // ---- Documents ----
+            method == "GET"  && path == "/phone/documents" ->
+                if (!isCapEnabled("media")) capDisabled("media") else handleDocuments(params)
+
+            // ---- Device context (no sensitive data) ----
+            method == "GET"  && path == "/phone/permissions" -> handlePermissions()
+            method == "GET"  && path == "/phone/device"      -> handleDevice()
+            method == "GET"  && path == "/phone/battery"     -> handleBattery()
+            method == "POST" && path == "/phone/vibrate"     -> handleVibrate(body)
+            method == "GET"  && path == "/phone/timezone"    -> handleTimezone()
+            method == "GET"  && path == "/phone/network"     -> handleNetwork()
+            method == "GET"  && path == "/phone/wifi"        -> handleWifi()
+            method == "GET"  && path == "/phone/carrier"     -> handleCarrier()
+            method == "GET"  && path == "/phone/bluetooth"   -> handleBluetooth()
+            method == "GET"  && path == "/phone/activity"    -> handleActivity()
+
+            // ---- Media images ----
+            method == "GET"  && path == "/phone/media/images" ->
+                if (!isCapEnabled("media")) capDisabled("media") else handleMediaImages(params)
+
+            // ---- Accessibility Service ----
+            method == "GET"  && path == "/phone/a11y/status"     -> handleA11yStatus()
+            method == "GET"  && path == "/phone/a11y/tree"       ->
+                if (!isCapEnabled("screen")) capDisabled("screen") else handleA11yTree()
+            method == "POST" && path == "/phone/a11y/action"     ->
+                if (!isCapEnabled("screen")) capDisabled("screen") else handleA11yAction(body)
+            method == "POST" && path == "/phone/a11y/click"      ->
+                if (!isCapEnabled("screen")) capDisabled("screen") else handleA11yClick(body)
+            method == "POST" && path == "/phone/a11y/global"     ->
+                if (!isCapEnabled("screen")) capDisabled("screen") else handleA11yGlobal(body)
+            method == "GET"  && path == "/phone/a11y/screenshot" ->
+                if (!isCapEnabled("screen")) capDisabled("screen") else handleA11yScreenshot()
+            method == "POST" && path == "/phone/a11y/vision"      ->
+                if (!isCapEnabled("screen")) capDisabled("screen") else handleA11yVision(body)
 
             // ---- Notification Listener ----
-            method == "GET"  && path == "/phone/notifications"          -> handleNotificationsGet()
-            method == "GET"  && path == "/phone/notifications/history"  -> handleNotificationsHistory()
-            method == "POST" && path == "/phone/notifications/reply"    -> handleNotificationsReply(body)
-            method == "POST" && path == "/phone/notifications/dismiss"  -> handleNotificationsDismiss(body)
+            method == "GET"  && path == "/phone/notifications"         ->
+                if (!isCapEnabled("messaging")) capDisabled("messaging") else handleNotificationsGet()
+            method == "GET"  && path == "/phone/notifications/history" ->
+                if (!isCapEnabled("messaging")) capDisabled("messaging") else handleNotificationsHistory()
+            method == "POST" && path == "/phone/notifications/reply"   ->
+                if (!isCapEnabled("messaging")) capDisabled("messaging") else handleNotificationsReply(body)
+            method == "POST" && path == "/phone/notifications/dismiss" ->
+                if (!isCapEnabled("messaging")) capDisabled("messaging") else handleNotificationsDismiss(body)
 
             // ---- Call Screening ----
-            method == "GET"  && path == "/phone/calls/pending"    -> handleCallsPending()
-            method == "GET"  && path == "/phone/calls/history"    -> handleCallsHistory()
-            method == "POST" && path == "/phone/calls/respond"    -> handleCallsRespond(body)
+            method == "GET"  && path == "/phone/calls/pending"  ->
+                if (!isCapEnabled("calls")) capDisabled("calls") else handleCallsPending()
+            method == "GET"  && path == "/phone/calls/history"  ->
+                if (!isCapEnabled("calls")) capDisabled("calls") else handleCallsHistory()
+            method == "POST" && path == "/phone/calls/respond"  ->
+                if (!isCapEnabled("calls")) capDisabled("calls") else handleCallsRespond(body)
+
+            // ---- Activity log ----
+            method == "GET"  && path == "/phone/activity_log"   -> handleActivityLog(params)
 
             else -> jsonError("NOT_FOUND: $method $path", 404)
         }
+    }
+
+    // ── Request description (for human-readable activity log) ─────────────
+    private fun describeRequest(
+        method: String,
+        path: String,
+        params: Map<String, String>,
+        body: JSONObject?,
+    ): Pair<String, String> = when {
+        path == "/phone/contacts" && method == "GET"  -> "CONTACTS" to "Read contacts${params["query"]?.let { " (search: $it)" } ?: ""}"
+        path == "/phone/contacts" && method == "POST" -> "CONTACTS" to "Added contact \"${body?.optString("name") ?: "?"}\""
+        path.startsWith("/phone/contacts/") && method == "PUT" -> "CONTACTS" to "Updated contact ${path.substringAfterLast("/")}"
+        path == "/phone/sms" -> "MESSAGING" to "Read ${params["box"] ?: "inbox"} SMS messages"
+        path == "/phone/sms/send" -> "MESSAGING" to "Sent SMS to ${body?.optString("to") ?: "?"}"
+        path == "/phone/location" -> "LOCATION" to "Read GPS location"
+        path == "/phone/calendar" && method == "GET"  -> "CALENDAR" to "Read calendar (next ${params["days"] ?: "7"} days)"
+        path == "/phone/calendar" && method == "POST" -> "CALENDAR" to "Created event \"${body?.optString("title") ?: "?"}\""
+        path.startsWith("/phone/calendar/") && method == "PUT" -> "CALENDAR" to "Updated event ${path.substringAfterLast("/")}"
+        path == "/phone/notify" -> "SYSTEM" to "Sent notification \"${body?.optString("title") ?: "?"}\""
+        path == "/phone/call_log" -> "CALLS" to "Read call log"
+        path == "/phone/clipboard" && method == "POST" -> "SYSTEM" to "Wrote to clipboard"
+        path == "/phone/camera/capture" -> "CAMERA" to "Captured photo (${body?.optString("facing") ?: "back"} camera)"
+        path == "/phone/audio/record" -> "MICROPHONE" to "Recorded ${body?.optLong("duration_ms", 3000)?.div(1000) ?: 3}s audio"
+        path == "/phone/audio/profile" && method == "GET"  -> "SYSTEM" to "Read volume / DND mode"
+        path == "/phone/audio/profile" && method == "POST" -> "SYSTEM" to "Changed volume / DND mode"
+        path == "/phone/alarm" -> "SYSTEM" to "Set alarm for ${body?.optString("message") ?: "?"}"
+        path == "/phone/app_usage" -> "SYSTEM" to "Read app usage stats (${params["days"] ?: "7"} days)"
+        path == "/phone/documents" -> "MEDIA" to "Listed documents"
+        path == "/phone/battery"   -> "SYSTEM" to "Read battery status"
+        path == "/phone/network"   -> "SYSTEM" to "Read network status"
+        path == "/phone/wifi"      -> "SYSTEM" to "Read WiFi info"
+        path == "/phone/carrier"   -> "SYSTEM" to "Read carrier info"
+        path == "/phone/bluetooth" -> "SYSTEM" to "Read Bluetooth devices"
+        path == "/phone/activity"  -> "SYSTEM" to "Read step count"
+        path == "/phone/media/images" -> "MEDIA" to "Listed photos"
+        path == "/phone/vibrate"   -> "SYSTEM" to "Triggered vibration"
+        path == "/phone/a11y/tree" -> "SCREEN" to "Read UI tree"
+        path == "/phone/a11y/action" -> "SCREEN" to "Performed UI action \"${body?.optString("action") ?: "?"}\""
+        path == "/phone/a11y/click" -> "SCREEN" to "Tapped at (${body?.optInt("x") ?: "?"}, ${body?.optInt("y") ?: "?"})"
+        path == "/phone/a11y/global" -> "SCREEN" to "Global action: ${body?.optString("action") ?: "?"}"
+        path == "/phone/a11y/screenshot" -> "SCREEN" to "Took screenshot"
+        path == "/phone/notifications" -> "MESSAGING" to "Read active notifications"
+        path == "/phone/notifications/history" -> "MESSAGING" to "Read notification history"
+        path == "/phone/notifications/reply" -> "MESSAGING" to "Replied to notification from ${
+            body?.optString("key")?.substringBefore("|") ?: "?"}"
+        path == "/phone/notifications/dismiss" -> "MESSAGING" to "Dismissed notification"
+        path == "/phone/calls/pending" -> "CALLS" to "Checked pending calls"
+        path == "/phone/calls/history" -> "CALLS" to "Read call screening history"
+        path == "/phone/calls/respond" -> "CALLS" to "${body?.optString("action")?.replaceFirstChar { it.uppercase() } ?: "Handled"} incoming call"
+        else -> "SYSTEM" to "$method $path"
     }
 
     // -------------------------------------------------------------------------
@@ -350,11 +488,7 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
         }
 
         return try {
-            // SmsManager.getDefault() is deprecated in API 31+; use system service on newer devices
-            val smsManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
-                context.getSystemService(android.telephony.SmsManager::class.java)
-            else
-                @Suppress("DEPRECATION") android.telephony.SmsManager.getDefault()
+            val smsManager = context.getSystemService(android.telephony.SmsManager::class.java)
             smsManager.sendTextMessage(to, null, msg, null, null)
             jsonOk(JSONObject().put("sent", true))
         } catch (e: Exception) {
@@ -469,14 +603,12 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
         }
 
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            nm.createNotificationChannel(
-                NotificationChannel(
-                    NOTIF_CHANNEL_ID, "0x01 Agent Bridge",
-                    NotificationManager.IMPORTANCE_DEFAULT
-                )
+        nm.createNotificationChannel(
+            NotificationChannel(
+                NOTIF_CHANNEL_ID, "0x01 Agent Bridge",
+                NotificationManager.IMPORTANCE_DEFAULT
             )
-        }
+        )
         val notif = NotificationCompat.Builder(context, NOTIF_CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(message)
@@ -523,13 +655,6 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
             }
         }
         return jsonOk(results)
-    }
-
-    private fun handleClipboardRead(): BridgeResponse {
-        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE)
-            as android.content.ClipboardManager
-        val text = cm.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString() ?: ""
-        return jsonOk(JSONObject().put("text", text))
     }
 
     private fun handleClipboardWrite(body: JSONObject?): BridgeResponse {
@@ -716,20 +841,9 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
             "RECORD_AUDIO"         to Manifest.permission.RECORD_AUDIO,
             "READ_PHONE_STATE"     to Manifest.permission.READ_PHONE_STATE,
         )
-        // READ_MEDIA_IMAGES is API 33+; fall back to READ_EXTERNAL_STORAGE on older devices
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            perms["READ_MEDIA_IMAGES"] = Manifest.permission.READ_MEDIA_IMAGES
-        } else {
-            perms["READ_EXTERNAL_STORAGE"] = Manifest.permission.READ_EXTERNAL_STORAGE
-        }
-        // BLUETOOTH_CONNECT is API 31+; older uses legacy BLUETOOTH
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            perms["BLUETOOTH_CONNECT"] = Manifest.permission.BLUETOOTH_CONNECT
-        }
-        // ACTIVITY_RECOGNITION is API 29+
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            perms["ACTIVITY_RECOGNITION"] = Manifest.permission.ACTIVITY_RECOGNITION
-        }
+        perms["READ_MEDIA_IMAGES"]      = Manifest.permission.READ_MEDIA_IMAGES
+        perms["BLUETOOTH_CONNECT"]      = Manifest.permission.BLUETOOTH_CONNECT
+        perms["ACTIVITY_RECOGNITION"]   = Manifest.permission.ACTIVITY_RECOGNITION
         val result = JSONObject()
         for ((name, manifest) in perms) {
             result.put(name, hasPermission(manifest))
@@ -739,21 +853,9 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
 
     private fun handleDevice(): BridgeResponse {
         val wm = context.getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager
-        val screenWidth: Int
-        val screenHeight: Int
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val bounds = wm.currentWindowMetrics.bounds
-            screenWidth  = bounds.width()
-            screenHeight = bounds.height()
-        } else {
-            @Suppress("DEPRECATION")
-            val display = wm.defaultDisplay
-            val size = android.graphics.Point()
-            @Suppress("DEPRECATION")
-            display.getSize(size)
-            screenWidth  = size.x
-            screenHeight = size.y
-        }
+        val bounds = wm.currentWindowMetrics.bounds
+        val screenWidth  = bounds.width()
+        val screenHeight = bounds.height()
         return jsonOk(JSONObject().apply {
             put("manufacturer",   Build.MANUFACTURER)
             put("model",          Build.MODEL)
@@ -800,27 +902,12 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
         val durationMs = body?.optLong("duration_ms", 200L)?.coerceIn(1L, 5_000L) ?: 200L
         val amplitude  = body?.optInt("amplitude", -1)?.coerceIn(-1, 255) ?: -1
         return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                val vm = context.getSystemService(VibratorManager::class.java)
-                val effect = if (amplitude == -1)
-                    VibrationEffect.createOneShot(durationMs, VibrationEffect.DEFAULT_AMPLITUDE)
-                else
-                    VibrationEffect.createOneShot(durationMs, amplitude)
-                vm.defaultVibrator.vibrate(effect)
-            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                @Suppress("DEPRECATION")
-                val vib = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-                val effect = if (amplitude == -1)
-                    VibrationEffect.createOneShot(durationMs, VibrationEffect.DEFAULT_AMPLITUDE)
-                else
-                    VibrationEffect.createOneShot(durationMs, amplitude)
-                vib.vibrate(effect)
-            } else {
-                @Suppress("DEPRECATION")
-                val vib = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-                @Suppress("DEPRECATION")
-                vib.vibrate(durationMs)
-            }
+            val vm = context.getSystemService(VibratorManager::class.java)
+            val effect = if (amplitude == -1)
+                VibrationEffect.createOneShot(durationMs, VibrationEffect.DEFAULT_AMPLITUDE)
+            else
+                VibrationEffect.createOneShot(durationMs, amplitude)
+            vm.defaultVibrator.vibrate(effect)
             jsonOk(JSONObject().put("vibrating", true).put("duration_ms", durationMs))
         } catch (e: Exception) {
             jsonError("vibrate failed: ${e.message}", 500)
@@ -918,9 +1005,7 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
             put("enabled", false)
             put("devices", JSONArray())
         })
-        // BLUETOOTH_CONNECT required on API 31+
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-            !hasPermission(Manifest.permission.BLUETOOTH_CONNECT)) return permDenied()
+        if (!hasPermission(Manifest.permission.BLUETOOTH_CONNECT)) return permDenied()
         val devices = JSONArray()
         for (device in adapter.bondedDevices ?: emptySet()) {
             devices.put(JSONObject().apply {
@@ -941,11 +1026,6 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
     }
 
     private fun handleActivity(): BridgeResponse {
-        // ACTIVITY_RECOGNITION is a dangerous permission only from API 29+;
-        // checkSelfPermission returns DENIED for unknown strings on older SDKs even though
-        // the sensor would work. Return a clear error rather than a misleading PERMISSION_DENIED.
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q)
-            return jsonError("step counter requires Android 10+", 400)
         if (!hasPermission(Manifest.permission.ACTIVITY_RECOGNITION)) return permDenied()
         val sm = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
         val sensor = sm.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
@@ -970,11 +1050,7 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
     }
 
     private fun handleMediaImages(params: Map<String, String>): BridgeResponse {
-        val perm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-            Manifest.permission.READ_MEDIA_IMAGES
-        else
-            Manifest.permission.READ_EXTERNAL_STORAGE
-        if (!hasPermission(perm)) return permDenied()
+        if (!hasPermission(Manifest.permission.READ_MEDIA_IMAGES)) return permDenied()
 
         val limit  = params["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 20
         val offset = params["offset"]?.toIntOrNull()?.coerceAtLeast(0) ?: 0
@@ -1148,6 +1224,168 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
     }
 
     // -------------------------------------------------------------------------
+    // Gemini Vision — screenshot + optional UI tree → structured actions
+    // -------------------------------------------------------------------------
+
+    /**
+     * POST /phone/a11y/vision
+     * Body: { "prompt": "...", "include_tree": true|false }
+     *
+     * Captures a screenshot, optionally includes the UI tree, and sends both
+     * to Gemini 2.5 Flash Vision for analysis. Returns the model's response
+     * with structured action suggestions.
+     */
+    // Rate limit: max 1 vision call per 3 seconds
+    @Volatile
+    private var lastVisionCallMs = 0L
+
+    private fun handleA11yVision(body: JSONObject?): BridgeResponse {
+        // Rate limit
+        val now = System.currentTimeMillis()
+        if (now - lastVisionCallMs < 3_000L) {
+            return jsonError("Vision rate limited (max 1 call per 3s)", 429)
+        }
+        lastVisionCallMs = now
+
+        // 1. Validate input
+        val prompt = body?.optString("prompt", "")?.takeIf { it.isNotBlank() }
+            ?: return jsonError("'prompt' is required", 400)
+        val includeTree = body.optBoolean("include_tree", false)
+
+        // 2. Read API key from encrypted storage
+        val apiKey = getGeminiApiKey()
+            ?: return jsonError("No Gemini API key configured — set it in Settings → Agent Brain", 400)
+
+        // 3. Capture screenshot
+        val svc = AgentAccessibilityService.instance
+            ?: return jsonError("accessibility service not connected — enable in Settings", 503)
+        val screenshotB64 = svc.captureScreenshot()
+            ?: return jsonError("screenshot failed (requires Android 11+)", 500)
+
+        // 4. Build system prompt with optional UI tree context
+        val systemParts = StringBuilder()
+        systemParts.append("You are a device-control AI. Analyze the screenshot and respond with a JSON object containing:\n")
+        systemParts.append("- \"analysis\": a brief description of what you see on screen\n")
+        systemParts.append("- \"actions\": an array of actions to perform, each with:\n")
+        systemParts.append("  - \"type\": \"click\" | \"type_text\" | \"scroll\" | \"global\" | \"wait\"\n")
+        systemParts.append("  - \"x\", \"y\": pixel coordinates (for click)\n")
+        systemParts.append("  - \"text\": text to type (for type_text)\n")
+        systemParts.append("  - \"direction\": \"up\" | \"down\" | \"left\" | \"right\" (for scroll)\n")
+        systemParts.append("  - \"action\": \"BACK\" | \"HOME\" | \"RECENTS\" (for global)\n")
+        systemParts.append("  - \"description\": what this action does\n")
+        systemParts.append("Respond ONLY with valid JSON, no markdown fences.")
+
+        if (includeTree) {
+            try {
+                val tree = svc.dumpUiTree()
+                systemParts.append("\n\nUI accessibility tree:\n")
+                systemParts.append(tree.toString().take(8000)) // Cap at 8K chars
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to dump UI tree for vision context: $e")
+            }
+        }
+
+        // 5. Build Gemini API request — API key in header, not URL
+        val model = "gemini-2.5-flash"
+        val url = java.net.URL(
+            "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"
+        )
+
+        val requestBody = JSONObject().apply {
+            put("contents", JSONArray().put(JSONObject().apply {
+                put("parts", JSONArray().apply {
+                    // Text part: system instructions + user prompt
+                    put(JSONObject().apply {
+                        put("text", "${systemParts}\n\nUser request: $prompt")
+                    })
+                    // Image part: screenshot
+                    put(JSONObject().apply {
+                        put("inline_data", JSONObject().apply {
+                            put("mime_type", "image/jpeg")
+                            put("data", screenshotB64)
+                        })
+                    })
+                })
+            }))
+            put("generationConfig", JSONObject().apply {
+                put("temperature", 0.1)
+                put("maxOutputTokens", 2048)
+            })
+        }
+
+        // 6. Call Gemini API (blocking — ok because bridge runs on IO thread)
+        return try {
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.setRequestProperty("x-goog-api-key", apiKey)
+            conn.connectTimeout = 15_000
+            conn.readTimeout = 30_000
+            conn.doOutput = true
+
+            conn.outputStream.bufferedWriter().use { it.write(requestBody.toString()) }
+
+            val responseCode = conn.responseCode
+            val responseText = if (responseCode in 200..299) {
+                conn.inputStream.bufferedReader().use { it.readText() }
+            } else {
+                val errorText = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
+                conn.disconnect()
+                return jsonError("Gemini API error ($responseCode): $errorText", 502)
+            }
+            conn.disconnect()
+
+            // 7. Parse response — extract text from candidates[0].content.parts[0].text
+            val geminiResp = JSONObject(responseText)
+            val candidates = geminiResp.optJSONArray("candidates")
+            val text = candidates
+                ?.optJSONObject(0)
+                ?.optJSONObject("content")
+                ?.optJSONArray("parts")
+                ?.optJSONObject(0)
+                ?.optString("text", "")
+                ?: ""
+
+            // Try to parse the model output as JSON; if it fails, return raw text
+            val result = try {
+                JSONObject(text.trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim())
+            } catch (_: Exception) {
+                JSONObject().apply {
+                    put("analysis", text)
+                    put("actions", JSONArray())
+                }
+            }
+
+            jsonOk(result)
+        } catch (e: Exception) {
+            Log.e(TAG, "Gemini Vision call failed: ${e.message}")
+            jsonError("Gemini Vision call failed: ${e.message}", 502)
+        }
+    }
+
+    /**
+     * Read the LLM API key from Android EncryptedSharedPreferences.
+     */
+    private fun getGeminiApiKey(): String? {
+        return try {
+            val masterKey = androidx.security.crypto.MasterKey.Builder(context)
+                .setKeyScheme(androidx.security.crypto.MasterKey.KeyScheme.AES256_GCM)
+                .build()
+            val prefs = androidx.security.crypto.EncryptedSharedPreferences.create(
+                context,
+                "zerox1_secure",
+                masterKey,
+                androidx.security.crypto.EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                androidx.security.crypto.EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+            )
+            prefs.getString("llm_api_key", null)?.takeIf { it.isNotBlank() }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to read API key: $e")
+            null
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Notification Listener endpoints
     // -------------------------------------------------------------------------
 
@@ -1205,6 +1443,228 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
         val result = AgentCallScreeningService.respondToCall(callId, action)
         return if (result) jsonOk(JSONObject().put("responded", true))
         else jsonError("call not found or already decided", 404)
+    }
+
+    // -------------------------------------------------------------------------
+    // New endpoints: audio profile, alarm, app usage, documents, activity log
+    // -------------------------------------------------------------------------
+
+    private fun handleAudioProfileGet(): BridgeResponse {
+        val am = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+        val streams = mapOf(
+            "music"        to android.media.AudioManager.STREAM_MUSIC,
+            "ring"         to android.media.AudioManager.STREAM_RING,
+            "notification" to android.media.AudioManager.STREAM_NOTIFICATION,
+            "alarm"        to android.media.AudioManager.STREAM_ALARM,
+            "voice_call"   to android.media.AudioManager.STREAM_VOICE_CALL,
+        )
+        val volumes = JSONObject()
+        for ((name, stream) in streams) {
+            volumes.put(name, JSONObject().apply {
+                put("volume", am.getStreamVolume(stream))
+                put("max",    am.getStreamMaxVolume(stream))
+            })
+        }
+        val nm2 = context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+        val dndMode = when (nm2.currentInterruptionFilter) {
+            android.app.NotificationManager.INTERRUPTION_FILTER_ALL       -> "all"
+            android.app.NotificationManager.INTERRUPTION_FILTER_PRIORITY  -> "priority"
+            android.app.NotificationManager.INTERRUPTION_FILTER_NONE      -> "none"
+            android.app.NotificationManager.INTERRUPTION_FILTER_ALARMS    -> "alarms"
+            else -> "unknown"
+        }
+
+        val ringerMode = when (am.ringerMode) {
+            android.media.AudioManager.RINGER_MODE_NORMAL  -> "normal"
+            android.media.AudioManager.RINGER_MODE_VIBRATE -> "vibrate"
+            android.media.AudioManager.RINGER_MODE_SILENT  -> "silent"
+            else -> "unknown"
+        }
+
+        return jsonOk(JSONObject().apply {
+            put("streams",     volumes)
+            put("ringer_mode", ringerMode)
+            put("dnd_mode",    dndMode)
+        })
+    }
+
+    private fun handleAudioProfileSet(body: JSONObject?): BridgeResponse {
+        if (body == null) return jsonError("missing body", 400)
+        val am = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+
+        // Set volume for a stream
+        val streamName = body.optString("stream", "")
+        val streamMap = mapOf(
+            "music"        to android.media.AudioManager.STREAM_MUSIC,
+            "ring"         to android.media.AudioManager.STREAM_RING,
+            "notification" to android.media.AudioManager.STREAM_NOTIFICATION,
+            "alarm"        to android.media.AudioManager.STREAM_ALARM,
+        )
+        if (streamName.isNotBlank() && body.has("volume")) {
+            val streamId = streamMap[streamName] ?: return jsonError("unknown stream: $streamName", 400)
+            if (!hasPermission(Manifest.permission.MODIFY_AUDIO_SETTINGS))
+                return permDenied()
+            val level = body.optInt("volume", -1)
+            val max   = am.getStreamMaxVolume(streamId)
+            if (level < 0 || level > max) return jsonError("volume must be 0–$max", 400)
+            am.setStreamVolume(streamId, level, 0)
+            return jsonOk(JSONObject().put("stream", streamName).put("volume", level))
+        }
+
+        // Set DND mode
+        val dnd = body.optString("dnd_mode", "")
+        if (dnd.isNotBlank()) {
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+            if (!nm.isNotificationPolicyAccessGranted)
+                return jsonError("PERMISSION_DENIED — grant Notification Policy access in Settings", 403)
+            val filter = when (dnd.lowercase()) {
+                "all"      -> android.app.NotificationManager.INTERRUPTION_FILTER_ALL
+                "priority" -> android.app.NotificationManager.INTERRUPTION_FILTER_PRIORITY
+                "none"     -> android.app.NotificationManager.INTERRUPTION_FILTER_NONE
+                "alarms"   -> android.app.NotificationManager.INTERRUPTION_FILTER_ALARMS
+                else       -> return jsonError("unknown dnd_mode: $dnd", 400)
+            }
+            nm.setInterruptionFilter(filter)
+            return jsonOk(JSONObject().put("dnd_mode", dnd))
+        }
+
+        return jsonError("provide 'stream' + 'volume' or 'dnd_mode'", 400)
+    }
+
+    private fun handleAlarmSet(body: JSONObject?): BridgeResponse {
+        if (body == null) return jsonError("missing body", 400)
+        val hour    = body.optInt("hour",   -1)
+        val minute  = body.optInt("minute", -1)
+        val message = body.optString("message", "")
+        if (hour < 0 || hour > 23 || minute < 0 || minute > 59)
+            return jsonError("hour (0-23) and minute (0-59) required", 400)
+
+        val intent = Intent(android.provider.AlarmClock.ACTION_SET_ALARM).apply {
+            putExtra(android.provider.AlarmClock.EXTRA_HOUR,    hour)
+            putExtra(android.provider.AlarmClock.EXTRA_MINUTES, minute)
+            if (message.isNotBlank())
+                putExtra(android.provider.AlarmClock.EXTRA_MESSAGE, message.take(200))
+            // SKIP_UI = true sets alarm silently; may not be honoured on all OEMs
+            putExtra(android.provider.AlarmClock.EXTRA_SKIP_UI, true)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        return try {
+            context.startActivity(intent)
+            jsonOk(JSONObject().apply {
+                put("hour",    hour)
+                put("minute",  minute)
+                put("message", message)
+            })
+        } catch (e: Exception) {
+            jsonError("could not set alarm: ${e.message}", 500)
+        }
+    }
+
+    @android.annotation.SuppressLint("WrongConstant")
+    private fun handleAppUsage(params: Map<String, String>): BridgeResponse {
+        val usm = context.getSystemService(android.app.usage.UsageStatsManager::class.java)
+        // Check if permission has been granted (it's a special permission, not runtime)
+        val days   = params["days"]?.toIntOrNull()?.coerceIn(1, 30) ?: 7
+        val endMs  = System.currentTimeMillis()
+        val startMs = endMs - days * 86_400_000L
+        val stats  = usm.queryUsageStats(
+            android.app.usage.UsageStatsManager.INTERVAL_DAILY, startMs, endMs
+        )
+        if (stats.isNullOrEmpty()) {
+            // Either no data or permission not granted — tell the user how to fix it
+            return jsonError(
+                "no usage data — grant Usage Access in Settings → Apps → Special access → Usage access",
+                403
+            )
+        }
+        // Aggregate by package, sort by total foreground time descending
+        val aggregated = stats
+            .groupBy { it.packageName }
+            .map { (pkg, entries) ->
+                val totalMs = entries.sumOf { it.totalTimeInForeground }
+                pkg to totalMs
+            }
+            .filter { it.second > 0 }
+            .sortedByDescending { it.second }
+            .take(params["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 20)
+
+        val pm = context.packageManager
+        val result = JSONArray()
+        for ((pkg, totalMs) in aggregated) {
+            val label = try { pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString() } catch (_: Exception) { pkg }
+            result.put(JSONObject().apply {
+                put("package",      pkg)
+                put("app_name",     label)
+                put("foreground_ms", totalMs)
+                put("foreground_min", totalMs / 60_000)
+            })
+        }
+        return jsonOk(result)
+    }
+
+    private fun handleDocuments(params: Map<String, String>): BridgeResponse {
+        if (!hasPermission(Manifest.permission.READ_MEDIA_IMAGES)) return permDenied()
+
+        val limit   = params["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 20
+        val query   = params["query"] ?: ""
+        val mimeFilter = params["type"] // "pdf", "doc", "text", or null for all
+        val mimeType = when (mimeFilter?.lowercase()) {
+            "pdf"  -> "application/pdf"
+            "doc"  -> "application/msword"
+            "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            "text" -> "text/plain"
+            else   -> null
+        }
+
+        val selection = buildString {
+            val conditions = mutableListOf<String>()
+            if (query.isNotBlank())
+                conditions.add("${MediaStore.Files.FileColumns.DISPLAY_NAME} LIKE '%${query.replace("'", "''")}%'")
+            if (mimeType != null)
+                conditions.add("${MediaStore.Files.FileColumns.MIME_TYPE} = '${mimeType.replace("'", "''")}'")
+            else
+                // Common document MIME types
+                conditions.add("${MediaStore.Files.FileColumns.MIME_TYPE} IN (" +
+                    "'application/pdf'," +
+                    "'application/msword'," +
+                    "'application/vnd.openxmlformats-officedocument.wordprocessingml.document'," +
+                    "'application/vnd.ms-excel'," +
+                    "'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'," +
+                    "'application/vnd.ms-powerpoint'," +
+                    "'application/vnd.openxmlformats-officedocument.presentationml.presentation'," +
+                    "'text/plain')")
+            if (conditions.isNotEmpty()) append(conditions.joinToString(" AND "))
+        }
+
+        val results = JSONArray()
+        context.contentResolver.query(
+            MediaStore.Files.getContentUri("external"),
+            arrayOf(
+                MediaStore.Files.FileColumns._ID,
+                MediaStore.Files.FileColumns.DISPLAY_NAME,
+                MediaStore.Files.FileColumns.MIME_TYPE,
+                MediaStore.Files.FileColumns.SIZE,
+                MediaStore.Files.FileColumns.DATE_MODIFIED,
+            ),
+            selection.ifBlank { null }, null,
+            "${MediaStore.Files.FileColumns.DATE_MODIFIED} DESC"
+        )?.use { cursor ->
+            while (cursor.moveToNext() && results.length() < limit) {
+                results.put(JSONObject().apply {
+                    put("id",            cursor.getLong(0))
+                    put("name",          cursor.getString(1) ?: "")
+                    put("mime_type",     cursor.getString(2) ?: "")
+                    put("size_bytes",    cursor.getLong(3))
+                    put("modified_ms",   cursor.getLong(4) * 1_000)
+                })
+            }
+        }
+        return jsonOk(results)
+    }
+
+    private fun handleActivityLog(params: Map<String, String>): BridgeResponse {
+        val limit = params["limit"]?.toIntOrNull()?.coerceIn(1, 200) ?: 50
+        return jsonOk(BridgeActivityLog.toJson(limit))
     }
 
     // -------------------------------------------------------------------------

@@ -18,6 +18,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Keychain from 'react-native-keychain';
+import { NodeModule } from '../native/NodeModule';
 
 let _apiBase = 'http://127.0.0.1:9090';
 let _wsBase = 'ws://127.0.0.1:9090';
@@ -695,6 +696,79 @@ export async function sweepUsdc(destination: string): Promise<SweepResult> {
     throw new Error(text || `HTTP ${res.status}`);
   }
   return res.json();
+}
+
+// ============================================================================
+// Bridge capabilities + activity log
+// ============================================================================
+
+export interface BridgeLogEntry {
+  time:       string;
+  timestamp:  number;
+  capability: string;
+  action:     string;
+  outcome:    'ok' | 'denied' | 'disabled' | 'rate_limited' | 'error';
+}
+
+const CAPABILITY_KEYS = [
+  'messaging', 'contacts', 'location', 'camera',
+  'microphone', 'screen', 'calls', 'calendar', 'media',
+] as const;
+
+export type BridgeCapabilityKey = typeof CAPABILITY_KEYS[number];
+
+const DEFAULT_CAPABILITIES: Record<BridgeCapabilityKey, boolean> = {
+  messaging: true, contacts: true, location: true, camera: true,
+  microphone: true, screen: true, calls: true, calendar: true, media: true,
+};
+
+/** Read + write bridge capability toggles (persisted via SharedPreferences). */
+export function useBridgeCapabilities(): {
+  caps: Record<BridgeCapabilityKey, boolean>;
+  loading: boolean;
+  toggle: (key: BridgeCapabilityKey, value: boolean) => Promise<void>;
+} {
+  const [caps, setCaps] = useState<Record<BridgeCapabilityKey, boolean>>(DEFAULT_CAPABILITIES);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    NodeModule.getBridgeCapabilities()
+      .then(raw => {
+        setCaps(c => ({ ...c, ...raw } as Record<BridgeCapabilityKey, boolean>));
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const toggle = useCallback(async (key: BridgeCapabilityKey, value: boolean) => {
+    await NodeModule.setBridgeCapability(key, value);
+    setCaps(c => ({ ...c, [key]: value }));
+  }, []);
+
+  return { caps, loading, toggle };
+}
+
+/** Poll the bridge activity log every 10 seconds while screen is active. */
+export function useBridgeActivityLog(limit: number = 50): BridgeLogEntry[] {
+  const [entries, setEntries] = useState<BridgeLogEntry[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const poll = async () => {
+      if (!_appActive || cancelled) return;
+      try {
+        const raw = await NodeModule.getBridgeActivityLog(limit);
+        if (!cancelled) setEntries(JSON.parse(raw));
+      } catch { /* native module not ready */ }
+    };
+
+    poll();
+    const id = setInterval(poll, 10_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [limit]);
+
+  return entries;
 }
 
 // ============================================================================

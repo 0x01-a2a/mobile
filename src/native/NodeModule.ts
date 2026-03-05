@@ -101,6 +101,25 @@ export const NodeModule = {
    */
   uploadBlob: (dataBase64: string, mimeType: string): Promise<string> =>
     ZeroxNodeModule.uploadBlob(dataBase64, mimeType),
+
+  /**
+   * Enable or disable a bridge capability.
+   * Keys: "messaging" | "contacts" | "location" | "camera" | "microphone"
+   *      | "screen" | "calls" | "calendar" | "media"
+   */
+  setBridgeCapability: (capability: string, enabled: boolean): Promise<void> =>
+    ZeroxNodeModule.setBridgeCapability(capability, enabled),
+
+  /** Read all bridge capability toggles. Returns { [key]: boolean }. */
+  getBridgeCapabilities: (): Promise<Record<string, boolean>> =>
+    ZeroxNodeModule.getBridgeCapabilities(),
+
+  /**
+   * Fetch the human-readable bridge activity log from the native layer.
+   * Returns a JSON string (array of {time, capability, action, outcome}).
+   */
+  getBridgeActivityLog: (limit: number = 50): Promise<string> =>
+    ZeroxNodeModule.getBridgeActivityLog(limit),
 };
 
 // ============================================================================

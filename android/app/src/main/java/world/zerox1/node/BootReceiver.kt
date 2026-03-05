@@ -3,7 +3,6 @@ package world.zerox1.node
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 
 /**
  * BootReceiver — restarts the node service after device reboot.
@@ -25,10 +24,6 @@ class BootReceiver : BroadcastReceiver() {
             prefs.getString("fcm_token",  null)?.let { putExtra(NodeService.EXTRA_FCM_TOKEN,  it) }
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.startForegroundService(serviceIntent)
-        } else {
-            context.startService(serviceIntent)
-        }
+        context.startForegroundService(serviceIntent)
     }
 }

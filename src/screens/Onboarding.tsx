@@ -48,14 +48,14 @@ export async function checkOnboardingDone(): Promise<boolean> {
 }
 
 const C = {
-  bg:     '#050505',
-  card:   '#0f0f0f',
+  bg: '#050505',
+  card: '#0f0f0f',
   border: '#1a1a1a',
-  green:  '#00e676',
-  text:   '#ffffff',
-  sub:    '#555555',
-  amber:  '#ffc107',
-  input:  '#111111',
+  green: '#00e676',
+  text: '#ffffff',
+  sub: '#555555',
+  amber: '#ffc107',
+  input: '#111111',
 };
 
 // ============================================================================
@@ -149,7 +149,7 @@ function WelcomeStep({
   onSkip,
 }: {
   onEnable: () => void;
-  onSkip:   () => void;
+  onSkip: () => void;
 }) {
   return (
     <StepShell step={0}>
@@ -193,9 +193,9 @@ function NameStep({
   onSkip,
 }: {
   agentName: string;
-  onChange:  (v: string) => void;
-  onNext:    () => void;
-  onSkip:    () => void;
+  onChange: (v: string) => void;
+  onNext: () => void;
+  onSkip: () => void;
 }) {
   return (
     <StepShell step={1}>
@@ -273,15 +273,23 @@ function ProviderStep({
 function KeyStep({
   provider,
   apiKey,
-  onChange,
+  customBaseUrl,
+  customModel,
+  onChangeKey,
+  onChangeUrl,
+  onChangeModel,
   onBack,
   onNext,
 }: {
   provider: LlmProvider;
-  apiKey:   string;
-  onChange: (v: string) => void;
-  onBack:   () => void;
-  onNext:   () => void;
+  apiKey: string;
+  customBaseUrl: string;
+  customModel: string;
+  onChangeKey: (v: string) => void;
+  onChangeUrl: (v: string) => void;
+  onChangeModel: (v: string) => void;
+  onBack: () => void;
+  onNext: () => void;
 }) {
   const providerInfo = PROVIDERS.find(p => p.key === provider)!;
 
@@ -307,7 +315,7 @@ function KeyStep({
         <TextInput
           style={s.keyInput}
           value={apiKey}
-          onChangeText={onChange}
+          onChangeText={onChangeKey}
           placeholder={`sk-...`}
           placeholderTextColor={C.sub}
           secureTextEntry
@@ -316,6 +324,37 @@ function KeyStep({
           spellCheck={false}
         />
       </View>
+
+      {provider === 'custom' && (
+        <>
+          <View style={s.keyCard}>
+            <Text style={s.keyLabel}>BASE URL</Text>
+            <TextInput
+              style={s.keyInput}
+              value={customBaseUrl}
+              onChangeText={onChangeUrl}
+              placeholder="e.g. https://api.openai.com/v1"
+              placeholderTextColor={C.sub}
+              autoCapitalize="none"
+              autoCorrect={false}
+              spellCheck={false}
+            />
+          </View>
+          <View style={s.keyCard}>
+            <Text style={s.keyLabel}>MODEL (optional)</Text>
+            <TextInput
+              style={s.keyInput}
+              value={customModel}
+              onChangeText={onChangeModel}
+              placeholder="e.g. gpt-4, my-custom-model"
+              placeholderTextColor={C.sub}
+              autoCapitalize="none"
+              autoCorrect={false}
+              spellCheck={false}
+            />
+          </View>
+        </>
+      )}
 
       <Text style={s.keyHint}>
         Get yours at {providerInfo.hint}
@@ -337,9 +376,9 @@ function CapabilitiesStep({
   onNext,
 }: {
   capabilities: Capability[];
-  onToggle:     (c: Capability) => void;
-  onBack:       () => void;
-  onNext:       () => void;
+  onToggle: (c: Capability) => void;
+  onBack: () => void;
+  onNext: () => void;
 }) {
   return (
     <StepShell step={4}>
@@ -395,15 +434,15 @@ function RulesStep({
   onFinish,
   saving,
 }: {
-  minFeeUsdc:    string;
-  minRep:        string;
-  autoAccept:    boolean;
-  onMinFee:      (v: string) => void;
-  onMinRep:      (v: string) => void;
-  onAutoAccept:  (v: boolean) => void;
-  onBack:        () => void;
-  onFinish:      () => void;
-  saving:        boolean;
+  minFeeUsdc: string;
+  minRep: string;
+  autoAccept: boolean;
+  onMinFee: (v: string) => void;
+  onMinRep: (v: string) => void;
+  onAutoAccept: (v: boolean) => void;
+  onBack: () => void;
+  onFinish: () => void;
+  saving: boolean;
 }) {
   return (
     <StepShell step={5}>
@@ -479,15 +518,17 @@ function RulesStep({
 const NODE_CONFIG_KEY = 'zerox1:node_config';
 
 export function OnboardingScreen({ onDone }: { onDone: (config: AgentBrainConfig | null) => void }) {
-  const [step,         setStep]         = useState(0);
-  const [agentName,    setAgentName]    = useState('');
-  const [provider,     setProvider]     = useState<LlmProvider>('anthropic');
-  const [apiKey,       setApiKey]       = useState('');
+  const [step, setStep] = useState(0);
+  const [agentName, setAgentName] = useState('');
+  const [provider, setProvider] = useState<LlmProvider>('anthropic');
+  const [apiKey, setApiKey] = useState('');
+  const [customBaseUrl, setCustomBaseUrl] = useState('');
+  const [customModel, setCustomModel] = useState('');
   const [capabilities, setCapabilities] = useState<Capability[]>(['summarization', 'qa']);
-  const [minFeeUsdc,   setMinFeeUsdc]   = useState('0.01');
-  const [minRep,       setMinRep]       = useState('50');
-  const [autoAccept,   setAutoAccept]   = useState(true);
-  const [saving,       setSaving]       = useState(false);
+  const [minFeeUsdc, setMinFeeUsdc] = useState('0.01');
+  const [minRep, setMinRep] = useState('50');
+  const [autoAccept, setAutoAccept] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   const toggleCapability = (cap: Capability) => {
     setCapabilities(prev =>
@@ -516,13 +557,15 @@ export function OnboardingScreen({ onDone }: { onDone: (config: AgentBrainConfig
 
       await saveLlmApiKey(apiKey.trim());
       const config: AgentBrainConfig = {
-        enabled:       true,
+        enabled: true,
         provider,
         capabilities,
-        minFeeUsdc:    parseFloat(minFeeUsdc) || 0.01,
-        minReputation: parseInt(minRep, 10)   || 50,
+        minFeeUsdc: parseFloat(minFeeUsdc) || 0.01,
+        minReputation: parseInt(minRep, 10) || 50,
         autoAccept,
-        apiKeySet:     true,
+        apiKeySet: true,
+        customBaseUrl: customBaseUrl.trim() || '',
+        customModel: customModel.trim() || '',
       };
       await markOnboardingDone();
       onDone(config);
@@ -557,7 +600,11 @@ export function OnboardingScreen({ onDone }: { onDone: (config: AgentBrainConfig
         <KeyStep
           provider={provider}
           apiKey={apiKey}
-          onChange={setApiKey}
+          customBaseUrl={customBaseUrl}
+          customModel={customModel}
+          onChangeKey={setApiKey}
+          onChangeUrl={setCustomBaseUrl}
+          onChangeModel={setCustomModel}
           onBack={() => setStep(2)}
           onNext={() => setStep(4)}
         />
@@ -593,54 +640,54 @@ export function OnboardingScreen({ onDone }: { onDone: (config: AgentBrainConfig
 // ============================================================================
 
 const s = StyleSheet.create({
-  root:                { flex: 1, backgroundColor: C.bg },
-  content:             { padding: 28, paddingTop: 56, paddingBottom: 48 },
-  progressRow:         { flexDirection: 'row', gap: 6, marginBottom: 36 },
-  pip:                 { height: 3, flex: 1, backgroundColor: C.border, borderRadius: 2 },
-  pipDone:             { backgroundColor: C.green },
-  logo:                { fontSize: 32, color: C.green, fontFamily: 'monospace', fontWeight: '700', marginBottom: 20 },
-  heading:             { fontSize: 18, fontWeight: '700', color: C.text, letterSpacing: 3, fontFamily: 'monospace', marginBottom: 16 },
-  sub:                 { fontSize: 13, color: C.sub, lineHeight: 20, marginBottom: 28 },
-  featureList:         { marginBottom: 32 },
-  featureRow:          { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10 },
-  featureDot:          { color: C.green, fontSize: 16, marginRight: 10, lineHeight: 20 },
-  featureText:         { color: C.text, fontSize: 13, lineHeight: 20, flex: 1 },
-  primaryBtn:          { backgroundColor: C.green, borderRadius: 4, paddingVertical: 16, alignItems: 'center', marginBottom: 12 },
-  primaryBtnDisabled:  { backgroundColor: C.border },
-  primaryBtnText:      { fontSize: 13, fontWeight: '700', letterSpacing: 3, color: '#000' },
+  root: { flex: 1, backgroundColor: C.bg },
+  content: { padding: 28, paddingTop: 56, paddingBottom: 48 },
+  progressRow: { flexDirection: 'row', gap: 6, marginBottom: 36 },
+  pip: { height: 3, flex: 1, backgroundColor: C.border, borderRadius: 2 },
+  pipDone: { backgroundColor: C.green },
+  logo: { fontSize: 32, color: C.green, fontFamily: 'monospace', fontWeight: '700', marginBottom: 20 },
+  heading: { fontSize: 18, fontWeight: '700', color: C.text, letterSpacing: 3, fontFamily: 'monospace', marginBottom: 16 },
+  sub: { fontSize: 13, color: C.sub, lineHeight: 20, marginBottom: 28 },
+  featureList: { marginBottom: 32 },
+  featureRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10 },
+  featureDot: { color: C.green, fontSize: 16, marginRight: 10, lineHeight: 20 },
+  featureText: { color: C.text, fontSize: 13, lineHeight: 20, flex: 1 },
+  primaryBtn: { backgroundColor: C.green, borderRadius: 4, paddingVertical: 16, alignItems: 'center', marginBottom: 12 },
+  primaryBtnDisabled: { backgroundColor: C.border },
+  primaryBtnText: { fontSize: 13, fontWeight: '700', letterSpacing: 3, color: '#000' },
   primaryBtnTextDisabled: { color: C.sub },
-  ghostBtn:            { alignItems: 'center', paddingVertical: 12 },
-  ghostBtnText:        { fontSize: 12, color: C.sub, letterSpacing: 1 },
-  backBtn:             { marginBottom: 24 },
-  backBtnText:         { fontSize: 11, color: C.sub, letterSpacing: 2, fontFamily: 'monospace' },
+  ghostBtn: { alignItems: 'center', paddingVertical: 12 },
+  ghostBtnText: { fontSize: 12, color: C.sub, letterSpacing: 1 },
+  backBtn: { marginBottom: 24 },
+  backBtnText: { fontSize: 11, color: C.sub, letterSpacing: 2, fontFamily: 'monospace' },
   // Provider grid
-  providerGrid:        { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 20 },
-  providerCard:        { width: '47%', backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, padding: 16 },
-  providerCardActive:  { borderColor: C.green, backgroundColor: C.green + '12' },
-  providerLabel:       { fontSize: 15, fontWeight: '700', color: C.sub, fontFamily: 'monospace', marginBottom: 4 },
+  providerGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 20 },
+  providerCard: { width: '47%', backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, padding: 16 },
+  providerCardActive: { borderColor: C.green, backgroundColor: C.green + '12' },
+  providerLabel: { fontSize: 15, fontWeight: '700', color: C.sub, fontFamily: 'monospace', marginBottom: 4 },
   providerLabelActive: { color: C.green },
-  providerModel:       { fontSize: 10, color: C.sub, fontFamily: 'monospace' },
+  providerModel: { fontSize: 10, color: C.sub, fontFamily: 'monospace' },
   // API key
-  keyCard:             { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, padding: 16, marginBottom: 12 },
-  keyLabel:            { fontSize: 10, color: C.sub, letterSpacing: 2, marginBottom: 8 },
-  keyInput:            { color: C.text, fontFamily: 'monospace', fontSize: 14 },
-  keyHint:             { fontSize: 11, color: C.sub, marginBottom: 28 },
+  keyCard: { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, padding: 16, marginBottom: 12 },
+  keyLabel: { fontSize: 10, color: C.sub, letterSpacing: 2, marginBottom: 8 },
+  keyInput: { color: C.text, fontFamily: 'monospace', fontSize: 14 },
+  keyHint: { fontSize: 11, color: C.sub, marginBottom: 28 },
   // Capabilities
-  capList:             { marginBottom: 28 },
-  capRow:              { flexDirection: 'row', alignItems: 'center', padding: 14, borderWidth: 1, borderColor: C.border, borderRadius: 4, marginBottom: 8 },
-  capRowActive:        { borderColor: C.green + '60', backgroundColor: C.green + '08' },
-  capCheck:            { width: 20, height: 20, borderRadius: 3, borderWidth: 1, borderColor: C.sub, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  capCheckActive:      { borderColor: C.green, backgroundColor: C.green },
-  capCheckMark:        { fontSize: 12, color: '#000', fontWeight: '700' },
-  capLabel:            { fontSize: 14, color: C.sub, fontFamily: 'monospace' },
-  capLabelActive:      { color: C.text },
+  capList: { marginBottom: 28 },
+  capRow: { flexDirection: 'row', alignItems: 'center', padding: 14, borderWidth: 1, borderColor: C.border, borderRadius: 4, marginBottom: 8 },
+  capRowActive: { borderColor: C.green + '60', backgroundColor: C.green + '08' },
+  capCheck: { width: 20, height: 20, borderRadius: 3, borderWidth: 1, borderColor: C.sub, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
+  capCheckActive: { borderColor: C.green, backgroundColor: C.green },
+  capCheckMark: { fontSize: 12, color: '#000', fontWeight: '700' },
+  capLabel: { fontSize: 14, color: C.sub, fontFamily: 'monospace' },
+  capLabelActive: { color: C.text },
   // Rules
-  ruleCard:            { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, marginBottom: 12, overflow: 'hidden' },
-  ruleRow:             { flexDirection: 'row', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: C.border },
-  ruleLeft:            { flex: 1 },
-  ruleLabel:           { fontSize: 11, color: C.text, letterSpacing: 2, fontWeight: '600' },
-  ruleSub:             { fontSize: 11, color: C.sub, marginTop: 3 },
-  ruleInput:           { color: C.green, fontFamily: 'monospace', fontSize: 16, fontWeight: '700', width: 60, textAlign: 'right' },
-  toggleCard:          { flexDirection: 'row', alignItems: 'center', backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, padding: 16, marginBottom: 28 },
-  toggleLeft:          { flex: 1, marginRight: 12 },
+  ruleCard: { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, marginBottom: 12, overflow: 'hidden' },
+  ruleRow: { flexDirection: 'row', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: C.border },
+  ruleLeft: { flex: 1 },
+  ruleLabel: { fontSize: 11, color: C.text, letterSpacing: 2, fontWeight: '600' },
+  ruleSub: { fontSize: 11, color: C.sub, marginTop: 3 },
+  ruleInput: { color: C.green, fontFamily: 'monospace', fontSize: 16, fontWeight: '700', width: 60, textAlign: 'right' },
+  toggleCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, padding: 16, marginBottom: 28 },
+  toggleLeft: { flex: 1, marginRight: 12 },
 });

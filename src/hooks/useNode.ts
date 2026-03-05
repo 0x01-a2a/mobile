@@ -30,11 +30,11 @@ async function withBrainConfig(base: NodeConfig): Promise<NodeConfig> {
     return {
       ...base,
       agentBrainEnabled: true,
-      llmProvider:   brain.provider  ?? 'anthropic',
-      capabilities:  JSON.stringify(brain.capabilities ?? []),
-      minFeeUsdc:    brain.minFeeUsdc    ?? 0.01,
+      llmProvider: brain.provider ?? 'gemini',
+      capabilities: JSON.stringify(brain.capabilities ?? []),
+      minFeeUsdc: brain.minFeeUsdc ?? 0.01,
       minReputation: brain.minReputation ?? 50,
-      autoAccept:    brain.autoAccept    ?? true,
+      autoAccept: brain.autoAccept ?? true,
     };
   } catch {
     return base;

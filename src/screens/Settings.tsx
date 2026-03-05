@@ -18,10 +18,12 @@ import {
 } from 'react-native';
 import { useNode } from '../hooks/useNode';
 import {
+  BridgeCapabilityKey,
   HostingNode,
   assertValidHostUrl,
   probeRtt,
   registerAsHosted,
+  useBridgeCapabilities,
   useHostingNodes,
 } from '../hooks/useNodeApi';
 import {
@@ -36,15 +38,15 @@ import {
 import { PermissionName, usePermissions } from '../hooks/usePermissions';
 
 const C = {
-  bg:          '#050505',
-  card:        '#0f0f0f',
-  border:      '#1a1a1a',
-  green:       '#00e676',
-  red:         '#ff1744',
-  text:        '#ffffff',
-  sub:         '#555555',
-  amber:       '#ffc107',
-  input:       '#111111',
+  bg: '#050505',
+  card: '#0f0f0f',
+  border: '#1a1a1a',
+  green: '#00e676',
+  red: '#ff1744',
+  text: '#ffffff',
+  sub: '#555555',
+  amber: '#ffc107',
+  input: '#111111',
   inputBorder: '#2a2a2a',
 };
 
@@ -80,7 +82,7 @@ function Field({
 
 function signalLevel(rtt: number | undefined): number {
   if (rtt === undefined) return 0;
-  if (rtt <= 50)  return 5;
+  if (rtt <= 50) return 5;
   if (rtt <= 100) return 4;
   if (rtt <= 200) return 3;
   if (rtt <= 500) return 2;
@@ -114,8 +116,8 @@ function HostBrowserSheet({
   onClose,
   onConnect,
 }: {
-  visible:   boolean;
-  onClose:   () => void;
+  visible: boolean;
+  onClose: () => void;
   onConnect: (nodeApiUrl: string) => void;
 }) {
   const nodes = useHostingNodes();
@@ -325,6 +327,37 @@ function AgentBrainSection() {
         </View>
       </View>
 
+      {config.provider === 'custom' && (
+        <View style={[bs.row, { flexDirection: 'column', gap: 12 }]}>
+          <View style={bs.customField}>
+            <Text style={bs.customFieldLabel}>BASE URL</Text>
+            <TextInput
+              style={bs.customFieldInput}
+              value={config.customBaseUrl || ''}
+              onChangeText={v => saveAndDirty({ ...config, customBaseUrl: v })}
+              placeholder="e.g. https://api.openai.com/v1"
+              placeholderTextColor={C.sub}
+              autoCapitalize="none"
+              autoCorrect={false}
+              spellCheck={false}
+            />
+          </View>
+          <View style={bs.customField}>
+            <Text style={bs.customFieldLabel}>MODEL (optional)</Text>
+            <TextInput
+              style={bs.customFieldInput}
+              value={config.customModel || ''}
+              onChangeText={v => saveAndDirty({ ...config, customModel: v })}
+              placeholder="e.g. gpt-4, my-custom-model"
+              placeholderTextColor={C.sub}
+              autoCapitalize="none"
+              autoCorrect={false}
+              spellCheck={false}
+            />
+          </View>
+        </View>
+      )}
+
       {/* Capabilities */}
       <View style={[bs.row, { flexDirection: 'column', alignItems: 'flex-start' }]}>
         <Text style={[bs.rowLabel, { marginBottom: 10 }]}>CAPABILITIES</Text>
@@ -395,14 +428,14 @@ function AgentBrainSection() {
 // ── Phone Capabilities section ────────────────────────────────────────────────
 
 const CAPABILITY_GROUPS: { label: string; perms: PermissionName[] }[] = [
-  { label: 'Contacts',   perms: ['READ_CONTACTS', 'WRITE_CONTACTS'] },
-  { label: 'SMS',        perms: ['READ_SMS', 'SEND_SMS'] },
-  { label: 'Location',   perms: ['ACCESS_FINE_LOCATION'] },
-  { label: 'Calendar',   perms: ['READ_CALENDAR', 'WRITE_CALENDAR'] },
-  { label: 'Call Log',   perms: ['READ_CALL_LOG'] },
-  { label: 'Camera',     perms: ['CAMERA'] },
+  { label: 'Contacts', perms: ['READ_CONTACTS', 'WRITE_CONTACTS'] },
+  { label: 'SMS', perms: ['READ_SMS', 'SEND_SMS'] },
+  { label: 'Location', perms: ['ACCESS_FINE_LOCATION'] },
+  { label: 'Calendar', perms: ['READ_CALENDAR', 'WRITE_CALENDAR'] },
+  { label: 'Call Log', perms: ['READ_CALL_LOG'] },
+  { label: 'Camera', perms: ['CAMERA'] },
   { label: 'Microphone', perms: ['RECORD_AUDIO'] },
-  { label: 'Files',      perms: ['READ_MEDIA_IMAGES'] },
+  { label: 'Files', perms: ['READ_MEDIA_IMAGES'] },
 ];
 
 function PhoneCapabilitiesSection() {
@@ -443,22 +476,75 @@ function PhoneCapabilitiesSection() {
   );
 }
 
+// ── Agent Capabilities Section ────────────────────────────────────────────────
+
+const CAPABILITY_INFO: Record<BridgeCapabilityKey, { label: string; desc: string }> = {
+  messaging: { label: 'MESSAGING', desc: 'Read SMS, read & reply to notifications (WhatsApp, email, etc.)' },
+  contacts: { label: 'CONTACTS', desc: 'Read and create contacts in your address book' },
+  location: { label: 'LOCATION', desc: 'Read your last known GPS coordinates' },
+  camera: { label: 'CAMERA', desc: 'Capture a photo from front or rear camera in the background' },
+  microphone: { label: 'MICROPHONE', desc: 'Record short audio clips (up to 30 seconds)' },
+  screen: { label: 'SCREEN', desc: 'Read UI of any open app, tap buttons, take silent screenshots (requires Accessibility setup)' },
+  calls: { label: 'CALLS', desc: 'Read call history and screen incoming calls (allow / reject / silence)' },
+  calendar: { label: 'CALENDAR', desc: 'Read upcoming events and create new calendar entries' },
+  media: { label: 'MEDIA', desc: 'Browse photos and documents on device storage' },
+};
+
+function AgentCapabilitiesSection() {
+  const { caps, loading, toggle } = useBridgeCapabilities();
+
+  if (loading) return null;
+
+  const keys = Object.keys(CAPABILITY_INFO) as BridgeCapabilityKey[];
+
+  return (
+    <View style={cs.section}>
+      <View style={cs.header}>
+        <Text style={cs.title}>AGENT CAPABILITIES</Text>
+        <Text style={cs.subtitle}>
+          Choose what your AI agent can access on this device.
+          Changes take effect immediately — no restart needed.
+        </Text>
+      </View>
+      {keys.map((key, idx) => {
+        const info = CAPABILITY_INFO[key];
+        const enabled = caps[key] ?? true;
+        const isLast = idx === keys.length - 1;
+        return (
+          <View key={key} style={[cs.row, !isLast && cs.rowBorder]}>
+            <View style={cs.rowText}>
+              <Text style={cs.capLabel}>{info.label}</Text>
+              <Text style={cs.capDesc}>{info.desc}</Text>
+            </View>
+            <Switch
+              value={enabled}
+              onValueChange={(v) => toggle(key, v)}
+              trackColor={{ false: C.border, true: C.amber + '66' }}
+              thumbColor={enabled ? C.amber : '#333'}
+            />
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
 // ── Main screen ───────────────────────────────────────────────────────────────
 
 export function SettingsScreen() {
   const { config, autoStart, saveConfig, setAutoStart, status, start, stop } = useNode();
 
-  const [agentName,   setAgentName]   = useState(config.agentName   ?? '');
-  const [relayAddr,   setRelayAddr]   = useState(config.relayAddr   ?? '');
-  const [rpcUrl,      setRpcUrl]      = useState(config.rpcUrl      ?? '');
-  const [nodeApiUrl,  setNodeApiUrl]  = useState(config.nodeApiUrl  ?? '');
+  const [agentName, setAgentName] = useState(config.agentName ?? '');
+  const [relayAddr, setRelayAddr] = useState(config.relayAddr ?? '');
+  const [rpcUrl, setRpcUrl] = useState(config.rpcUrl ?? '');
+  const [nodeApiUrl, setNodeApiUrl] = useState(config.nodeApiUrl ?? '');
   const [showBrowser, setShowBrowser] = useState(false);
 
   // Sync local state if config changes from outside (e.g. on mount)
   useEffect(() => {
-    setAgentName(config.agentName   ?? '');
-    setRelayAddr(config.relayAddr   ?? '');
-    setRpcUrl(config.rpcUrl         ?? '');
+    setAgentName(config.agentName ?? '');
+    setRelayAddr(config.relayAddr ?? '');
+    setRpcUrl(config.rpcUrl ?? '');
     setNodeApiUrl(config.nodeApiUrl ?? '');
   }, [config]);
 
@@ -479,9 +565,9 @@ export function SettingsScreen() {
     }
     const newConfig = {
       ...config,
-      agentName:  agentName.trim()  || undefined,
-      relayAddr:  relayAddr.trim()  || undefined,
-      rpcUrl:     trimmedRpcUrl,
+      agentName: agentName.trim() || undefined,
+      relayAddr: relayAddr.trim() || undefined,
+      rpcUrl: trimmedRpcUrl,
       nodeApiUrl: trimmedNodeApiUrl,
     };
     await saveConfig(newConfig);
@@ -503,6 +589,9 @@ export function SettingsScreen() {
 
         {/* Phone capabilities (only relevant when brain is enabled) */}
         <PhoneCapabilitiesSection />
+
+        {/* Agent capability toggles */}
+        <AgentCapabilitiesSection />
 
         {/* Node config fields */}
         <View style={s.section}>
@@ -592,11 +681,24 @@ export function SettingsScreen() {
   );
 }
 
+// Agent capabilities stylesheet
+const cs = StyleSheet.create({
+  section: { backgroundColor: C.card, borderWidth: 1, borderColor: C.amber + '30', borderRadius: 4, marginBottom: 16, overflow: 'hidden' },
+  header: { padding: 16, borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: '#1a1000' },
+  title: { fontSize: 11, color: C.amber, letterSpacing: 3, fontWeight: '700', fontFamily: 'monospace' },
+  subtitle: { fontSize: 10, color: C.sub, fontFamily: 'monospace', marginTop: 6, lineHeight: 15 },
+  row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12 },
+  rowBorder: { borderBottomWidth: 1, borderBottomColor: C.border },
+  rowText: { flex: 1, marginRight: 12 },
+  capLabel: { fontSize: 10, color: C.text, letterSpacing: 2, fontWeight: '700', fontFamily: 'monospace' },
+  capDesc: { fontSize: 10, color: C.sub, fontFamily: 'monospace', marginTop: 3, lineHeight: 15 },
+});
+
 const s = StyleSheet.create({
-  root:         { flex: 1, backgroundColor: C.bg },
-  content:      { padding: 24 },
-  heading:      { fontSize: 11, color: C.sub, letterSpacing: 4, marginBottom: 24 },
-  section:      {
+  root: { flex: 1, backgroundColor: C.bg },
+  content: { padding: 24 },
+  heading: { fontSize: 11, color: C.sub, letterSpacing: 4, marginBottom: 24 },
+  section: {
     backgroundColor: C.card,
     borderWidth: 1,
     borderColor: C.border,
@@ -604,9 +706,9 @@ const s = StyleSheet.create({
     marginBottom: 16,
     overflow: 'hidden',
   },
-  field:        { padding: 16, borderBottomWidth: 1, borderBottomColor: C.border },
-  fieldLabel:   { fontSize: 10, color: C.sub, letterSpacing: 2, marginBottom: 8 },
-  input:        {
+  field: { padding: 16, borderBottomWidth: 1, borderBottomColor: C.border },
+  fieldLabel: { fontSize: 10, color: C.sub, letterSpacing: 2, marginBottom: 8 },
+  input: {
     color: C.text,
     fontFamily: 'monospace',
     fontSize: 14,
@@ -614,7 +716,7 @@ const s = StyleSheet.create({
   },
   hostFieldRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   hostUrlInput: { flex: 1 },
-  browseBtn:    {
+  browseBtn: {
     borderWidth: 1,
     borderColor: C.green + '60',
     borderRadius: 3,
@@ -622,37 +724,37 @@ const s = StyleSheet.create({
     paddingVertical: 6,
   },
   browseBtnText: { fontSize: 9, color: C.green, letterSpacing: 2, fontWeight: '700' },
-  saveBtn:      {
+  saveBtn: {
     backgroundColor: C.green,
     borderRadius: 4,
     paddingVertical: 16,
     alignItems: 'center',
     marginBottom: 16,
   },
-  saveBtnText:  { fontSize: 13, fontWeight: '700', letterSpacing: 3, color: '#000' },
-  toggleRow:    {
+  saveBtnText: { fontSize: 13, fontWeight: '700', letterSpacing: 3, color: '#000' },
+  toggleRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 16,
   },
-  toggleLabel:  { fontSize: 11, color: C.text, letterSpacing: 2, fontWeight: '600' },
-  toggleSub:    { fontSize: 12, color: C.sub, marginTop: 4 },
-  nodeBtn:      {
+  toggleLabel: { fontSize: 11, color: C.text, letterSpacing: 2, fontWeight: '600' },
+  toggleSub: { fontSize: 12, color: C.sub, marginTop: 4 },
+  nodeBtn: {
     margin: 16,
     borderWidth: 1,
     borderRadius: 4,
     paddingVertical: 14,
     alignItems: 'center',
   },
-  nodeBtnText:  { fontSize: 13, fontWeight: '700', letterSpacing: 3 },
+  nodeBtnText: { fontSize: 13, fontWeight: '700', letterSpacing: 3 },
   // Host browser sheet
   sheetOverlay: {
     flex: 1,
     backgroundColor: '#000000aa',
     justifyContent: 'flex-end',
   },
-  sheet:        {
+  sheet: {
     backgroundColor: C.card,
     borderTopLeftRadius: 12,
     borderTopRightRadius: 12,
@@ -661,7 +763,7 @@ const s = StyleSheet.create({
     maxHeight: '70%',
     paddingBottom: 32,
   },
-  sheetHeader:  {
+  sheetHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -669,10 +771,10 @@ const s = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: C.border,
   },
-  sheetTitle:   { fontSize: 11, color: C.sub, letterSpacing: 3 },
-  sheetClose:   { fontSize: 11, color: C.green, letterSpacing: 2 },
-  sheetEmpty:   { padding: 24, color: C.sub, fontFamily: 'monospace', textAlign: 'center' },
-  hostRow:      {
+  sheetTitle: { fontSize: 11, color: C.sub, letterSpacing: 3 },
+  sheetClose: { fontSize: 11, color: C.green, letterSpacing: 2 },
+  sheetEmpty: { padding: 24, color: C.sub, fontFamily: 'monospace', textAlign: 'center' },
+  hostRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -680,11 +782,11 @@ const s = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: C.border,
   },
-  hostInfo:     { flex: 1 },
-  hostName:     { fontSize: 14, color: C.text, fontFamily: 'monospace', fontWeight: '600' },
-  hostMeta:     { fontSize: 11, color: C.sub, marginTop: 2 },
-  hostRight:    { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  feeBadge:     {
+  hostInfo: { flex: 1 },
+  hostName: { fontSize: 14, color: C.text, fontFamily: 'monospace', fontWeight: '600' },
+  hostMeta: { fontSize: 11, color: C.sub, marginTop: 2 },
+  hostRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  feeBadge: {
     borderWidth: 1,
     borderColor: C.amber + '60',
     borderRadius: 3,
@@ -692,53 +794,56 @@ const s = StyleSheet.create({
     paddingVertical: 2,
   },
   feeBadgeText: { fontSize: 10, color: C.amber, letterSpacing: 1 },
-  barsRow:      { flexDirection: 'row', alignItems: 'flex-end', gap: 2 },
-  bar:          { width: 4, borderRadius: 1 },
-  signalNull:   { fontSize: 14, color: C.sub },
+  barsRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 2 },
+  bar: { width: 4, borderRadius: 1 },
+  signalNull: { fontSize: 14, color: C.sub },
 });
 
 // Phone Capabilities stylesheet
 const ps = StyleSheet.create({
-  section:       { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, marginBottom: 16, overflow: 'hidden' },
-  headerRow:     { padding: 16, borderBottomWidth: 1, borderBottomColor: C.border },
-  sectionTitle:  { fontSize: 11, color: C.text, letterSpacing: 3, fontWeight: '700' },
-  sectionSub:    { fontSize: 10, color: C.sub, letterSpacing: 1, marginTop: 2 },
-  chipGrid:      { flexDirection: 'row', flexWrap: 'wrap', gap: 8, padding: 14 },
-  chip:          { borderWidth: 1, borderColor: C.border, borderRadius: 3, paddingHorizontal: 10, paddingVertical: 6 },
-  chipActive:    { borderColor: C.green, backgroundColor: C.green + '18' },
-  chipText:      { fontSize: 10, color: C.sub, fontFamily: 'monospace', letterSpacing: 1 },
-  chipTextActive:{ color: C.green },
+  section: { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, marginBottom: 16, overflow: 'hidden' },
+  headerRow: { padding: 16, borderBottomWidth: 1, borderBottomColor: C.border },
+  sectionTitle: { fontSize: 11, color: C.text, letterSpacing: 3, fontWeight: '700' },
+  sectionSub: { fontSize: 10, color: C.sub, letterSpacing: 1, marginTop: 2 },
+  chipGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, padding: 14 },
+  chip: { borderWidth: 1, borderColor: C.border, borderRadius: 3, paddingHorizontal: 10, paddingVertical: 6 },
+  chipActive: { borderColor: C.green, backgroundColor: C.green + '18' },
+  chipText: { fontSize: 10, color: C.sub, fontFamily: 'monospace', letterSpacing: 1 },
+  chipTextActive: { color: C.green },
 });
 
 // Agent Brain stylesheet
 const bs = StyleSheet.create({
-  section:           { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, marginBottom: 16, overflow: 'hidden' },
-  restartBanner:        { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#1a1000', borderBottomWidth: 1, borderBottomColor: C.amber + '50', paddingHorizontal: 14, paddingVertical: 8 },
-  restartBannerText:    { fontSize: 10, color: C.amber, fontFamily: 'monospace', letterSpacing: 1 },
+  section: { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, marginBottom: 16, overflow: 'hidden' },
+  restartBanner: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#1a1000', borderBottomWidth: 1, borderBottomColor: C.amber + '50', paddingHorizontal: 14, paddingVertical: 8 },
+  restartBannerText: { fontSize: 10, color: C.amber, fontFamily: 'monospace', letterSpacing: 1 },
   restartBannerDismiss: { fontSize: 12, color: C.amber, fontFamily: 'monospace', paddingLeft: 12 },
-  headerRow:         { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: C.border },
-  sectionTitle:      { fontSize: 11, color: C.text, letterSpacing: 3, fontWeight: '700' },
-  sectionSub:        { fontSize: 10, color: C.sub, letterSpacing: 1, marginTop: 2 },
-  row:               { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14, borderBottomWidth: 1, borderBottomColor: C.border },
-  rowLeft:           { flex: 1, marginRight: 12 },
-  rowLabel:          { fontSize: 10, color: C.sub, letterSpacing: 2 },
-  rowSub:            { fontSize: 11, color: C.sub, marginTop: 3, opacity: 0.7 },
-  rowBtns:           { flexDirection: 'row', gap: 6 },
-  miniBtn:           { borderWidth: 1, borderColor: C.border, borderRadius: 3, paddingHorizontal: 8, paddingVertical: 4 },
-  miniBtnText:       { fontSize: 9, color: C.green, letterSpacing: 2, fontWeight: '700' },
-  keyInputWrap:      { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingBottom: 12, gap: 8, borderBottomWidth: 1, borderBottomColor: C.border },
-  keyInput:          { flex: 1, color: C.text, fontFamily: 'monospace', fontSize: 13, backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 3, paddingHorizontal: 10, paddingVertical: 6 },
-  saveKeyBtn:        { backgroundColor: C.green, borderRadius: 3, paddingHorizontal: 10, paddingVertical: 6 },
-  saveKeyBtnText:    { fontSize: 10, fontWeight: '700', color: '#000', letterSpacing: 1 },
-  providerRow:       { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
-  providerChip:      { borderWidth: 1, borderColor: C.border, borderRadius: 3, paddingHorizontal: 8, paddingVertical: 4 },
-  providerChipActive:{ borderColor: C.green, backgroundColor: C.green + '18' },
-  providerChipText:  { fontSize: 10, color: C.sub, fontFamily: 'monospace', letterSpacing: 1 },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: C.border },
+  sectionTitle: { fontSize: 11, color: C.text, letterSpacing: 3, fontWeight: '700' },
+  sectionSub: { fontSize: 10, color: C.sub, letterSpacing: 1, marginTop: 2 },
+  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14, borderBottomWidth: 1, borderBottomColor: C.border },
+  rowLeft: { flex: 1, marginRight: 12 },
+  rowLabel: { fontSize: 10, color: C.sub, letterSpacing: 2 },
+  rowSub: { fontSize: 11, color: C.sub, marginTop: 3, opacity: 0.7 },
+  rowBtns: { flexDirection: 'row', gap: 6 },
+  miniBtn: { borderWidth: 1, borderColor: C.border, borderRadius: 3, paddingHorizontal: 8, paddingVertical: 4 },
+  miniBtnText: { fontSize: 9, color: C.green, letterSpacing: 2, fontWeight: '700' },
+  keyInputWrap: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingBottom: 12, gap: 8, borderBottomWidth: 1, borderBottomColor: C.border },
+  keyInput: { flex: 1, color: C.text, fontFamily: 'monospace', fontSize: 13, backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 3, paddingHorizontal: 10, paddingVertical: 6 },
+  saveKeyBtn: { backgroundColor: C.green, borderRadius: 3, paddingHorizontal: 10, paddingVertical: 6 },
+  saveKeyBtnText: { fontSize: 10, fontWeight: '700', color: '#000', letterSpacing: 1 },
+  providerRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
+  providerChip: { borderWidth: 1, borderColor: C.border, borderRadius: 3, paddingHorizontal: 8, paddingVertical: 4 },
+  providerChipActive: { borderColor: C.green, backgroundColor: C.green + '18' },
+  providerChipText: { fontSize: 10, color: C.sub, fontFamily: 'monospace', letterSpacing: 1 },
   providerChipTextActive: { color: C.green },
-  capWrap:           { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  capChip:           { borderWidth: 1, borderColor: C.border, borderRadius: 3, paddingHorizontal: 8, paddingVertical: 4 },
-  capChipActive:     { borderColor: C.green + '80', backgroundColor: C.green + '12' },
-  capChipText:       { fontSize: 10, color: C.sub, fontFamily: 'monospace' },
+  capWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  capChip: { borderWidth: 1, borderColor: C.border, borderRadius: 3, paddingHorizontal: 8, paddingVertical: 4 },
+  capChipActive: { borderColor: C.green + '80', backgroundColor: C.green + '12' },
+  capChipText: { fontSize: 10, color: C.sub, fontFamily: 'monospace' },
   capChipTextActive: { color: C.green },
-  ruleInput:         { color: C.green, fontFamily: 'monospace', fontSize: 15, fontWeight: '700', width: 56, textAlign: 'right' },
+  ruleInput: { color: C.green, fontFamily: 'monospace', fontSize: 15, fontWeight: '700', width: 56, textAlign: 'right' },
+  customField: { flex: 1, backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 4, padding: 10 },
+  customFieldLabel: { fontSize: 9, color: C.sub, letterSpacing: 1, marginBottom: 8, fontFamily: 'monospace' },
+  customFieldInput: { color: C.text, fontFamily: 'monospace', fontSize: 12, paddingVertical: 0 },
 });

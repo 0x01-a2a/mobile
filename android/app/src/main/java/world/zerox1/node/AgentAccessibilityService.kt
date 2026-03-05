@@ -3,7 +3,6 @@ package world.zerox1.node
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityService.TakeScreenshotCallback
 import android.graphics.Bitmap
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
@@ -56,7 +55,7 @@ class AgentAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
-        Log.i(TAG, "AccessibilityService connected — God Mode active.")
+        Log.i(TAG, "AccessibilityService connected.")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -195,20 +194,17 @@ class AgentAccessibilityService : AccessibilityService() {
             target.recycle()
             return result
         }
-        // Fallback: use gesture dispatch (API 24+)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            val path = android.graphics.Path()
-            path.moveTo(x.toFloat(), y.toFloat())
-            val gesture = android.accessibilityservice.GestureDescription.Builder()
-                .addStroke(
-                    android.accessibilityservice.GestureDescription.StrokeDescription(
-                        path, 0L, 50L
-                    )
+        // Fallback: gesture dispatch
+        val path = android.graphics.Path()
+        path.moveTo(x.toFloat(), y.toFloat())
+        val gesture = android.accessibilityservice.GestureDescription.Builder()
+            .addStroke(
+                android.accessibilityservice.GestureDescription.StrokeDescription(
+                    path, 0L, 50L
                 )
-                .build()
-            return dispatchGesture(gesture, null, null)
-        }
-        return false
+            )
+            .build()
+        return dispatchGesture(gesture, null, null)
     }
 
     private fun findNodeAt(node: AccessibilityNodeInfo, x: Int, y: Int): AccessibilityNodeInfo? {
@@ -248,7 +244,7 @@ class AgentAccessibilityService : AccessibilityService() {
             "notifications"  -> GLOBAL_ACTION_NOTIFICATIONS
             "quick_settings" -> GLOBAL_ACTION_QUICK_SETTINGS
             "power_dialog"   -> GLOBAL_ACTION_POWER_DIALOG
-            "lock_screen"    -> if (Build.VERSION.SDK_INT >= 28) GLOBAL_ACTION_LOCK_SCREEN else return false
+            "lock_screen"    -> GLOBAL_ACTION_LOCK_SCREEN
             else -> return false
         }
         return performGlobalAction(actionId)
@@ -264,11 +260,6 @@ class AgentAccessibilityService : AccessibilityService() {
      * Blocks the calling thread for up to 5 seconds.
      */
     fun captureScreenshot(): String? {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            Log.w(TAG, "takeScreenshot requires API 30+")
-            return null
-        }
-
         // Rate limit: 1 screenshot per second
         val now = System.currentTimeMillis()
         if (now - lastScreenshotMs < 1_000L) {

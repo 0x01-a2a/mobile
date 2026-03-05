@@ -19,11 +19,13 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNode } from '../hooks/useNode';
 import {
+  BridgeLogEntry,
   InboundEnvelope,
   SweepResult,
   clearTokenFromKeychain,
   probeRtt,
   sweepUsdc,
+  useBridgeActivityLog,
   useHotKeyBalance,
   useIdentity,
   useInbox,
@@ -457,6 +459,7 @@ function NodeSubtab() {
   const identity   = useIdentity();
   const rep        = useOwnReputation(identity?.agent_id ?? null);
   const { balance, loading: balLoading, solanaAddress } = useHotKeyBalance();
+  const bridgeLog = useBridgeActivityLog(30);
   const [inbox, setInbox] = useState<InboundEnvelope[]>([]);
   const [hostedAgentId, setHostedAgentId] = useState<string | null>(null);
   const [coldWallet, setColdWallet] = useState<string | null>(null);
@@ -649,7 +652,43 @@ function NodeSubtab() {
           inbox.map((env, i) => <InboxRow key={i} env={env} />)
         )}
       </View>
+
+      {/* Agent phone activity log */}
+      {!isHosted && bridgeLog.length > 0 && (
+        <>
+          <Text style={s.sectionLabel}>AGENT ACTIONS</Text>
+          <View style={s.card}>
+            {bridgeLog.map((e, i) => (
+              <BridgeLogRow key={i} entry={e} isLast={i === bridgeLog.length - 1} />
+            ))}
+          </View>
+        </>
+      )}
     </ScrollView>
+  );
+}
+
+function BridgeLogRow({ entry, isLast }: { entry: BridgeLogEntry; isLast: boolean }) {
+  const outcomeColor = entry.outcome === 'ok' ? C.green
+    : entry.outcome === 'disabled' || entry.outcome === 'denied' ? C.sub
+    : entry.outcome === 'rate_limited' ? C.amber
+    : C.red;
+  const outcomeLabel = entry.outcome === 'ok' ? 'ok'
+    : entry.outcome === 'disabled' ? 'off'
+    : entry.outcome === 'denied' ? 'no perm'
+    : entry.outcome === 'rate_limited' ? 'throttled'
+    : 'err';
+  return (
+    <View style={[s.inboxRow, isLast && { borderBottomWidth: 0 }]}>
+      <View style={{ flex: 1 }}>
+        <Text style={s.inboxType}>{entry.capability}</Text>
+        <Text style={s.inboxFrom}>{entry.action}</Text>
+      </View>
+      <View style={{ alignItems: 'flex-end' }}>
+        <Text style={[s.inboxSlot, { color: outcomeColor }]}>{outcomeLabel}</Text>
+        <Text style={[s.inboxSlot, { marginTop: 2 }]}>{entry.time}</Text>
+      </View>
+    </View>
   );
 }
 
