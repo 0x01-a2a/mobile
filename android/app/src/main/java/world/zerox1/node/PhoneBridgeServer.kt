@@ -73,7 +73,16 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
         const val PORT            = 9092
         const val NOTIF_CHANNEL_ID = "zerox1_phone_bridge"
         const val BRIDGE_NOTIF_ID  = 0x7A01  // fixed ID so notifications replace each other
+        const val MAX_AUTH_FAILURES_PER_MINUTE = 10
+        const val AUTH_LOCKOUT_SLEEP_MS = 5_000L
     }
+
+    // Failed-auth rate limiter — global counter over a 60-second rolling window.
+    // After MAX_AUTH_FAILURES_PER_MINUTE consecutive failures the handler sleeps
+    // AUTH_LOCKOUT_SLEEP_MS before replying, making brute-force impractical even
+    // on a rooted device where loopback traffic can be observed.
+    private val failedAuthCount = java.util.concurrent.atomic.AtomicInteger(0)
+    private val authWindowStart = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
 
     private var serverSocket: ServerSocket? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -140,14 +149,26 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
                     line = reader.readLine()
                 }
 
-                // Authentication Check (CRIT-1)
+                // Authentication Check (CRIT-1) + brute-force rate limit (SEC-1)
                 val token = headers["x-bridge-token"]
                 if (token == null || token != secret) {
-                    Log.w(TAG, "Unauthorized request from ${socket.inetAddress}: $path")
+                    val now = System.currentTimeMillis()
+                    if (now - authWindowStart.get() > 60_000L) {
+                        authWindowStart.set(now)
+                        failedAuthCount.set(0)
+                    }
+                    val attempts = failedAuthCount.incrementAndGet()
+                    if (attempts > MAX_AUTH_FAILURES_PER_MINUTE) {
+                        Log.w(TAG, "Auth rate limit exceeded ($attempts failures/min) — throttling")
+                        Thread.sleep(AUTH_LOCKOUT_SLEEP_MS)
+                    }
+                    Log.w(TAG, "Unauthorized request (attempt $attempts) from ${socket.inetAddress}: $path")
                     val err = jsonError("UNAUTHORIZED", 401)
                     writeResponse(socket, err.body, err.status)
                     return
                 }
+                // Successful auth — reset failure counter.
+                failedAuthCount.set(0)
 
                 // Read body (HIGH-1: Content-Length cap)
                 val contentLength = headers["content-length"]?.toIntOrNull()?.coerceIn(0, 1_048_576) ?: 0
