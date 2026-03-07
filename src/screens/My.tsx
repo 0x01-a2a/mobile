@@ -22,10 +22,12 @@ import { useNode } from '../hooks/useNode';
 import {
   BridgeLogEntry,
   InboundEnvelope,
+  NegotiationThread,
   PortfolioEvent,
   SweepResult,
   TokenBalance,
   clearTokenFromKeychain,
+  groupNegotiations,
   probeRtt,
   sweepUsdc,
   useBridgeActivityLog,
@@ -508,6 +510,8 @@ function NodeSubtab() {
 
   useInbox(onEnvelope, status === 'running');
 
+  const negotiations = groupNegotiations(inbox);
+
   const handleDisconnect = useCallback(() => {
     Alert.alert(
       'Disconnect from host',
@@ -599,6 +603,28 @@ function NodeSubtab() {
         )}
       </View>
 
+      {negotiations.length > 0 && (
+        <>
+          <Text style={s.sectionLabel}>NEGOTIATIONS</Text>
+          <View style={s.card}>
+            {negotiations.map(t => (
+              <NegotiationCard key={t.conversationId} thread={t} />
+            ))}
+          </View>
+        </>
+      )}
+
+      {inbox.length > 0 && negotiations.length === 0 && (
+        <>
+          <Text style={s.sectionLabel}>INBOX</Text>
+          <View style={s.card}>
+            {inbox.map((env, i) => (
+              <InboxRow key={i} env={env} />
+            ))}
+          </View>
+        </>
+      )}
+
       {/* Agent phone activity log */}
       {!isHosted && bridgeLog.length > 0 && (
         <>
@@ -614,6 +640,65 @@ function NodeSubtab() {
   );
 }
 
+function statusColor(status: string): string {
+  switch (status) {
+    case 'PROPOSE': return C.blue;
+    case 'COUNTER': return C.amber;
+    case 'ACCEPT':  return C.green;
+    case 'REJECT':  return C.red;
+    case 'DELIVER': return '#a259f7';
+    default:        return C.sub;
+  }
+}
+
+function formatUsdc(microunits: number): string {
+  return (microunits / 1_000_000).toFixed(2) + ' USDC';
+}
+
+function NegotiationCard({ thread }: { thread: NegotiationThread }) {
+  const [expanded, setExpanded] = useState(false);
+  const short = (id: string) => id.length > 16 ? `${id.slice(0, 6)}…${id.slice(-6)}` : id;
+  const color = statusColor(thread.latestStatus);
+  return (
+    <TouchableOpacity
+      style={s.negCard}
+      onPress={() => setExpanded(e => !e)}
+      activeOpacity={0.8}
+    >
+      <View style={s.negHeader}>
+        <View style={[s.negBadge, { backgroundColor: color + '22', borderColor: color }]}>
+          <Text style={[s.negBadgeText, { color }]}>{thread.latestStatus}</Text>
+        </View>
+        <Text style={s.negParty}>{short(thread.counterparty)}</Text>
+        {thread.latestAmount !== undefined && (
+          <Text style={s.negAmount}>{formatUsdc(thread.latestAmount)}</Text>
+        )}
+        <Text style={s.negChevron}>{expanded ? '▲' : '▼'}</Text>
+      </View>
+      <Text style={s.negConvId}>{short(thread.conversationId)}</Text>
+      {expanded && (
+        <View style={s.negTimeline}>
+          {thread.messages.map((msg, i) => (
+            <View key={i} style={s.negTimelineRow}>
+              <View style={[s.negDot, { backgroundColor: statusColor(msg.msg_type) }]} />
+              <View style={{ flex: 1 }}>
+                <Text style={[s.negTimelineType, { color: statusColor(msg.msg_type) }]}>
+                  {msg.msg_type}
+                  {msg.round !== undefined ? ` (round ${msg.round}/${msg.maxRounds ?? '?'})` : ''}
+                  {msg.amount !== undefined ? `  ${formatUsdc(msg.amount)}` : ''}
+                </Text>
+                {msg.message ? (
+                  <Text style={s.negTimelineMsg} numberOfLines={2}>{msg.message}</Text>
+                ) : null}
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
+    </TouchableOpacity>
+  );
+}
+
 function InboxRow({ env }: { env: InboundEnvelope }) {
   let displayFrom = env.sender;
   if (displayFrom.length > 16) {
@@ -622,7 +707,7 @@ function InboxRow({ env }: { env: InboundEnvelope }) {
   return (
     <View style={s.inboxRow}>
       <View>
-        <Text style={s.inboxType}>{env.msg_type === 'chat' && env.conversation_id ? 'conversation' : env.msg_type}</Text>
+        <Text style={s.inboxType}>{env.msg_type}</Text>
         <Text style={s.inboxFrom}>{displayFrom}</Text>
       </View>
       <Text style={s.inboxSlot}>{env.slot}</Text>
@@ -947,4 +1032,18 @@ const s = StyleSheet.create({
   pickerRadioSelected: { borderColor: C.blue, backgroundColor: C.blue },
   pickerName: { fontSize: 11, color: C.text, fontFamily: 'monospace', fontWeight: '700' },
   pickerAgentId: { fontSize: 9, color: C.sub, fontFamily: 'monospace', marginTop: 2 },
+  // negotiation cards
+  negCard: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border },
+  negHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  negBadge: { borderRadius: 3, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 2 },
+  negBadgeText: { fontSize: 9, fontWeight: '700', letterSpacing: 2 },
+  negParty: { flex: 1, fontSize: 11, color: C.text, fontFamily: 'monospace' },
+  negAmount: { fontSize: 11, color: C.amber, fontFamily: 'monospace', fontWeight: '700' },
+  negChevron: { fontSize: 10, color: C.sub, marginLeft: 4 },
+  negConvId: { fontSize: 9, color: C.sub, fontFamily: 'monospace', marginBottom: 2 },
+  negTimeline: { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.border },
+  negTimelineRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 10 },
+  negDot: { width: 8, height: 8, borderRadius: 4, marginTop: 3 },
+  negTimelineType: { fontSize: 11, fontWeight: '700', fontFamily: 'monospace' },
+  negTimelineMsg: { fontSize: 10, color: C.sub, fontFamily: 'monospace', marginTop: 2 },
 });

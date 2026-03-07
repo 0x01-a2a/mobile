@@ -113,6 +113,99 @@ export interface InboundEnvelope {
   conversation_id: string;
 }
 
+// ── Negotiation payload decode helpers ────────────────────────────────────────
+// Mirror the structured payload format used by the SDK:
+//   [bytes 0-15]  LE i128 amount in USDC microunits
+//   [bytes 16..]  JSON body
+
+function _readBidAmount(raw: Uint8Array): number {
+  // Read low 32 bits + next 32 bits as unsigned LE integers.
+  // Covers all realistic USDC amounts (< $9 trillion = 9e18 microunits < 2^53).
+  const lo = raw[0] | (raw[1] << 8) | (raw[2] << 16) | (raw[3] << 24);
+  const hi = raw[4] | (raw[5] << 8) | (raw[6] << 16) | (raw[7] << 24);
+  return (lo >>> 0) + (hi >>> 0) * 4294967296;
+}
+
+function _decodeBidPayload(
+  payloadB64: string,
+): { amount: number; body: Record<string, unknown> } | null {
+  try {
+    const raw = Uint8Array.from(atob(payloadB64), c => c.charCodeAt(0));
+    if (raw.length < 17 || raw[16] !== 0x7b) return null; // 0x7b = '{'
+    const body = JSON.parse(
+      String.fromCharCode(...raw.slice(16)),
+    ) as Record<string, unknown>;
+    return { amount: _readBidAmount(raw), body };
+  } catch {
+    return null;
+  }
+}
+
+export interface NegotiationMsg {
+  msg_type: string;
+  sender: string;
+  slot: number;
+  amount?: number;       // USDC microunits
+  round?: number;
+  maxRounds?: number;
+  message?: string;
+}
+
+export interface NegotiationThread {
+  conversationId: string;
+  counterparty: string;  // sender of the first message in this thread
+  messages: NegotiationMsg[];
+  latestStatus: string;  // msg_type of the most recent message
+  latestAmount?: number; // amount from latest COUNTER or ACCEPT
+}
+
+const NEGOTIATION_TYPES = new Set(['PROPOSE', 'COUNTER', 'ACCEPT', 'REJECT', 'DELIVER']);
+
+function _parseNegotiationMsg(env: InboundEnvelope): NegotiationMsg {
+  const base: NegotiationMsg = {
+    msg_type: env.msg_type,
+    sender: env.sender,
+    slot: env.slot,
+  };
+  const decoded = _decodeBidPayload(env.payload_b64);
+  if (!decoded) return base;
+  const { amount, body } = decoded;
+  return {
+    ...base,
+    amount,
+    round: body['round'] !== undefined ? Number(body['round']) : undefined,
+    maxRounds: body['max_rounds'] !== undefined ? Number(body['max_rounds']) : undefined,
+    message: body['message'] !== undefined ? String(body['message']) : undefined,
+  };
+}
+
+/** Group an inbox array into negotiation threads keyed by conversation_id. */
+export function groupNegotiations(inbox: InboundEnvelope[]): NegotiationThread[] {
+  const map = new Map<string, NegotiationThread>();
+  // inbox is newest-first; iterate reversed to process oldest first
+  for (let i = inbox.length - 1; i >= 0; i--) {
+    const env = inbox[i];
+    if (!NEGOTIATION_TYPES.has(env.msg_type)) continue;
+    const msg = _parseNegotiationMsg(env);
+    if (!map.has(env.conversation_id)) {
+      map.set(env.conversation_id, {
+        conversationId: env.conversation_id,
+        counterparty: env.sender,
+        messages: [],
+        latestStatus: env.msg_type,
+      });
+    }
+    const thread = map.get(env.conversation_id)!;
+    thread.messages.push(msg);
+    thread.latestStatus = env.msg_type;
+    if (msg.amount !== undefined && (env.msg_type === 'COUNTER' || env.msg_type === 'ACCEPT')) {
+      thread.latestAmount = msg.amount;
+    }
+  }
+  // Return most-recently-updated first
+  return Array.from(map.values()).reverse();
+}
+
 export interface NetworkStats {
   agent_count: number;
   interaction_count: number;

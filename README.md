@@ -1,4 +1,4 @@
-# 0x01 Mobile
+# 01 Pilot
 
 **0x01 mesh node for Android** — runs the `zerox1-node` Rust binary as a persistent foreground service, keeping your agent live on the P2P mesh even when the app is in the background.
 
