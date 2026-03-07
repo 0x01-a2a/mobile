@@ -64,6 +64,18 @@ interface Bounty {
   receivedAt: number;
 }
 
+// ── Token whitelist (mirrors node SWAP_WHITELIST) ─────────────────────────
+
+const SWAP_TOKENS = [
+  { label: 'SOL',  mint: 'So11111111111111111111111111111111111111112',   decimals: 9 },
+  { label: 'USDC', mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', decimals: 6 },
+  { label: 'USDT', mint: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', decimals: 6 },
+  { label: 'JUP',  mint: 'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN',  decimals: 6 },
+  { label: 'BONK', mint: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', decimals: 5 },
+  { label: 'RAY',  mint: '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R',  decimals: 6 },
+  { label: 'WIF',  mint: 'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm',  decimals: 6 },
+] as const;
+
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 function decodeTerms(payloadB64: string): ProposalTerms | null {
@@ -182,30 +194,50 @@ export function EarnScreen() {
   const { injectSystemMessage } = useZeroclawChat();
   const [swapAmount, setSwapAmount] = useState('0.1');
   const [swapping, setSwapping] = useState(false);
+  const [inputIdx, setInputIdx] = useState(1);  // USDC
+  const [outputIdx, setOutputIdx] = useState(0); // SOL
+  const [pickerFor, setPickerFor] = useState<'input' | 'output' | null>(null);
+
+  const inputToken  = SWAP_TOKENS[inputIdx];
+  const outputToken = SWAP_TOKENS[outputIdx];
 
   const { quote, loading: quoteLoading } = useTradeQuote({
-    inputMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
-    outputMint: 'So11111111111111111111111111111111111111112', // SOL
-    amount: (Number(swapAmount) || 0) * 1e6,
+    inputMint:  inputToken.mint,
+    outputMint: outputToken.mint,
+    amount: (Number(swapAmount) || 0) * 10 ** inputToken.decimals,
   });
 
   const handleSwap = useCallback(async () => {
     if (!swapAmount || isNaN(Number(swapAmount)) || !quote) return;
-    setSwapping(true);
-    const res = await executeJupiterSwap({
-      inputMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
-      outputMint: 'So11111111111111111111111111111111111111112', // WSOL
-      amount: Number(swapAmount) * 1e6,
-    });
-    setSwapping(false);
-
-    if (res?.txid) {
-      injectSystemMessage(`✅ Trade Successful\nSwapped ${swapAmount} USDC to ${res.outAmount / 1e9} SOL\nTxID: ${shortId(res.txid)}`);
-      navigation.navigate('Chat');
-    } else {
-      Alert.alert('Swap Failed', 'Execution failed. Check your SOL balance for gas or Kora status.');
-    }
-  }, [swapAmount, quote, injectSystemMessage, navigation]);
+    const outAmount = parseFloat(quote.outAmount) / 10 ** outputToken.decimals;
+    Alert.alert(
+      'Confirm Swap',
+      `Swap ${swapAmount} ${inputToken.label} for ~${outAmount.toFixed(6)} ${outputToken.label}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'SWAP',
+          onPress: async () => {
+            setSwapping(true);
+            const res = await executeJupiterSwap({
+              inputMint:  inputToken.mint,
+              outputMint: outputToken.mint,
+              amount: Number(swapAmount) * 10 ** inputToken.decimals,
+            });
+            setSwapping(false);
+            if (res?.txid) {
+              injectSystemMessage(
+                `✅ Trade Successful\nSwapped ${swapAmount} ${inputToken.label} → ${outAmount.toFixed(6)} ${outputToken.label}\nTxID: ${shortId(res.txid)}`,
+              );
+              navigation.navigate('Chat');
+            } else {
+              Alert.alert('Swap Failed', 'Execution failed. Check your balance for gas or Kora status.');
+            }
+          },
+        },
+      ],
+    );
+  }, [swapAmount, quote, inputIdx, outputIdx, injectSystemMessage, navigation]);
 
   useFocusEffect(
     useCallback(() => {
@@ -365,13 +397,14 @@ export function EarnScreen() {
         <ScrollView style={s.tradeRoot} contentContainerStyle={s.tradeContent}>
           <Text style={s.sectionLabel}>JUPITER SWAP</Text>
           <View style={s.card}>
-            {/* TO DO: Swap UI built from context layout */}
-            <Text style={s.sub}>You swap using your agent's secure cold wallet.</Text>
+            <Text style={s.sub}>Swap using your agent's hot wallet. Whitelisted tokens only.</Text>
 
             <View style={s.swapBox}>
               <Text style={s.tradeLabel}>From:</Text>
               <View style={[s.tradeInputRow, { paddingVertical: 8 }]}>
-                <Text style={s.tradeTokenBadge}>USDC</Text>
+                <TouchableOpacity onPress={() => setPickerFor('input')} activeOpacity={0.7}>
+                  <Text style={[s.tradeTokenBadge, s.tradeTokenTap]}>{inputToken.label} ▾</Text>
+                </TouchableOpacity>
                 <TextInput
                   style={s.tradeInputVal}
                   keyboardType="numeric"
@@ -383,20 +416,30 @@ export function EarnScreen() {
               </View>
 
               <View style={s.swapIconRow}>
-                <Text style={s.swapIcon}>↓</Text>
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={() => {
+                    setInputIdx(outputIdx);
+                    setOutputIdx(inputIdx);
+                  }}
+                >
+                  <Text style={s.swapIcon}>⇅</Text>
+                </TouchableOpacity>
               </View>
 
               <Text style={s.tradeLabel}>To:</Text>
               <View style={[s.tradeInputRow, { paddingVertical: 14 }]}>
-                <Text style={s.tradeTokenBadge}>SOL</Text>
+                <TouchableOpacity onPress={() => setPickerFor('output')} activeOpacity={0.7}>
+                  <Text style={[s.tradeTokenBadge, s.tradeTokenTap]}>{outputToken.label} ▾</Text>
+                </TouchableOpacity>
                 {quoteLoading ? (
                   <ActivityIndicator size="small" color={C.green} />
                 ) : quote ? (
                   <Text style={s.tradeInputVal}>
-                    {(parseFloat(quote.outAmount) / 1e9).toFixed(6)}
+                    {(parseFloat(quote.outAmount) / 10 ** outputToken.decimals).toFixed(6)}
                   </Text>
                 ) : (
-                  <Text style={[s.tradeInputVal, { color: C.dim }]}>Market Rate</Text>
+                  <Text style={[s.tradeInputVal, { color: C.dim }]}>—</Text>
                 )}
               </View>
 
@@ -411,15 +454,44 @@ export function EarnScreen() {
             </View>
 
             <TouchableOpacity
-              style={s.swapBtn}
+              style={[s.swapBtn, (swapping || !quote || inputToken.mint === outputToken.mint) && { opacity: 0.4 }]}
               activeOpacity={0.8}
               onPress={handleSwap}
-              disabled={swapping}
+              disabled={swapping || !quote || inputToken.mint === outputToken.mint}
             >
-              <Text style={s.swapBtnText}>{swapping ? 'SWAPPING...' : 'REVIEW SWAP'}</Text>
+              <Text style={s.swapBtnText}>{swapping ? 'SWAPPING…' : 'SWAP'}</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
+      )}
+
+      {/* Token picker modal */}
+      {pickerFor && (
+        <Modal transparent animationType="slide" onRequestClose={() => setPickerFor(null)}>
+          <Pressable style={s.overlay} onPress={() => setPickerFor(null)} />
+          <View style={s.sheet}>
+            <Text style={s.sheetTitle}>SELECT TOKEN</Text>
+            {SWAP_TOKENS.map((t, i) => {
+              const isOtherSide = pickerFor === 'input' ? i === outputIdx : i === inputIdx;
+              return (
+                <TouchableOpacity
+                  key={t.mint}
+                  style={[s.agentRow, isOtherSide && { opacity: 0.3 }]}
+                  onPress={() => {
+                    if (isOtherSide) return;
+                    if (pickerFor === 'input') setInputIdx(i);
+                    else setOutputIdx(i);
+                    setPickerFor(null);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={s.agentName}>{t.label}</Text>
+                  <Text style={s.agentId}>{t.mint.slice(0, 8)}…</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </Modal>
       )}
 
     </View>
@@ -474,6 +546,7 @@ const s = StyleSheet.create({
   tradeLabel: { fontSize: 10, color: C.sub, fontFamily: 'monospace', letterSpacing: 1, marginBottom: 8 },
   tradeInputRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#111', padding: 12, borderRadius: 3, borderWidth: 1, borderColor: C.dim },
   tradeTokenBadge: { fontSize: 14, color: C.text, fontWeight: '700', fontFamily: 'monospace' },
+  tradeTokenTap: { color: C.green, borderWidth: 1, borderColor: C.green + '60', borderRadius: 3, paddingHorizontal: 8, paddingVertical: 4 },
   tradeInputVal: { fontSize: 18, color: C.text, fontFamily: 'monospace' },
   swapIconRow: { alignItems: 'center', paddingVertical: 8 },
   swapIcon: { fontSize: 16, color: C.dim, fontFamily: 'monospace', fontWeight: '700' },

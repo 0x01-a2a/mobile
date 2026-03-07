@@ -24,7 +24,6 @@ import {
   InboundEnvelope,
   NegotiationThread,
   PortfolioEvent,
-  SweepResult,
   TokenBalance,
   clearTokenFromKeychain,
   groupNegotiations,
@@ -34,7 +33,6 @@ import {
   useHotKeyBalance,
   useIdentity,
   useInbox,
-  useNetworkStats,
   useOwnReputation,
   usePortfolioHistory,
 } from '../hooks/useNodeApi';
@@ -453,18 +451,9 @@ function NodeSubtab() {
   const { status, loading, start, stop, config, saveConfig } = useNode();
   const identity = useIdentity();
   const rep = useOwnReputation(identity?.agent_id ?? null);
-  const { tokens, loading: balLoading, solanaAddress } = useHotKeyBalance();
-  const solToken = tokens.find(t => t.mint === 'So11111111111111111111111111111111111111112');
-  const usdcToken = tokens.find(t => t.mint.startsWith('4zMMC') || t.mint === 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
-  const sol = solToken?.amount ?? 0;
-  const usdc = usdcToken?.amount ?? 0;
-  const balance = usdc; // For backward compatibility within this function if needed, or just use usdc
   const bridgeLog = useBridgeActivityLog(30);
   const [inbox, setInbox] = useState<InboundEnvelope[]>([]);
   const [hostedAgentId, setHostedAgentId] = useState<string | null>(null);
-  const [coldWallet, setColdWallet] = useState<string | null>(null);
-  const [sweeping, setSweeping] = useState(false);
-  const [lastSweep, setLastSweep] = useState<SweepResult | null>(null);
 
   const isHosted = Boolean(config.nodeApiUrl);
 
@@ -474,32 +463,6 @@ function NodeSubtab() {
       .then(id => setHostedAgentId(id))
       .catch(() => { });
   }, [isHosted]);
-
-  // Load the cold wallet from the first linked agent (used as sweep destination).
-  useEffect(() => {
-    AsyncStorage.getItem('zerox1:linked_agents')
-      .then(raw => {
-        if (!raw) return;
-        const agents: Array<{ ownerWallet?: string }> = JSON.parse(raw);
-        const first = agents.find(a => a.ownerWallet);
-        setColdWallet(first?.ownerWallet ?? null);
-      })
-      .catch(() => { });
-  }, []);
-
-  const handleSweep = useCallback(async () => {
-    if (!coldWallet) return;
-    setSweeping(true);
-    setLastSweep(null);
-    try {
-      const result = await sweepUsdc(coldWallet);
-      setLastSweep(result);
-    } catch (e: unknown) {
-      Alert.alert('Sweep failed', e instanceof Error ? e.message : String(e));
-    } finally {
-      setSweeping(false);
-    }
-  }, [coldWallet]);
 
   const onEnvelope = useCallback((env: InboundEnvelope) => {
     setInbox(prev => {
