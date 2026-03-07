@@ -55,6 +55,10 @@ class NodeService : Service() {
         const val EXTRA_AGENT_NAME  = "agent_name"
         const val EXTRA_RPC_URL     = "rpc_url"
 
+        // Intent extras — Bags fee-sharing
+        const val EXTRA_BAGS_FEE_BPS = "bags_fee_bps"
+        const val EXTRA_BAGS_WALLET  = "bags_wallet"
+
         // Intent extras — ZeroClaw brain
         const val EXTRA_BRAIN_ENABLED = "brain_enabled"
         const val EXTRA_LLM_PROVIDER  = "llm_provider"
@@ -104,6 +108,9 @@ class NodeService : Service() {
         val fcmToken     = intent?.getStringExtra(EXTRA_FCM_TOKEN)
         val agentName    = intent?.getStringExtra(EXTRA_AGENT_NAME) ?: "zerox1-agent"
         val rpcUrl       = intent?.getStringExtra(EXTRA_RPC_URL) ?: "https://api.devnet.solana.com"
+        val bagsFeeBps   = if (intent?.hasExtra(EXTRA_BAGS_FEE_BPS) == true)
+                               intent.getIntExtra(EXTRA_BAGS_FEE_BPS, 0) else 0
+        val bagsWallet   = intent?.getStringExtra(EXTRA_BAGS_WALLET)
         val brainEnabled = intent?.getBooleanExtra(EXTRA_BRAIN_ENABLED, false) ?: false
         val llmProvider  = intent?.getStringExtra(EXTRA_LLM_PROVIDER) ?: "gemini"
         val capabilities = intent?.getStringExtra(EXTRA_CAPABILITIES) ?: "[]"
@@ -125,7 +132,7 @@ class NodeService : Service() {
             try {
                 val binary = prepareNodeBinary()
                 // MED-4: Replace recursive launchNode with iterative loop in separate job
-                launchNodeIterative(binary, relayAddr, fcmToken, agentName, rpcUrl)
+                launchNodeIterative(binary, relayAddr, fcmToken, agentName, rpcUrl, bagsFeeBps, bagsWallet)
             } catch (e: Exception) {
                 Log.e(TAG, "Node start failed: $e")
                 broadcastStatus(STATUS_ERROR, e.message ?: "unknown error")
@@ -204,14 +211,16 @@ class NodeService : Service() {
     // -------------------------------------------------------------------------
 
     private suspend fun launchNodeIterative(
-        binary:    File,
-        relayAddr: String?,
-        fcmToken:  String?,
-        agentName: String,
-        rpcUrl:    String,
+        binary:      File,
+        relayAddr:   String?,
+        fcmToken:    String?,
+        agentName:   String,
+        rpcUrl:      String,
+        bagsFeeBps:  Int,
+        bagsWallet:  String?,
     ) {
         while (coroutineContext.isActive) {
-            launchNode(binary, relayAddr, fcmToken, agentName, rpcUrl)
+            launchNode(binary, relayAddr, fcmToken, agentName, rpcUrl, bagsFeeBps, bagsWallet)
             if (!coroutineContext.isActive) break
             Log.i(TAG, "Restarting node in 5s…")
             updateNotification("Restarting…")
@@ -220,11 +229,13 @@ class NodeService : Service() {
     }
 
     private suspend fun launchNode(
-        binary:    File,
-        relayAddr: String?,
-        fcmToken:  String?,
-        agentName: String,
-        rpcUrl:    String,
+        binary:      File,
+        relayAddr:   String?,
+        fcmToken:    String?,
+        agentName:   String,
+        rpcUrl:      String,
+        bagsFeeBps:  Int,
+        bagsWallet:  String?,
     ) = withContext(Dispatchers.IO) {
         val logDir      = File(filesDir, "logs").also { it.mkdirs() }
         val keypairPath = File(filesDir, "zerox1-identity.key")
@@ -243,6 +254,10 @@ class NodeService : Service() {
 
         relayAddr?.let { cmd += listOf("--relay-addr", it) }
         fcmToken?.let  { cmd += listOf("--fcm-token",  it) }
+        if (bagsFeeBps > 0) {
+            cmd += listOf("--bags-fee-bps", bagsFeeBps.toString())
+            bagsWallet?.let { cmd += listOf("--bags-wallet", it) }
+        }
 
         Log.i(TAG, "Launching node: ${cmd.joinToString(" ")}")
 

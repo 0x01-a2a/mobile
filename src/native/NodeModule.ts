@@ -48,6 +48,12 @@ export interface NodeConfig {
   minReputation?: number;
   /** Auto-accept qualifying tasks without user approval. */
   autoAccept?: boolean;
+
+  // ── Bags fee-sharing ──────────────────────────────────────────────────────
+  /** Fee in basis points to route to the Bags distribution contract (0 = off, max 500). */
+  bagsFeesBps?: number;
+  /** Base58 Solana pubkey of the Bags distribution wallet. Omit to auto-resolve from bags.fm. */
+  bagsWallet?: string;
 }
 
 export type NodeStatus = 'running' | 'stopped' | 'error';

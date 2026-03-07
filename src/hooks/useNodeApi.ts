@@ -248,7 +248,8 @@ export interface AgentSummary {
 
 export type PortfolioEvent =
   | { type: 'swap'; input_mint: string; output_mint: string; input_amount: number; output_amount: number; txid: string; timestamp: number }
-  | { type: 'bounty'; amount_usdc: number; from_agent: string; conversation_id: string; timestamp: number };
+  | { type: 'bounty'; amount_usdc: number; from_agent: string; conversation_id: string; timestamp: number }
+  | { type: 'bags_fee'; amount_usdc: number; txid: string; timestamp: number };
 
 export interface TokenBalance {
   mint: string;
@@ -1014,4 +1015,34 @@ export function useWatchlist() {
   const isWatched = useCallback((id: string) => list.includes(id), [list]);
 
   return { watchlist: list, watch, unwatch, isWatched };
+}
+
+// ============================================================================
+// Bags fee-sharing config
+// ============================================================================
+
+export interface BagsConfigInfo {
+  enabled: boolean;
+  fee_bps: number;
+  distribution_wallet: string | null;
+  min_fee_micro: number;
+}
+
+/** Polls GET /bags/config every 60 seconds. Returns null while loading or when unavailable. */
+export function useBagsConfig(intervalMs = 60_000): BagsConfigInfo | null {
+  const [info, setInfo] = useState<BagsConfigInfo | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      if (!_appActive) return;
+      const data = await apiFetch<BagsConfigInfo>('/bags/config');
+      if (!cancelled && data) setInfo(data);
+    };
+    poll();
+    const id = setInterval(poll, intervalMs);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [intervalMs]);
+
+  return info;
 }

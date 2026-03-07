@@ -28,6 +28,7 @@ import {
   registerAsHosted,
   useBridgeCapabilities,
   useHostingNodes,
+  useBagsConfig,
 } from '../hooks/useNodeApi';
 import {
   ALL_CAPABILITIES,
@@ -532,6 +533,162 @@ function AgentCapabilitiesSection() {
   );
 }
 
+// ── Bags Fee Sharing section ──────────────────────────────────────────────────
+
+function BagsFeeSection({
+  isLocalMode,
+  bagsFeePercent,
+  onBagsFeePercentChange,
+  bagsWallet,
+  onBagsWalletChange,
+  bagsEnabled,
+  onBagsEnabledChange,
+}: {
+  isLocalMode: boolean;
+  bagsFeePercent: string;
+  onBagsFeePercentChange: (v: string) => void;
+  bagsWallet: string;
+  onBagsWalletChange: (v: string) => void;
+  bagsEnabled: boolean;
+  onBagsEnabledChange: (v: boolean) => void;
+}) {
+  const liveConfig = useBagsConfig();
+
+  if (!isLocalMode) return null;
+
+  return (
+    <View style={bfs.section}>
+      <View style={bfs.headerRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={bfs.sectionTitle}>BAGS FEE SHARING</Text>
+          <Text style={bfs.sectionSub}>
+            Route a % of swap + escrow revenue to BAGS holders
+          </Text>
+        </View>
+        <Switch
+          value={bagsEnabled}
+          onValueChange={onBagsEnabledChange}
+          trackColor={{ false: C.border, true: '#9c27b0' + '66' }}
+          thumbColor={bagsEnabled ? '#9c27b0' : '#333'}
+        />
+      </View>
+
+      {bagsEnabled && (
+        <>
+          <View style={bfs.row}>
+            <View style={bfs.rowLeft}>
+              <Text style={bfs.rowLabel}>FEE %</Text>
+              <Text style={bfs.rowSub}>% of each swap output / escrow to share (max 5%)</Text>
+            </View>
+            <TextInput
+              style={bfs.feeInput}
+              value={bagsFeePercent}
+              onChangeText={onBagsFeePercentChange}
+              keyboardType="decimal-pad"
+              placeholder="0.5"
+              placeholderTextColor={C.sub}
+            />
+          </View>
+          <View style={[bfs.row, { borderBottomWidth: 0 }]}>
+            <View style={bfs.rowLeft}>
+              <Text style={bfs.rowLabel}>DISTRIBUTION WALLET</Text>
+              <Text style={bfs.rowSub}>
+                Base58 Solana pubkey. Leave empty to resolve from Bags API.
+              </Text>
+            </View>
+          </View>
+          <View style={[bfs.row, { borderBottomWidth: 0, paddingTop: 0 }]}>
+            <TextInput
+              style={[bfs.feeInput, { flex: 1, fontFamily: 'monospace', fontSize: 11 }]}
+              value={bagsWallet}
+              onChangeText={onBagsWalletChange}
+              placeholder="auto (from bags.fm)"
+              placeholderTextColor={C.sub}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+          {liveConfig?.enabled && (
+            <View style={bfs.liveRow}>
+              <Text style={bfs.liveDot}>●</Text>
+              <Text style={bfs.liveText}>
+                live: {(liveConfig.fee_bps / 100).toFixed(2)}% → {liveConfig.distribution_wallet ? `${liveConfig.distribution_wallet.slice(0, 8)}…${liveConfig.distribution_wallet.slice(-6)}` : 'auto'}
+              </Text>
+            </View>
+          )}
+        </>
+      )}
+    </View>
+  );
+}
+
+const bfs = StyleSheet.create({
+  section: {
+    backgroundColor: C.card,
+    borderWidth: 1,
+    borderColor: '#9c27b030',
+    borderRadius: 4,
+    marginBottom: 16,
+    overflow: 'hidden',
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
+    backgroundColor: '#0d000d',
+  },
+  sectionTitle: {
+    fontSize: 11,
+    color: '#9c27b0',
+    letterSpacing: 3,
+    fontWeight: '700',
+    fontFamily: 'monospace',
+  },
+  sectionSub: {
+    fontSize: 10,
+    color: C.sub,
+    fontFamily: 'monospace',
+    marginTop: 4,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
+  },
+  rowLeft: { flex: 1, marginRight: 12 },
+  rowLabel: {
+    fontSize: 10,
+    color: C.text,
+    letterSpacing: 2,
+    fontWeight: '700',
+    fontFamily: 'monospace',
+  },
+  rowSub: { fontSize: 10, color: C.sub, fontFamily: 'monospace', marginTop: 3, lineHeight: 14 },
+  feeInput: {
+    color: C.text,
+    fontFamily: 'monospace',
+    fontSize: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#9c27b060',
+    minWidth: 60,
+    textAlign: 'right',
+    paddingVertical: 2,
+  },
+  liveRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+  },
+  liveDot: { fontSize: 8, color: '#9c27b0', marginRight: 6 },
+  liveText: { fontSize: 10, color: C.sub, fontFamily: 'monospace' },
+});
+
 // ── Main screen ───────────────────────────────────────────────────────────────
 
 export function SettingsScreen() {
@@ -544,6 +701,26 @@ export function SettingsScreen() {
   const [nodeApiUrl, setNodeApiUrl] = useState(config.nodeApiUrl ?? '');
   const [showBrowser, setShowBrowser] = useState(false);
 
+  // Bags fee-sharing state (persisted in AsyncStorage)
+  const [bagsEnabled, setBagsEnabled] = useState(false);
+  const [bagsFeePercent, setBagsFeePercent] = useState('0.5');
+  const [bagsWallet, setBagsWallet] = useState('');
+
+  // Load bags settings from AsyncStorage on mount
+  useEffect(() => {
+    (async () => {
+      const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+      const [enabled, feeRaw, wallet] = await Promise.all([
+        AsyncStorage.getItem('zerox1:bags_enabled'),
+        AsyncStorage.getItem('zerox1:bags_fee_percent'),
+        AsyncStorage.getItem('zerox1:bags_wallet'),
+      ]);
+      if (enabled !== null) setBagsEnabled(enabled === 'true');
+      if (feeRaw !== null) setBagsFeePercent(feeRaw);
+      if (wallet !== null) setBagsWallet(wallet);
+    })();
+  }, []);
+
   // Sync local state if config changes from outside (e.g. on mount)
   useEffect(() => {
     setAgentName(config.agentName ?? '');
@@ -552,6 +729,34 @@ export function SettingsScreen() {
     setRpcUrl(config.rpcUrl ?? '');
     setNodeApiUrl(config.nodeApiUrl ?? '');
   }, [config]);
+
+  const handleBagsEnabledChange = (v: boolean) => {
+    setBagsEnabled(v);
+    const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+    AsyncStorage.setItem('zerox1:bags_enabled', String(v)).catch((e: any) =>
+      console.error('Failed to persist bags_enabled:', e),
+    );
+  };
+
+  const handleBagsFeePercentChange = (v: string) => {
+    setBagsFeePercent(v);
+    // Only persist valid values (0–5 %) to avoid storing garbage in AsyncStorage.
+    const pct = parseFloat(v);
+    if (!isNaN(pct) && pct >= 0 && pct <= 5) {
+      const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+      AsyncStorage.setItem('zerox1:bags_fee_percent', v).catch((e: any) =>
+        console.error('Failed to persist bags_fee_percent:', e),
+      );
+    }
+  };
+
+  const handleBagsWalletChange = (v: string) => {
+    setBagsWallet(v);
+    const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+    AsyncStorage.setItem('zerox1:bags_wallet', v).catch((e: any) =>
+      console.error('Failed to persist bags_wallet:', e),
+    );
+  };
 
   const handleSave = async () => {
     const trimmedNodeApiUrl = nodeApiUrl.trim() || undefined;
@@ -568,6 +773,15 @@ export function SettingsScreen() {
       Alert.alert('Invalid RPC URL', 'RPC URL must use HTTPS to prevent transaction interception.');
       return;
     }
+    // Validate bags fee percent
+    if (bagsEnabled) {
+      const feePct = parseFloat(bagsFeePercent);
+      if (isNaN(feePct) || feePct < 0 || feePct > 5) {
+        Alert.alert('Invalid Bags Fee', 'Fee must be between 0 and 5%.');
+        return;
+      }
+    }
+    const bagsFeesBps = bagsEnabled ? Math.round(parseFloat(bagsFeePercent || '0') * 100) : 0;
     const newConfig = {
       ...config,
       agentName: agentName.trim() || undefined,
@@ -575,6 +789,8 @@ export function SettingsScreen() {
       relayAddr: relayAddr.trim() || undefined,
       rpcUrl: trimmedRpcUrl,
       nodeApiUrl: trimmedNodeApiUrl,
+      bagsFeesBps,
+      bagsWallet: bagsWallet.trim() || undefined,
     };
     await saveConfig(newConfig);
     Alert.alert('Saved', 'Config saved. Restart the node to apply changes.');
@@ -598,6 +814,17 @@ export function SettingsScreen() {
 
         {/* Agent capability toggles */}
         <AgentCapabilitiesSection />
+
+        {/* Bags fee-sharing (local node only) */}
+        <BagsFeeSection
+          isLocalMode={!nodeApiUrl.trim()}
+          bagsFeePercent={bagsFeePercent}
+          onBagsFeePercentChange={handleBagsFeePercentChange}
+          bagsWallet={bagsWallet}
+          onBagsWalletChange={handleBagsWalletChange}
+          bagsEnabled={bagsEnabled}
+          onBagsEnabledChange={handleBagsEnabledChange}
+        />
 
         {/* Node config fields */}
         <View style={s.section}>

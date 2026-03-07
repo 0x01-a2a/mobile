@@ -846,6 +846,21 @@ function PortfolioEventRow({ event, isLast }: { event: PortfolioEvent; isLast: b
     );
   }
 
+  if (event.type === 'bags_fee') {
+    return (
+      <View style={[s.inboxRow, isLast && { borderBottomWidth: 0 }]}>
+        <View style={{ flex: 1 }}>
+          <Text style={[s.inboxType, { color: '#9c27b0' }]}>BAGS FEE</Text>
+          <Text style={s.inboxFrom}>{shortId(event.txid)}</Text>
+        </View>
+        <View style={{ alignItems: 'flex-end' }}>
+          <Text style={[s.inboxSlot, { color: '#9c27b0' }]}>-${event.amount_usdc.toFixed(4)}</Text>
+          <Text style={[s.inboxSlot, { marginTop: 2 }]}>{dateStr}</Text>
+        </View>
+      </View>
+    );
+  }
+
   return null;
 }
 function BridgeLogRow({ entry, isLast }: { entry: BridgeLogEntry; isLast: boolean }) {
