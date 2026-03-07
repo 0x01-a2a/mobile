@@ -153,6 +153,24 @@ export interface AgentSummary {
   last_seen: number;
 }
 
+export type PortfolioEvent =
+  | { type: 'swap'; input_mint: string; output_mint: string; input_amount: number; output_amount: number; txid: string; timestamp: number }
+  | { type: 'bounty'; amount_usdc: number; from_agent: string; conversation_id: string; timestamp: number };
+
+export interface TokenBalance {
+  mint: string;
+  amount: number;
+  decimals: number;
+}
+
+export interface PortfolioBalances {
+  tokens: TokenBalance[];
+}
+
+export interface PortfolioHistory {
+  events: PortfolioEvent[];
+}
+
 // ============================================================================
 // Generic fetch helper
 // ============================================================================
@@ -572,6 +590,30 @@ export async function registerAsHosted(
   return { agent_id: data.agent_id };
 }
 
+/**
+ * Register the local agent on-chain in the 8004 registry.
+ * Uses the local node's /registry/8004/register-local endpoint.
+ */
+export async function registerLocal8004(agentUri: string = ''): Promise<{ signature: string, asset_pubkey: string }> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (_hostedToken) {
+    headers.Authorization = `Bearer ${_hostedToken}`;
+  }
+
+  const res = await fetch(`${_apiBase}/registry/8004/register-local`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ agent_uri: agentUri }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Registration failed: ${res.status}`);
+  }
+
+  return res.json();
+}
+
 // ============================================================================
 // Hot wallet balance + sweep
 // ============================================================================
@@ -579,117 +621,89 @@ export async function registerAsHosted(
 const USDC_MINT_DEVNET = '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU';
 
 export interface HotKeyBalanceResult {
-  /** USDC balance (6-decimal float), or null while loading / not available. */
-  balance: number | null;
+  tokens: TokenBalance[];
   loading: boolean;
-  /** Agent hot wallet address in Solana base58, or null when node is not running. */
   solanaAddress: string | null;
 }
-
 /**
- * Polls the USDC balance of the node's hot wallet every 30 seconds.
- *
- * Only works in local mode (node running on 127.0.0.1:9090).
- * In hosted mode this returns `{ balance: null, loading: false, solanaAddress: null }`.
+ * Polls the unified balances (SOL, USDC) of the node's wallet from the node API.
+ * 
+ * Works in both local and hosted mode (the node handles it).
  */
 export function useHotKeyBalance(): HotKeyBalanceResult {
-  const identity = useIdentity();
-  const [balance, setBalance] = useState<number | null>(null);
+  const [tokens, setTokens] = useState<TokenBalance[]>([]);
   const [loading, setLoading] = useState(false);
   const [solanaAddress, setSolanaAddress] = useState<string | null>(null);
+  const identity = useIdentity();
 
   useEffect(() => {
-    // Only poll in local mode and when the node is running.
-    if (_hostedToken || !identity) {
-      setBalance(null);
-      setSolanaAddress(null);
-      return;
-    }
+    if (!identity) return;
 
-    // Convert hex agent_id → Solana base58 address.
-    let addr: string;
+    // Local derivation of address for visibility
     try {
       const { PublicKey } = require('@solana/web3.js');
       const bytes = Uint8Array.from(
         (identity.agent_id.match(/.{1,2}/g) ?? []).map((b: string) => parseInt(b, 16))
       );
-      addr = new PublicKey(bytes).toBase58();
-    } catch {
-      return;
-    }
-    setSolanaAddress(addr);
+      setSolanaAddress(new PublicKey(bytes).toBase58());
+    } catch { }
 
     let cancelled = false;
-
     const poll = async () => {
       if (!_appActive || cancelled) return;
       setLoading(true);
-      try {
-        // Read rpcUrl from node config stored in AsyncStorage (falls back to devnet).
-        let rpcUrl = 'https://api.devnet.solana.com';
-        try {
-          const raw = await AsyncStorage.getItem('zerox1:node_config');
-          if (raw) {
-            const cfg = JSON.parse(raw);
-            if (cfg.rpcUrl) rpcUrl = cfg.rpcUrl;
-          }
-        } catch { /* use default */ }
-
-        const res = await fetch(rpcUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            jsonrpc: '2.0',
-            id: 1,
-            method: 'getTokenAccountsByOwner',
-            params: [
-              addr,
-              { mint: USDC_MINT_DEVNET },
-              { encoding: 'jsonParsed' },
-            ],
-          }),
-        });
-        const data = await res.json();
-        const accounts = data?.result?.value ?? [];
-        if (accounts.length === 0) {
-          if (!cancelled) setBalance(0);
-        } else {
-          const raw = accounts[0]?.account?.data?.parsed?.info?.tokenAmount?.amount;
-          if (!cancelled) setBalance(raw != null ? Number(raw) / 1_000_000 : 0);
-        }
-      } catch {
-        // Network error — leave previous balance
-      } finally {
-        if (!cancelled) setLoading(false);
+      const data = await apiFetch<PortfolioBalances>('/portfolio/balances');
+      if (!cancelled && data) {
+        setTokens(data.tokens);
       }
+      setLoading(false);
     };
 
     poll();
     const id = setInterval(poll, 30_000);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
+    return () => { cancelled = true; clearInterval(id); };
   }, [identity]);
 
-  return { balance, loading, solanaAddress };
+  return { tokens, loading, solanaAddress };
+}
+
+
+
+/** Polls the portfolio history from the Node API. */
+export function usePortfolioHistory(intervalMs = 30_000): PortfolioEvent[] {
+  const [events, setEvents] = useState<PortfolioEvent[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      if (!_appActive) return;
+      const data = await apiFetch<PortfolioHistory>('/portfolio/history');
+      if (!cancelled && data) setEvents(data.events);
+    };
+    poll();
+    const id = setInterval(poll, intervalMs);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [intervalMs]);
+
+  return events;
 }
 
 export interface SweepResult {
-  signature: string;
+  signature?: string; // omitted when routed via Kora (check `via` field)
   amount_usdc: number;
   destination: string;
+  via?: 'kora';
 }
 
 /**
- * Transfer all USDC from the node's hot wallet to `destination` (base58 wallet).
+ * Transfer USDC from the node's hot wallet to `destination` (base58 wallet).
  * Calls POST /wallet/sweep on the local node API.
  */
-export async function sweepUsdc(destination: string): Promise<SweepResult> {
+export async function sweepUsdc(destination: string, amount?: number): Promise<SweepResult> {
   const res = await fetch(`${_apiBase}/wallet/sweep`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ destination }),
+    body: JSON.stringify({ destination, amount }),
   });
   if (!res.ok) {
     const text = await res.text();
@@ -698,16 +712,64 @@ export async function sweepUsdc(destination: string): Promise<SweepResult> {
   return res.json();
 }
 
+export interface QuotePreview {
+  inputMint: string;
+  outputMint: string;
+  inAmount: string;
+  outAmount: string;
+  priceImpactPct?: number;
+}
+
+/** Fetches a swap quote from the node API. */
+export function useTradeQuote(params: {
+  inputMint: string;
+  outputMint: string;
+  amount: number;
+  slippageBps?: number;
+}) {
+  const [quote, setQuote] = useState<QuotePreview | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!params.inputMint || !params.outputMint || !params.amount) {
+      setQuote(null);
+      return;
+    }
+
+    let cancelled = false;
+    const fetchQuote = async () => {
+      setLoading(true);
+      const url = `/trade/quote?inputMint=${params.inputMint}&outputMint=${params.outputMint}&amount=${params.amount}${params.slippageBps ? `&slippageBps=${params.slippageBps}` : ''}`;
+      const data = await apiFetch<any>(url);
+      if (!cancelled && data) {
+        setQuote({
+          inputMint: data.inputMint,
+          outputMint: data.outputMint,
+          inAmount: data.inAmount,
+          outAmount: data.outAmount,
+          priceImpactPct: parseFloat(data.priceImpactPct)
+        });
+      }
+      setLoading(false);
+    };
+
+    const timer = setTimeout(fetchQuote, 500); // Debounce
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [params.inputMint, params.outputMint, params.amount, params.slippageBps]);
+
+  return { quote, loading };
+}
+
 // ============================================================================
 // Bridge capabilities + activity log
 // ============================================================================
 
 export interface BridgeLogEntry {
-  time:       string;
-  timestamp:  number;
+  time: string;
+  timestamp: number;
   capability: string;
-  action:     string;
-  outcome:    'ok' | 'denied' | 'disabled' | 'rate_limited' | 'error';
+  action: string;
+  outcome: 'ok' | 'denied' | 'disabled' | 'rate_limited' | 'error';
 }
 
 const CAPABILITY_KEYS = [
@@ -736,7 +798,7 @@ export function useBridgeCapabilities(): {
       .then(raw => {
         setCaps(c => ({ ...c, ...raw } as Record<BridgeCapabilityKey, boolean>));
       })
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => setLoading(false));
   }, []);
 
@@ -746,6 +808,43 @@ export function useBridgeCapabilities(): {
   }, []);
 
   return { caps, loading, toggle };
+}
+
+/** Poll the bridge activity log every 10 seconds while screen is active. */
+export async function fetchBridgeActivityLog(limit = 100): Promise<BridgeLogEntry[]> {
+  const data = await apiFetch<BridgeLogEntry[]>(`/bridge/log?limit=${limit}`);
+  return data ?? [];
+}
+
+/**
+ * Executes a token swap via the node's internal Jupiter integration.
+ */
+export async function executeJupiterSwap(params: {
+  inputMint: string;
+  outputMint: string;
+  amount: number;
+  slippageBps?: number;
+}): Promise<{
+  outAmount: number;
+  txid: string;
+} | null> {
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (_hostedToken) headers['Authorization'] = `Bearer ${_hostedToken}`;
+    const res = await fetch(`${_apiBase}/trade/swap`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(params)
+    });
+    if (!res.ok) {
+      console.warn(`[nodeApi] /trade/swap failed: HTTP ${res.status}`);
+      return null;
+    }
+    return res.json();
+  } catch (e) {
+    console.warn(`[nodeApi] executeJupiterSwap failed:`, e);
+    return null;
+  }
 }
 
 /** Poll the bridge activity log every 10 seconds while screen is active. */

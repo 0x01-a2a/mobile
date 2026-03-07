@@ -23,6 +23,8 @@ export interface NodeConfig {
   fcmToken?: string;
   /** Human-readable agent name shown on the mesh dashboard. */
   agentName?: string;
+  /** Local URI of the agent avatar image. */
+  agentAvatar?: string;
   /** Solana RPC endpoint. Defaults to devnet. */
   rpcUrl?: string;
   /**

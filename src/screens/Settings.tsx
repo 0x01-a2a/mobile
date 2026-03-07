@@ -7,6 +7,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Modal,
+  Linking,
   Platform,
   ScrollView,
   StyleSheet,
@@ -15,7 +16,9 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  Image,
 } from 'react-native';
+import { launchImageLibrary } from 'react-native-image-picker';
 import { useNode } from '../hooks/useNode';
 import {
   BridgeCapabilityKey,
@@ -255,7 +258,7 @@ function AgentBrainSection() {
       <View style={bs.headerRow}>
         <View>
           <Text style={bs.sectionTitle}>AGENT BRAIN</Text>
-          <Text style={bs.sectionSub}>ZeroClaw · {providerInfo?.label ?? '—'}</Text>
+          <Text style={bs.sectionSub}>01 Pilot (ZeroClaw runtime) · {providerInfo?.label ?? '—'}</Text>
         </View>
         <Switch
           value={config.enabled && config.apiKeySet}
@@ -535,6 +538,7 @@ export function SettingsScreen() {
   const { config, autoStart, saveConfig, setAutoStart, status, start, stop } = useNode();
 
   const [agentName, setAgentName] = useState(config.agentName ?? '');
+  const [agentAvatar, setAgentAvatar] = useState(config.agentAvatar ?? '');
   const [relayAddr, setRelayAddr] = useState(config.relayAddr ?? '');
   const [rpcUrl, setRpcUrl] = useState(config.rpcUrl ?? '');
   const [nodeApiUrl, setNodeApiUrl] = useState(config.nodeApiUrl ?? '');
@@ -543,6 +547,7 @@ export function SettingsScreen() {
   // Sync local state if config changes from outside (e.g. on mount)
   useEffect(() => {
     setAgentName(config.agentName ?? '');
+    setAgentAvatar(config.agentAvatar ?? '');
     setRelayAddr(config.relayAddr ?? '');
     setRpcUrl(config.rpcUrl ?? '');
     setNodeApiUrl(config.nodeApiUrl ?? '');
@@ -566,6 +571,7 @@ export function SettingsScreen() {
     const newConfig = {
       ...config,
       agentName: agentName.trim() || undefined,
+      agentAvatar: agentAvatar || undefined,
       relayAddr: relayAddr.trim() || undefined,
       rpcUrl: trimmedRpcUrl,
       nodeApiUrl: trimmedNodeApiUrl,
@@ -595,6 +601,22 @@ export function SettingsScreen() {
 
         {/* Node config fields */}
         <View style={s.section}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 24 }}>
+            <TouchableOpacity
+              onPress={async () => {
+                const res = await launchImageLibrary({ mediaType: 'photo', selectionLimit: 1 });
+                if (res?.assets?.[0]?.uri) setAgentAvatar(res.assets[0].uri);
+              }}
+              style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: C.card, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', marginRight: 16 }}
+            >
+              {agentAvatar ? (
+                <Image source={{ uri: agentAvatar }} style={{ width: 64, height: 64 }} />
+              ) : (
+                <Text style={{ color: C.sub, fontSize: 20 }}>+</Text>
+              )}
+            </TouchableOpacity>
+            <Text style={{ fontSize: 11, color: C.sub, letterSpacing: 2 }}>PROFILE PICTURE</Text>
+          </View>
           <Field
             label="AGENT NAME"
             value={agentName}
@@ -641,6 +663,41 @@ export function SettingsScreen() {
         <TouchableOpacity style={s.saveBtn} onPress={handleSave} activeOpacity={0.8}>
           <Text style={s.saveBtnText}>SAVE CONFIG</Text>
         </TouchableOpacity>
+
+        {/* On-Chain Registration */}
+        <View style={s.section}>
+          <View style={s.toggleRow}>
+            <View style={{ flex: 1, marginRight: 16 }}>
+              <Text style={s.toggleLabel}>ON-CHAIN REGISTRATION</Text>
+              <Text style={s.toggleSub}>Register on Solana 8004 to enable tasks. Gas paid by Kora relay.</Text>
+            </View>
+            <TouchableOpacity
+              style={[s.nodeBtn, { margin: 0, paddingVertical: 10, paddingHorizontal: 14, borderColor: C.green + '60' }]}
+              onPress={async () => {
+                const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+                if (!running) {
+                  Alert.alert('Node Stopped', 'Start the node first to register on-chain.');
+                  return;
+                }
+                if (nodeApiUrl.trim()) {
+                  Alert.alert('Hosted Mode', 'Registration is only supported when running a local node.');
+                  return;
+                }
+                try {
+                  const { registerLocal8004 } = require('../hooks/useNodeApi');
+                  const res = await registerLocal8004(agentAvatar);
+                  await AsyncStorage.setItem('zerox1:8004_registered', 'true');
+                  Alert.alert('Success', `Registered on-chain!\nAsset Pubkey:\n${res.asset_pubkey}`);
+                } catch (e: any) {
+                  Alert.alert('Registration Failed', e.message);
+                }
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={[s.nodeBtnText, { fontSize: 11, color: C.green }]}>REGISTER</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
 
         {/* Auto-start toggle */}
         <View style={s.section}>

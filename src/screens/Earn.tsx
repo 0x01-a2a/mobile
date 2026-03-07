@@ -7,6 +7,7 @@
  */
 import React, { useCallback, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
   Modal,
@@ -15,11 +16,15 @@ import {
   Text,
   TouchableOpacity,
   View,
+  ScrollView,
+  TextInput,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import { useInbox, InboundEnvelope, sendEnvelope } from '../hooks/useNodeApi';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useInbox, InboundEnvelope, sendEnvelope, executeJupiterSwap, useTradeQuote } from '../hooks/useNodeApi';
 import { useOwnedAgents, OwnedAgent } from '../hooks/useOwnedAgents';
 import { useNode } from '../hooks/useNode';
+import { useZeroclawChat } from '../hooks/useZeroclawChat';
 
 const C = {
   bg: '#050505',
@@ -31,6 +36,7 @@ const C = {
   text: '#ffffff',
   sub: '#555555',
   dim: '#333333',
+  blue: '#2979ff',
 };
 
 // ── Types ─────────────────────────────────────────────────────────────────
@@ -170,6 +176,44 @@ export function EarnScreen() {
   const { status } = useNode();
   const [bounties, setBounties] = useState<Bounty[]>([]);
   const [pickerTarget, setPickerTarget] = useState<Bounty | null>(null);
+  const [registered, setRegistered] = useState<boolean | null>(null);
+  const [activeTab, setActiveTab] = useState<'bounty' | 'trade'>('bounty');
+
+  const { injectSystemMessage } = useZeroclawChat();
+  const [swapAmount, setSwapAmount] = useState('0.1');
+  const [swapping, setSwapping] = useState(false);
+
+  const { quote, loading: quoteLoading } = useTradeQuote({
+    inputMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+    outputMint: 'So11111111111111111111111111111111111111112', // SOL
+    amount: (Number(swapAmount) || 0) * 1e6,
+  });
+
+  const handleSwap = useCallback(async () => {
+    if (!swapAmount || isNaN(Number(swapAmount)) || !quote) return;
+    setSwapping(true);
+    const res = await executeJupiterSwap({
+      inputMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+      outputMint: 'So11111111111111111111111111111111111111112', // WSOL
+      amount: Number(swapAmount) * 1e6,
+    });
+    setSwapping(false);
+
+    if (res?.txid) {
+      injectSystemMessage(`✅ Trade Successful\nSwapped ${swapAmount} USDC to ${res.outAmount / 1e9} SOL\nTxID: ${shortId(res.txid)}`);
+      navigation.navigate('Chat');
+    } else {
+      Alert.alert('Swap Failed', 'Execution failed. Check your SOL balance for gas or Kora status.');
+    }
+  }, [swapAmount, quote, injectSystemMessage, navigation]);
+
+  useFocusEffect(
+    useCallback(() => {
+      AsyncStorage.getItem('zerox1:8004_registered').then(val => {
+        setRegistered(val === 'true');
+      });
+    }, [])
+  );
 
   const onEnvelope = useCallback((env: InboundEnvelope) => {
     if (env.msg_type !== 'PROPOSE') return;
@@ -229,49 +273,155 @@ export function EarnScreen() {
 
   const isRunning = status === 'running';
 
-  return (
-    <View style={s.root}>
-      <View style={s.header}>
-        <Text style={s.title}>EARN</Text>
-        <Text style={s.sub}>
-          {isRunning
-            ? bounties.length > 0
-              ? `${bounties.length} open ${bounties.length === 1 ? 'bounty' : 'bounties'}`
-              : 'listening for bounties…'
-            : 'start node to receive bounties'}
-        </Text>
-      </View>
+  if (registered === false) {
+    return (
+      <View style={s.root}>
+        <View style={s.header}>
+          <Text style={s.title}>EARN</Text>
+          <Text style={s.sub}>registration required</Text>
+        </View>
 
-      {bounties.length === 0 ? (
         <View style={s.empty}>
           <Text style={s.emptyText}>
-            {isRunning
-              ? 'No bounties yet.\n\nBounties appear when agents on the\nmesh broadcast tasks your way.'
-              : 'Your node is not running.\n\nGo to My Node to start it.'}
+            You must register your agent on the Solana 8004 network to participate in earning activities.
           </Text>
+          <TouchableOpacity
+            style={[s.acceptBtn, { alignSelf: 'center', paddingHorizontal: 24, marginTop: 12 }]}
+            onPress={() => navigation.navigate('Settings')}
+          >
+            <Text style={s.acceptText}>GO TO SETTINGS</Text>
+          </TouchableOpacity>
         </View>
-      ) : (
-        <FlatList
-          data={bounties}
-          keyExtractor={b => b.conversationId}
-          renderItem={({ item }) => (
-            <BountyCard
-              bounty={item}
-              onAccept={() => handleAccept(item)}
-              onSkip={() => handleSkip(item)}
+      </View>
+    );
+  }
+
+  return (
+    <View style={s.root}>
+      {/* Tab Header */}
+      <View style={s.header}>
+        <View style={s.tabRow}>
+          <TouchableOpacity
+            style={[s.tabBtn, activeTab === 'bounty' && s.tabActive]}
+            onPress={() => setActiveTab('bounty')}
+          >
+            <Text style={[s.tabText, activeTab === 'bounty' && s.tabTextActive]}>BOUNTY</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[s.tabBtn, activeTab === 'trade' && s.tabActive]}
+            onPress={() => setActiveTab('trade')}
+          >
+            <Text style={[s.tabText, activeTab === 'trade' && s.tabTextActive]}>TRADE</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Bounty Tab */}
+      {activeTab === 'bounty' && (
+        <>
+          <View style={s.subHeader}>
+            <Text style={s.sub}>
+              {isRunning
+                ? bounties.length > 0
+                  ? `${bounties.length} open ${bounties.length === 1 ? 'bounty' : 'bounties'}`
+                  : 'listening for bounties…'
+                : 'start node to receive bounties'}
+            </Text>
+          </View>
+          {bounties.length === 0 ? (
+            <View style={s.empty}>
+              <Text style={s.emptyText}>
+                {isRunning
+                  ? 'No bounties yet.\n\nBounties appear when agents on the\nmesh broadcast tasks your way.'
+                  : 'Your node is not running.\n\nGo to My Node to start it.'}
+              </Text>
+            </View>
+          ) : (
+            <FlatList
+              data={bounties}
+              keyExtractor={b => b.conversationId}
+              renderItem={({ item }) => (
+                <BountyCard
+                  bounty={item}
+                  onAccept={() => handleAccept(item)}
+                  onSkip={() => handleSkip(item)}
+                />
+              )}
+              contentContainerStyle={s.list}
             />
           )}
-          contentContainerStyle={s.list}
-        />
+          {pickerTarget && (
+            <AgentPicker
+              agents={agents}
+              onSelect={a => assignAndNavigate(pickerTarget, a)}
+              onClose={() => setPickerTarget(null)}
+            />
+          )}
+        </>
       )}
 
-      {pickerTarget && (
-        <AgentPicker
-          agents={agents}
-          onSelect={a => assignAndNavigate(pickerTarget, a)}
-          onClose={() => setPickerTarget(null)}
-        />
+      {/* Trade Tab */}
+      {activeTab === 'trade' && (
+        <ScrollView style={s.tradeRoot} contentContainerStyle={s.tradeContent}>
+          <Text style={s.sectionLabel}>JUPITER SWAP</Text>
+          <View style={s.card}>
+            {/* TO DO: Swap UI built from context layout */}
+            <Text style={s.sub}>You swap using your agent's secure cold wallet.</Text>
+
+            <View style={s.swapBox}>
+              <Text style={s.tradeLabel}>From:</Text>
+              <View style={[s.tradeInputRow, { paddingVertical: 8 }]}>
+                <Text style={s.tradeTokenBadge}>USDC</Text>
+                <TextInput
+                  style={s.tradeInputVal}
+                  keyboardType="numeric"
+                  value={swapAmount}
+                  onChangeText={setSwapAmount}
+                  placeholder="0.00"
+                  placeholderTextColor={C.dim}
+                />
+              </View>
+
+              <View style={s.swapIconRow}>
+                <Text style={s.swapIcon}>↓</Text>
+              </View>
+
+              <Text style={s.tradeLabel}>To:</Text>
+              <View style={[s.tradeInputRow, { paddingVertical: 14 }]}>
+                <Text style={s.tradeTokenBadge}>SOL</Text>
+                {quoteLoading ? (
+                  <ActivityIndicator size="small" color={C.green} />
+                ) : quote ? (
+                  <Text style={s.tradeInputVal}>
+                    {(parseFloat(quote.outAmount) / 1e9).toFixed(6)}
+                  </Text>
+                ) : (
+                  <Text style={[s.tradeInputVal, { color: C.dim }]}>Market Rate</Text>
+                )}
+              </View>
+
+              {quote && quote.priceImpactPct !== undefined && (
+                <View style={s.impactRow}>
+                  <Text style={s.impactLabel}>Price Impact:</Text>
+                  <Text style={[s.impactVal, quote.priceImpactPct > 1 ? { color: C.red } : { color: C.green }]}>
+                    {quote.priceImpactPct.toFixed(2)}%
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            <TouchableOpacity
+              style={s.swapBtn}
+              activeOpacity={0.8}
+              onPress={handleSwap}
+              disabled={swapping}
+            >
+              <Text style={s.swapBtnText}>{swapping ? 'SWAPPING...' : 'REVIEW SWAP'}</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
       )}
+
     </View>
   );
 }
@@ -280,9 +430,15 @@ export function EarnScreen() {
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
-  header: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.border },
+  header: { paddingHorizontal: 20, paddingTop: 16, borderBottomWidth: 1, borderBottomColor: C.border },
+  tabRow: { flexDirection: 'row', gap: 24, paddingBottom: 0 },
+  tabBtn: { paddingBottom: 12, borderBottomWidth: 2, borderBottomColor: 'transparent' },
+  tabActive: { borderBottomColor: C.green },
+  tabText: { fontSize: 13, fontWeight: '700', color: C.dim, letterSpacing: 2, fontFamily: 'monospace' },
+  tabTextActive: { color: C.text },
+  subHeader: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 4 },
   title: { fontSize: 13, fontWeight: '700', color: C.text, letterSpacing: 3, fontFamily: 'monospace' },
-  sub: { fontSize: 11, color: C.sub, fontFamily: 'monospace', marginTop: 4 },
+  sub: { fontSize: 11, color: C.sub, fontFamily: 'monospace' },
   list: { padding: 16, gap: 12 },
   card: { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, padding: 16 },
   desc: { fontSize: 14, color: C.text, fontFamily: 'monospace', lineHeight: 20, marginBottom: 10 },
@@ -309,4 +465,21 @@ const s = StyleSheet.create({
   badgeLocal: { backgroundColor: C.green + '20', borderWidth: 1, borderColor: C.green + '60' },
   badgeHosted: { backgroundColor: C.amber + '20', borderWidth: 1, borderColor: C.amber + '60' },
   badgeText: { fontSize: 9, fontWeight: '700', letterSpacing: 2 },
+
+  // Trade TAB
+  tradeRoot: { flex: 1 },
+  tradeContent: { padding: 20 },
+  sectionLabel: { fontSize: 11, color: C.sub, letterSpacing: 3, marginBottom: 10, marginTop: 4, fontFamily: 'monospace' },
+  swapBox: { backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 4, padding: 14, marginTop: 16, marginBottom: 16 },
+  tradeLabel: { fontSize: 10, color: C.sub, fontFamily: 'monospace', letterSpacing: 1, marginBottom: 8 },
+  tradeInputRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#111', padding: 12, borderRadius: 3, borderWidth: 1, borderColor: C.dim },
+  tradeTokenBadge: { fontSize: 14, color: C.text, fontWeight: '700', fontFamily: 'monospace' },
+  tradeInputVal: { fontSize: 18, color: C.text, fontFamily: 'monospace' },
+  swapIconRow: { alignItems: 'center', paddingVertical: 8 },
+  swapIcon: { fontSize: 16, color: C.dim, fontFamily: 'monospace', fontWeight: '700' },
+  swapBtn: { backgroundColor: C.blue || '#2979ff', borderRadius: 4, paddingVertical: 14, alignItems: 'center' },
+  swapBtnText: { fontSize: 12, fontWeight: '700', color: '#fff', letterSpacing: 2, fontFamily: 'monospace' },
+  impactRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12, paddingHorizontal: 4 },
+  impactLabel: { fontSize: 10, color: C.sub, fontFamily: 'monospace' },
+  impactVal: { fontSize: 10, fontWeight: '700', fontFamily: 'monospace' },
 });

@@ -17,6 +17,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  Image,
 } from 'react-native';
 import { useRoute } from '@react-navigation/native';
 import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
@@ -24,6 +25,7 @@ import { useZeroclawChat, ChatMessage } from '../hooks/useZeroclawChat';
 import { useOwnedAgents, OwnedAgent } from '../hooks/useOwnedAgents';
 import { useBlobs } from '../hooks/useBlobs';
 import { sendEnvelope } from '../hooks/useNodeApi';
+import { useNode } from '../hooks/useNode';
 import type { BountyTask } from './Earn';
 
 const C = {
@@ -125,6 +127,15 @@ function AgentSelector({
 // ── Message bubble ────────────────────────────────────────────────────────
 
 function Bubble({ msg }: { msg: ChatMessage }) {
+  const isSystem = msg.role === 'system';
+  if (isSystem) {
+    return (
+      <View style={s.bubbleSystemRow}>
+        <Text style={s.bubbleSystemText}>{msg.text}</Text>
+      </View>
+    );
+  }
+
   const isUser = msg.role === 'user';
   return (
     <View style={[s.bubbleRow, isUser ? s.rowRight : s.rowLeft]}>
@@ -144,6 +155,7 @@ function Bubble({ msg }: { msg: ChatMessage }) {
 export function ChatScreen() {
   const route = useRoute();
   const params = (route.params ?? {}) as ChatRouteParams;
+  const { config } = useNode();
 
   const agents = useOwnedAgents().filter(a => a.mode !== 'linked');
   const [selectedAgentId, setSelectedAgentId] = useState<string>(
@@ -159,23 +171,19 @@ export function ChatScreen() {
     }
   }, [params.agentId, agents]);
 
-  const { messages, loading, error, send, resetSession } = useZeroclawChat();
+  // Pass agentId so the hook scopes its session per agent and auto-resets on switch.
+  const { messages, loading, error, send, resetSession } = useZeroclawChat(selectedAgentId);
   const { upload, uploading, error: uploadError } = useBlobs();
   const [draft, setDraft] = useState('');
   const listRef = useRef<FlatList>(null);
 
-  // When the active agent changes, start a fresh ZeroClaw conversation so
-  // the brain context isn't leaked across agents.
-  const prevAgentRef = useRef(selectedAgentId);
-  useEffect(() => {
-    if (prevAgentRef.current !== selectedAgentId && selectedAgentId) {
-      prevAgentRef.current = selectedAgentId;
-      resetSession();
-    }
-  }, [selectedAgentId, resetSession]);
-
   // Inject task context as first message when routed from Earn.
+  // Reset taskInjected whenever the agent changes so context is re-injected
+  // into the fresh session for the new agent.
   const [taskInjected, setTaskInjected] = useState(false);
+  useEffect(() => {
+    setTaskInjected(false);
+  }, [selectedAgentId]);
   useEffect(() => {
     if (params.task && !taskInjected && messages.length === 0) {
       setTaskInjected(true);
@@ -203,13 +211,20 @@ export function ChatScreen() {
     await send(text);
   }, [draft, loading, send]);
 
+  // Hosted mode: inline image data directly in the DELIVER payload (no blob upload).
+  // Limit to 150 KB decoded to stay within the node's MAX_MESSAGE_SIZE guard.
+  const MAX_INLINE_BYTES = 150 * 1024;
+
   const pickAndDeliver = useCallback(async (source: 'camera' | 'gallery') => {
+    const isHosted = Boolean(config.nodeApiUrl);
+
+    // In hosted mode compress more aggressively to fit within inline limit.
     const pickerOptions = {
       mediaType: 'photo' as const,
       includeBase64: true,
-      maxWidth: 1920,
-      maxHeight: 1920,
-      quality: 0.8 as const,
+      maxWidth: isHosted ? 800 : 1920,
+      maxHeight: isHosted ? 800 : 1920,
+      quality: (isHosted ? 0.5 : 0.8) as 0.5 | 0.8,
     };
 
     const result = source === 'camera'
@@ -227,12 +242,26 @@ export function ChatScreen() {
       return;
     }
 
-    const cid = await upload(b64, mimeType);
-    if (!cid) return; // error surfaced by useBlobs
-
     let payload: string;
     try {
-      payload = btoa(JSON.stringify({ cid, mime_type: mimeType }));
+      if (isHosted) {
+        // Hosted mode: no access to the local signing key, so we can't use the
+        // blob store. Inline the image data directly in the DELIVER payload.
+        const estimatedBytes = Math.ceil(b64.length * 0.75);
+        if (estimatedBytes > MAX_INLINE_BYTES) {
+          Alert.alert(
+            'Image too large',
+            'Hosted mode limits inline delivery to 150 KB. Choose a smaller image.',
+          );
+          return;
+        }
+        payload = btoa(JSON.stringify({ inline_data: b64, mime_type: mimeType }));
+      } else {
+        // Local mode: upload to blob store, deliver the CID.
+        const cid = await upload(b64, mimeType);
+        if (!cid) return; // error already surfaced via useBlobs error state
+        payload = btoa(JSON.stringify({ cid, mime_type: mimeType }));
+      }
     } catch {
       Alert.alert('Error', 'Failed to encode delivery payload.');
       return;
@@ -244,11 +273,14 @@ export function ChatScreen() {
       payload,
     });
     if (ok) {
-      Alert.alert('Delivered', 'Photo uploaded. DELIVER sent — awaiting feedback.');
+      Alert.alert('Delivered', isHosted
+        ? 'Photo sent inline. DELIVER sent — awaiting feedback.'
+        : 'Photo uploaded. DELIVER sent — awaiting feedback.',
+      );
     } else {
       Alert.alert('Error', 'DELIVER failed. Check your connection and try again.');
     }
-  }, [upload, params.conversationId]);
+  }, [upload, params.conversationId, config.nodeApiUrl]);
 
   const handleDeliver = useCallback(() => {
     if (!params.conversationId) return;
@@ -273,7 +305,12 @@ export function ChatScreen() {
     >
       {/* Header */}
       <View style={s.header}>
-        <Text style={s.headerTitle}>AGENT CHAT</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          {config.agentAvatar && (
+            <Image source={{ uri: config.agentAvatar }} style={{ width: 24, height: 24, borderRadius: 12, marginRight: 8, borderWidth: 1, borderColor: C.border }} />
+          )}
+          <Text style={s.headerTitle}>{(config.agentName || '01 PILOT').toUpperCase()}</Text>
+        </View>
         <TouchableOpacity onPress={resetSession} style={s.resetBtn}>
           <Text style={s.resetBtnText}>[NEW]</Text>
         </TouchableOpacity>
@@ -315,7 +352,7 @@ export function ChatScreen() {
         ListFooterComponent={
           loading ? (
             <View style={s.thinkingWrap}>
-              <Text style={s.thinkingText}>[ZC] thinking...</Text>
+              <Text style={s.thinkingText}>[01 Pilot] thinking...</Text>
             </View>
           ) : null
         }
@@ -344,7 +381,7 @@ export function ChatScreen() {
           style={s.input}
           value={draft}
           onChangeText={setDraft}
-          placeholder="Message ZeroClaw..."
+          placeholder="Message 01 Pilot..."
           placeholderTextColor={C.sub}
           multiline
           maxLength={4000}
@@ -400,6 +437,8 @@ const s = StyleSheet.create({
   bubbleAgent: { backgroundColor: C.card, borderWidth: 1, borderColor: C.border },
   bubbleText: { color: C.text, fontFamily: 'monospace', fontSize: 13, lineHeight: 19 },
   bubbleTextUser: { color: C.green },
+  bubbleSystemRow: { alignItems: 'center', marginVertical: 12 },
+  bubbleSystemText: { color: C.green, fontFamily: 'monospace', fontSize: 11, textAlign: 'center', backgroundColor: '#00e67615', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 6, borderWidth: 1, borderColor: '#00e67640', overflow: 'hidden' },
   thinkingWrap: { padding: 12 },
   thinkingText: { color: C.sub, fontFamily: 'monospace', fontSize: 12 },
   emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80 },

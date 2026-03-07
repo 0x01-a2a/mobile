@@ -1,5 +1,5 @@
 /**
- * Onboarding — first-launch setup for the ZeroClaw agent brain.
+ * Onboarding — first-launch setup for the 01 Pilot agent runtime (ZeroClaw).
  *
  * Steps:
  *   0 — Welcome (enable or skip)
@@ -24,7 +24,9 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  Image,
 } from 'react-native';
+import { launchImageLibrary } from 'react-native-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   AgentBrainConfig,
@@ -156,7 +158,7 @@ function WelcomeStep({
       <Text style={s.logo}>[*]</Text>
       <Heading label="AGENT BRAIN" />
       <Sub>
-        Your 0x01 agent can make decisions on its own — accept tasks, earn USDC, build
+        Your 01 Pilot agent can make decisions on its own — accept tasks, earn USDC, build
         reputation — while your phone is locked.{'\n\n'}
         It needs an LLM provider to reason with. You bring your own API key; it never
         leaves this device.
@@ -188,29 +190,50 @@ function WelcomeStep({
 
 function NameStep({
   agentName,
-  onChange,
+  agentAvatar,
+  onChangeName,
+  onChangeAvatar,
   onNext,
   onSkip,
 }: {
   agentName: string;
-  onChange: (v: string) => void;
+  agentAvatar: string;
+  onChangeName: (v: string) => void;
+  onChangeAvatar: (v: string) => void;
   onNext: () => void;
   onSkip: () => void;
 }) {
   return (
     <StepShell step={1}>
-      <Heading label="NAME YOUR AGENT" />
+      <Heading label="NAME & AVATAR" />
       <Sub>
         This is how your agent appears on the mesh — in the discovery feed, reputation
         leaderboard, and task threads. You can change it anytime in Settings.
       </Sub>
+
+      <View style={{ alignItems: 'center', marginBottom: 24 }}>
+        <TouchableOpacity
+          onPress={async () => {
+            const res = await launchImageLibrary({ mediaType: 'photo', selectionLimit: 1 });
+            if (res?.assets?.[0]?.uri) onChangeAvatar(res.assets[0].uri);
+          }}
+          style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: C.card, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}
+        >
+          {agentAvatar ? (
+            <Image source={{ uri: agentAvatar }} style={{ width: 80, height: 80 }} />
+          ) : (
+            <Text style={{ color: C.sub, fontSize: 24 }}>+</Text>
+          )}
+        </TouchableOpacity>
+        <Text style={[s.keyLabel, { marginTop: 12 }]}>PROFILE PICTURE</Text>
+      </View>
 
       <View style={s.keyCard}>
         <Text style={s.keyLabel}>AGENT NAME</Text>
         <TextInput
           style={s.keyInput}
           value={agentName}
-          onChangeText={onChange}
+          onChangeText={onChangeName}
           placeholder="e.g. fast-eddie, databot-9"
           placeholderTextColor={C.sub}
           autoCapitalize="none"
@@ -520,6 +543,7 @@ const NODE_CONFIG_KEY = 'zerox1:node_config';
 export function OnboardingScreen({ onDone }: { onDone: (config: AgentBrainConfig | null) => void }) {
   const [step, setStep] = useState(0);
   const [agentName, setAgentName] = useState('');
+  const [agentAvatar, setAgentAvatar] = useState('');
   const [provider, setProvider] = useState<LlmProvider>('anthropic');
   const [apiKey, setApiKey] = useState('');
   const [customBaseUrl, setCustomBaseUrl] = useState('');
@@ -529,6 +553,7 @@ export function OnboardingScreen({ onDone }: { onDone: (config: AgentBrainConfig
   const [minRep, setMinRep] = useState('50');
   const [autoAccept, setAutoAccept] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savedConfig, setSavedConfig] = useState<AgentBrainConfig | null>(null);
 
   const toggleCapability = (cap: Capability) => {
     setCapabilities(prev =>
@@ -545,13 +570,17 @@ export function OnboardingScreen({ onDone }: { onDone: (config: AgentBrainConfig
     setSaving(true);
     try {
       // Persist agent name into the node config so the node binary picks it up.
-      if (agentName.trim()) {
+      if (agentName.trim() || agentAvatar) {
         const raw = await AsyncStorage.getItem(NODE_CONFIG_KEY);
         let existing: Record<string, unknown> = {};
         try { existing = raw ? JSON.parse(raw) : {}; } catch { /* corrupted — start fresh */ }
         await AsyncStorage.setItem(
           NODE_CONFIG_KEY,
-          JSON.stringify({ ...existing, agentName: agentName.trim() }),
+          JSON.stringify({
+            ...existing,
+            ...(agentName.trim() ? { agentName: agentName.trim() } : {}),
+            ...(agentAvatar ? { agentAvatar } : {})
+          }),
         );
       }
 
@@ -567,8 +596,8 @@ export function OnboardingScreen({ onDone }: { onDone: (config: AgentBrainConfig
         customBaseUrl: customBaseUrl.trim() || '',
         customModel: customModel.trim() || '',
       };
-      await markOnboardingDone();
-      onDone(config);
+      setSavedConfig(config);
+      setStep(6);
     } catch (e: any) {
       Alert.alert('Error', e?.message ?? 'Failed to save config.');
     } finally {
@@ -583,7 +612,9 @@ export function OnboardingScreen({ onDone }: { onDone: (config: AgentBrainConfig
       return (
         <NameStep
           agentName={agentName}
-          onChange={setAgentName}
+          agentAvatar={agentAvatar}
+          onChangeName={setAgentName}
+          onChangeAvatar={setAgentAvatar}
           onNext={() => setStep(2)}
           onSkip={() => setStep(2)}
         />
@@ -618,7 +649,6 @@ export function OnboardingScreen({ onDone }: { onDone: (config: AgentBrainConfig
           onNext={() => setStep(5)}
         />
       );
-    default:
       return (
         <RulesStep
           minFeeUsdc={minFeeUsdc}
@@ -632,7 +662,83 @@ export function OnboardingScreen({ onDone }: { onDone: (config: AgentBrainConfig
           saving={saving}
         />
       );
+    case 6:
+      return (
+        <OnchainRegistrationStep
+          agentAvatar={agentAvatar}
+          config={savedConfig!}
+          onFinish={onDone}
+        />
+      );
+    default:
+      return null;
   }
+}
+
+// ============================================================================
+// Step 6 — On-Chain Registration
+// ============================================================================
+
+function OnchainRegistrationStep({
+  agentAvatar,
+  config,
+  onFinish,
+}: {
+  agentAvatar: string;
+  config: AgentBrainConfig;
+  onFinish: (config: AgentBrainConfig | null) => void;
+}) {
+  const [registering, setRegistering] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleRegister = async () => {
+    setRegistering(true);
+    setError(null);
+    try {
+      const { NodeModule } = require('../native/NodeModule');
+      const raw = await AsyncStorage.getItem(NODE_CONFIG_KEY);
+      const nodeConfig = raw ? JSON.parse(raw) : {};
+
+      // Start node locally to enable API
+      await NodeModule.startNode(nodeConfig);
+      await new Promise(r => setTimeout(() => r(null), 2000));
+
+      const { registerLocal8004 } = require('../hooks/useNodeApi');
+      const res = await registerLocal8004(agentAvatar);
+
+      await AsyncStorage.setItem('zerox1:8004_registered', 'true');
+      Alert.alert('Success', `Registered on-chain!`);
+
+      await markOnboardingDone();
+      onFinish(config);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setRegistering(false);
+    }
+  };
+
+  const handleSkip = async () => {
+    await markOnboardingDone();
+    onFinish(config);
+  };
+
+  return (
+    <StepShell step={6} total={6}>
+      <Heading label="ON-CHAIN REGISTRATION" />
+      <Sub>
+        Register your agent on the Solana 8004 network. This is required to participate in token-earning activities.
+        Registration is gasless (paid by the Kora relayer).
+      </Sub>
+      {error && <Text style={{ color: '#ff4444', marginBottom: 20, fontSize: 13, fontFamily: 'monospace' }}>{error}</Text>}
+      <PrimaryBtn
+        label={registering ? 'REGISTERING...' : 'REGISTER ON-CHAIN'}
+        onPress={handleRegister}
+        disabled={registering}
+      />
+      <GhostBtn label="Skip (Do later in Settings)" onPress={handleSkip} />
+    </StepShell>
+  );
 }
 
 // ============================================================================
