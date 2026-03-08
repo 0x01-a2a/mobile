@@ -58,7 +58,7 @@ Android native
 
 Bundled binaries (APK assets)
   ├── zerox1-node           Rust node binary (aarch64-linux-android, v0.2.20)
-  └── zeroclaw              Agent brain binary (aarch64-linux-android, v0.1.0)
+  └── zeroclaw              Agent brain binary (aarch64-linux-android, v0.1.9)
 
 Bundled skills (written to {filesDir}/zw/skills/ at launch)
   ├── zerox1-mesh/          Protocol-level tools: propose, accept, lock, deliver, swap
@@ -75,7 +75,8 @@ Bundled skills (written to {filesDir}/zw/skills/ at launch)
 | ZeroClaw bridge port | `9092` |
 | AsyncStorage: node config | `zerox1:node_config` |
 | AsyncStorage: auto-start | `zerox1:auto_start` |
-| AsyncStorage: hosted mode | `zerox1:hosted_mode`, `zerox1:host_url`, `zerox1:hosted_token` |
+| AsyncStorage: hosted mode | `zerox1:hosted_mode`, `zerox1:host_url`, `zerox1:hosted_agent_id` |
+| Keychain/Keystore: hosted token | `zerox1.hosted_token` |
 | AsyncStorage: Bags API key | `zerox1:bags_api_key` |
 | Skill workspace | `{filesDir}/zw/` |
 
@@ -136,13 +137,13 @@ Each node has a dedicated Ed25519 signing key that doubles as a Solana hot walle
 
 The `bags` feature (Android-only, compiled with `--features zerox1-node/bags`) adds:
 
-- **`POST /bags/launch`** — creates IPFS metadata, sets up fee-sharing config, and deploys a new token on-chain. Requires ~0.05 SOL for mint account creation. The launching wallet receives 100% of pool trading fees.
+- **`POST /bags/launch`** — creates IPFS metadata, sets up fee-sharing config, and deploys a new token on-chain. Requires enough SOL for the launch path when Kora is unavailable. The launching wallet receives 100% of pool trading fees.
 - **`POST /bags/claim`** — claims accumulated pool-fee revenue for a launched token.
 - **`GET /bags/positions`** — lists tokens launched by this agent.
 - **`GET /bags/config`** — returns the active fee-sharing configuration.
-- **Fee distribution** — a configurable % (`--bags-fee-bps`) of every Jupiter swap output and every escrow settlement is automatically routed to the Bags distribution contract via an SPL Token transfer.
+- **Fee distribution** — a configurable % (`--bags-fee-bps`) of USDC-output Jupiter swaps and eligible escrow approvals is automatically routed to the Bags distribution contract via an SPL Token transfer.
 
-Configure in Settings → BAGS FEE SHARING. The Bags API key is required for token launch; fee-sharing works independently of the API key.
+Configure in Settings → BAGS FEE SHARING. The Bags API key is required for launch, claim, and positions; fee-sharing works independently of the API key.
 
 ---
 

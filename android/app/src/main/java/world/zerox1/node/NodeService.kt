@@ -53,6 +53,7 @@ class NodeService : Service() {
         const val KEY_LLM_API_KEY      = "llm_api_key"
         const val KEY_NODE_API_SECRET  = "local_node_api_secret"
         const val KEY_GATEWAY_TOKEN    = "local_gateway_token"
+        const val TOML_TQ              = "\"\"\""
 
         // Intent extras — node
         const val EXTRA_RELAY_ADDR  = "relay_addr"
@@ -88,7 +89,7 @@ description = "Launch and manage tokens on Bags.fm with automatic fee-sharing. E
 author      = "0x01 World"
 tags        = ["bags", "token", "launch", "defi", "solana", "fee-sharing"]
 
-prompts = [""${'"'}
+prompts = [${'$'}TOML_TQ
 # Bags Token Launch
 
 You can launch your own Solana tokens on Bags.fm directly from this agent.
@@ -107,13 +108,13 @@ Every token you launch automatically routes 100% of pool trading fees back to yo
 - The initial_buy_lamports is optional; omit it to launch with no initial buy.
 - After launch, share the token_mint address so others can trade it on Bags.fm.
 - Fees accumulate in the pool — claim them periodically with bags_claim.
-""${'"'}]
+${'$'}TOML_TQ]
 
 [[tools]]
 name        = "bags_launch"
 description = "Launch a new Solana token on Bags.fm. You receive 100% of all future pool trading fees. Requires ~0.05 SOL in hot wallet for mint account."
 kind        = "shell"
-command     = """jq -nc --arg n {name} --arg s {symbol} --arg d {description} --arg img {image_url} --argjson buy {initial_buy_lamports} '{"name":${'$'}n,"symbol":${'$'}s,"description":${'$'}d,"image_url":(${'$'}img|if . == "" then null else . end),"initial_buy_lamports":(${'$'}buy|if . == 0 then null else . end)}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/launch" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-"""
+command     = ${'$'}TOML_TQjq -nc --arg n {name} --arg s {symbol} --arg d {description} --arg img {image_url} --argjson buy {initial_buy_lamports} '{"name":${'$'}n,"symbol":${'$'}s,"description":${'$'}d,"image_url":(${'$'}img|if . == "" then null else . end),"initial_buy_lamports":(${'$'}buy|if . == 0 then null else . end)}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/launch" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
 
 [tools.args]
 name                 = "Token name (e.g. 'My Agent Token')"
@@ -126,7 +127,7 @@ initial_buy_lamports = "Lamports to spend on initial token buy (0 = no initial b
 name        = "bags_claim"
 description = "Claim accumulated pool trading fees for a token you launched on Bags.fm."
 kind        = "shell"
-command     = """jq -nc --arg m {token_mint} '{"token_mint":${'$'}m}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/claim" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-"""
+command     = ${'$'}TOML_TQjq -nc --arg m {token_mint} '{"token_mint":${'$'}m}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/claim" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
 
 [tools.args]
 token_mint = "Base58 mint address of the token to claim fees for"
@@ -135,7 +136,7 @@ token_mint = "Base58 mint address of the token to claim fees for"
 name        = "bags_positions"
 description = "List all tokens you have launched on Bags.fm and their claimable fee balances."
 kind        = "shell"
-command     = """curl -sf "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/positions" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" """
+command     = ${'$'}TOML_TQcurl -sf "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/positions" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${'$'}TOML_TQ
 """.trimIndent()
 
         // ── Skill manager (dynamic skill installer) ──────────────────────────
@@ -149,7 +150,7 @@ description = "Install, remove, and reload zeroclaw skills without an app update
 author      = "0x01 World"
 tags        = ["skills", "plugins", "extensibility"]
 
-prompts = [""${'"'}
+prompts = [${'$'}TOML_TQ
 # Skill Manager
 
 You can extend your own capabilities by installing new skills — no app update required.
@@ -182,15 +183,15 @@ name        = "my-skill"
 version     = "1.0.0"
 description = "What this skill does"
 
-prompts = [""${'"'}
+prompts = [${'$'}TOML_TQ
 # Instructions
-""${'"'}]
+${'$'}TOML_TQ]
 
 [[tools]]
 name        = "my_tool"
 description = "What this tool does"
 kind        = "shell"
-command     = ""${'"'}curl -sf https://api.example.com/endpoint -H "Authorization: Bearer ${'$'}{MY_KEY:-}" ""${'"'}
+command     = ${'$'}TOML_TQcurl -sf https://api.example.com/endpoint -H "Authorization: Bearer ${'$'}{MY_KEY:-}" ${'$'}TOML_TQ
 
 [tools.args]
 param1 = "Description of param1"
@@ -201,19 +202,19 @@ param1 = "Description of param1"
 - Only HTTPS URLs for skill_install_url.
 - Always call skill_reload after writing.
 - Tell the user which tools are now available after reload.
-""${'"'}]
+${'$'}TOML_TQ]
 
 [[tools]]
 name        = "skill_list"
 description = "List all installed skills."
 kind        = "shell"
-command     = """curl -sf "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/skill/list" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" """
+command     = ${'$'}TOML_TQcurl -sf "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/skill/list" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${'$'}TOML_TQ
 
 [[tools]]
 name        = "skill_write"
 description = "Install a new skill by writing its SKILL.toml. Pass base64-encoded content. Call skill_reload after."
 kind        = "shell"
-command     = """jq -nc --arg n {name} --arg c {content_b64} '{"name":${'$'}n,"content_b64":${'$'}c}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/skill/write" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-"""
+command     = ${'$'}TOML_TQjq -nc --arg n {name} --arg c {content_b64} '{"name":${'$'}n,"content_b64":${'$'}c}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/skill/write" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
 
 [tools.args]
 name        = "Skill name: lowercase letters, digits, hyphens, underscores (e.g. pump-fun)"
@@ -223,7 +224,7 @@ content_b64 = "Base64-encoded SKILL.toml content"
 name        = "skill_install_url"
 description = "Download and install a SKILL.toml from an HTTPS URL provided by the user."
 kind        = "shell"
-command     = """jq -nc --arg n {name} --arg u {url} '{"name":${'$'}n,"url":${'$'}u}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/skill/install-url" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-"""
+command     = ${'$'}TOML_TQjq -nc --arg n {name} --arg u {url} '{"name":${'$'}n,"url":${'$'}u}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/skill/install-url" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
 
 [tools.args]
 name = "Skill name (lowercase, hyphens ok)"
@@ -233,7 +234,7 @@ url  = "Direct HTTPS URL to the SKILL.toml (must be provided by user)"
 name        = "skill_remove"
 description = "Remove an installed skill by name."
 kind        = "shell"
-command     = """jq -nc --arg n {name} '{"name":${'$'}n}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/skill/remove" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-"""
+command     = ${'$'}TOML_TQjq -nc --arg n {name} '{"name":${'$'}n}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/skill/remove" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
 
 [tools.args]
 name = "Name of the skill to remove"
@@ -242,7 +243,7 @@ name = "Name of the skill to remove"
 name        = "skill_reload"
 description = "Restart the agent brain to activate newly installed or removed skills. The agent will be back in seconds."
 kind        = "shell"
-command     = """curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/agent/reload" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" """
+command     = ${'$'}TOML_TQcurl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/agent/reload" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${'$'}TOML_TQ
 """.trimIndent()
     }
 
