@@ -54,6 +54,8 @@ export interface NodeConfig {
   bagsFeesBps?: number;
   /** Base58 Solana pubkey of the Bags distribution wallet. Omit to auto-resolve from bags.fm. */
   bagsWallet?: string;
+  /** Bags.fm API key — enables POST /bags/launch, POST /bags/claim, GET /bags/positions. */
+  bagsApiKey?: string;
 }
 
 export type NodeStatus = 'running' | 'stopped' | 'error';
@@ -61,6 +63,11 @@ export type NodeStatus = 'running' | 'stopped' | 'error';
 export interface NodeStatusEvent {
   status: NodeStatus;
   detail: string;
+}
+
+export interface LocalAuthConfig {
+  nodeApiToken: string | null;
+  gatewayToken: string | null;
 }
 
 // ============================================================================
@@ -79,6 +86,10 @@ export const NodeModule = {
   /** Returns true if the foreground service is currently running. */
   isRunning: (): Promise<boolean> =>
     ZeroxNodeModule.isRunning(),
+
+  /** Returns the locally provisioned bearer tokens for the node API and ZeroClaw gateway. */
+  getLocalAuthConfig: (): Promise<LocalAuthConfig> =>
+    ZeroxNodeModule.getLocalAuthConfig(),
 
   /** Returns a map of permission name → granted status for all phone bridge permissions. */
   checkPermissions: (): Promise<Record<string, boolean>> =>

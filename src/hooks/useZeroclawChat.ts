@@ -9,6 +9,7 @@
  */
 import { useState, useCallback, useRef, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { NodeModule } from '../native/NodeModule';
 
 const GATEWAY_URL = 'http://127.0.0.1:42617';
 const SESSION_KEY_PREFIX = 'zerox1:zeroclaw_session';
@@ -43,6 +44,7 @@ export function useZeroclawChat(agentId?: string): UseZeroclawChatResult {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const sessionRef = useRef<string | null>(null);
+  const gatewayTokenRef = useRef<string | null>(null);
 
   // Track the current key so async callbacks always write to the right slot.
   const sessionKeyRef = useRef(sessionKey(agentId));
@@ -65,6 +67,18 @@ export function useZeroclawChat(agentId?: string): UseZeroclawChatResult {
         sessionRef.current = id;
       }
     });
+
+    NodeModule.getLocalAuthConfig()
+      .then(auth => {
+        if (sessionKeyRef.current === key) {
+          gatewayTokenRef.current = auth.gatewayToken;
+        }
+      })
+      .catch(() => {
+        if (sessionKeyRef.current === key) {
+          gatewayTokenRef.current = null;
+        }
+      });
   }, [agentId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const getOrCreateSession = useCallback(async (): Promise<string> => {
@@ -91,13 +105,23 @@ export function useZeroclawChat(agentId?: string): UseZeroclawChatResult {
 
     try {
       const sessionId = await getOrCreateSession();
+      if (!gatewayTokenRef.current) {
+        const auth = await NodeModule.getLocalAuthConfig();
+        gatewayTokenRef.current = auth.gatewayToken;
+      }
+      if (!gatewayTokenRef.current) {
+        throw new Error('Agent gateway auth is unavailable');
+      }
 
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
 
       const resp = await fetch(`${GATEWAY_URL}/api/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${gatewayTokenRef.current}`,
+        },
         body: JSON.stringify({ message: trimmed, session_id: sessionId }),
         signal: controller.signal,
       });

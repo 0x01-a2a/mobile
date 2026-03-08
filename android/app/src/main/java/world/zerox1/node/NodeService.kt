@@ -18,6 +18,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.isActive
 import org.json.JSONArray
 import java.io.File
+import java.security.SecureRandom
 
 /**
  * NodeService — foreground service that runs the zerox1-node Rust binary.
@@ -40,14 +41,18 @@ class NodeService : Service() {
         const val NOTIF_ID         = 1
         const val NODE_API_PORT    = 9090
         const val BINARY_NAME      = "zerox1-node"
-        const val ASSET_VERSION    = "0.2.18"   // bump when binary changes
+        const val ASSET_VERSION    = "0.2.19"   // bump when binary changes
 
         // ZeroClaw agent brain binary
         const val AGENT_BINARY_NAME    = "zeroclaw"
-        const val AGENT_ASSET_VERSION  = "0.1.7"   // bump when zeroclaw binary changes
+        const val AGENT_ASSET_VERSION  = "0.1.9"   // bump when zeroclaw binary changes
         const val AGENT_CONFIG_FILE    = "zeroclaw-config.toml"
         const val AGENT_GATEWAY_PORT   = 42617
         const val AGENT_BRIDGE_PORT    = 9092
+        const val SECURE_PREFS_NAME    = "zerox1_secure"
+        const val KEY_LLM_API_KEY      = "llm_api_key"
+        const val KEY_NODE_API_SECRET  = "local_node_api_secret"
+        const val KEY_GATEWAY_TOKEN    = "local_gateway_token"
 
         // Intent extras — node
         const val EXTRA_RELAY_ADDR  = "relay_addr"
@@ -58,6 +63,7 @@ class NodeService : Service() {
         // Intent extras — Bags fee-sharing
         const val EXTRA_BAGS_FEE_BPS = "bags_fee_bps"
         const val EXTRA_BAGS_WALLET  = "bags_wallet"
+        const val EXTRA_BAGS_API_KEY = "bags_api_key"
 
         // Intent extras — ZeroClaw brain
         const val EXTRA_BRAIN_ENABLED = "brain_enabled"
@@ -72,6 +78,172 @@ class NodeService : Service() {
         const val STATUS_RUNNING    = "running"
         const val STATUS_STOPPED    = "stopped"
         const val STATUS_ERROR      = "error"
+
+        // ── Bundled zeroclaw skill definitions ──────────────────────────────
+        val BAGS_SKILL_TOML = """
+[skill]
+name        = "bags"
+version     = "1.0.0"
+description = "Launch and manage tokens on Bags.fm with automatic fee-sharing. Every token you launch gives you 100% of trading fee revenue."
+author      = "0x01 World"
+tags        = ["bags", "token", "launch", "defi", "solana", "fee-sharing"]
+
+prompts = [""${'"'}
+# Bags Token Launch
+
+You can launch your own Solana tokens on Bags.fm directly from this agent.
+Every token you launch automatically routes 100% of pool trading fees back to you as the creator.
+
+## How it works
+
+1. **Launch** — bags_launch creates IPFS metadata, sets up fee-sharing, and deploys your token.
+   Requires ~0.05 SOL in your agent hot wallet for mint account creation.
+2. **Claim** — bags_claim collects accumulated trading fees from your launched tokens.
+3. **Positions** — bags_positions shows all tokens you've launched and their fee balances.
+
+## Rules
+
+- Only launch tokens with honest names and descriptions — no impersonation.
+- The initial_buy_lamports is optional; omit it to launch with no initial buy.
+- After launch, share the token_mint address so others can trade it on Bags.fm.
+- Fees accumulate in the pool — claim them periodically with bags_claim.
+""${'"'}]
+
+[[tools]]
+name        = "bags_launch"
+description = "Launch a new Solana token on Bags.fm. You receive 100% of all future pool trading fees. Requires ~0.05 SOL in hot wallet for mint account."
+kind        = "shell"
+command     = """jq -nc --arg n {name} --arg s {symbol} --arg d {description} --arg img {image_url} --argjson buy {initial_buy_lamports} '{"name":${'$'}n,"symbol":${'$'}s,"description":${'$'}d,"image_url":(${'$'}img|if . == "" then null else . end),"initial_buy_lamports":(${'$'}buy|if . == 0 then null else . end)}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/launch" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-"""
+
+[tools.args]
+name                 = "Token name (e.g. 'My Agent Token')"
+symbol               = "Ticker symbol, 2-8 chars (e.g. 'MAT')"
+description          = "Short description of the token (1-3 sentences)"
+image_url            = "URL of the token image (optional — leave empty string to skip)"
+initial_buy_lamports = "Lamports to spend on initial token buy (0 = no initial buy; 100000000 = 0.1 SOL)"
+
+[[tools]]
+name        = "bags_claim"
+description = "Claim accumulated pool trading fees for a token you launched on Bags.fm."
+kind        = "shell"
+command     = """jq -nc --arg m {token_mint} '{"token_mint":${'$'}m}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/claim" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-"""
+
+[tools.args]
+token_mint = "Base58 mint address of the token to claim fees for"
+
+[[tools]]
+name        = "bags_positions"
+description = "List all tokens you have launched on Bags.fm and their claimable fee balances."
+kind        = "shell"
+command     = """curl -sf "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/positions" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" """
+""".trimIndent()
+
+        // ── Skill manager (dynamic skill installer) ──────────────────────────
+        // All tools call the node REST API — no shell file operations.
+        // This prevents path traversal and shell injection.
+        val SKILL_MANAGER_TOML = """
+[skill]
+name        = "skill_manager"
+version     = "1.1.0"
+description = "Install, remove, and reload zeroclaw skills without an app update. Write any SKILL.toml from chat."
+author      = "0x01 World"
+tags        = ["skills", "plugins", "extensibility"]
+
+prompts = [""${'"'}
+# Skill Manager
+
+You can extend your own capabilities by installing new skills — no app update required.
+
+## What is a skill?
+
+A skill is a SKILL.toml file that defines:
+- A system-prompt injection (`prompts`)
+- One or more shell tools (`[[tools]]`) executed with `kind = "shell"`
+
+Tools are simple curl commands to any REST API.
+
+## How to install a skill
+
+### Option A — Generate from scratch (most powerful)
+1. Generate the full SKILL.toml content as a string
+2. Base64-encode it: `printf '%s' '<toml>' | base64`
+3. Call `skill_write` with the skill name and base64 content
+4. Call `skill_reload` — you restart and come back with the new skill active
+
+### Option B — Install from URL
+Call `skill_install_url` with a name and HTTPS URL pointing to a SKILL.toml.
+Only use URLs explicitly provided by the user.
+
+## SKILL.toml format
+
+```toml
+[skill]
+name        = "my-skill"
+version     = "1.0.0"
+description = "What this skill does"
+
+prompts = [""${'"'}
+# Instructions
+""${'"'}]
+
+[[tools]]
+name        = "my_tool"
+description = "What this tool does"
+kind        = "shell"
+command     = ""${'"'}curl -sf https://api.example.com/endpoint -H "Authorization: Bearer ${'$'}{MY_KEY:-}" ""${'"'}
+
+[tools.args]
+param1 = "Description of param1"
+```
+
+## Rules
+- Skill names: lowercase letters, digits, hyphens, underscores only. No slashes or dots.
+- Only HTTPS URLs for skill_install_url.
+- Always call skill_reload after writing.
+- Tell the user which tools are now available after reload.
+""${'"'}]
+
+[[tools]]
+name        = "skill_list"
+description = "List all installed skills."
+kind        = "shell"
+command     = """curl -sf "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/skill/list" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" """
+
+[[tools]]
+name        = "skill_write"
+description = "Install a new skill by writing its SKILL.toml. Pass base64-encoded content. Call skill_reload after."
+kind        = "shell"
+command     = """jq -nc --arg n {name} --arg c {content_b64} '{"name":${'$'}n,"content_b64":${'$'}c}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/skill/write" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-"""
+
+[tools.args]
+name        = "Skill name: lowercase letters, digits, hyphens, underscores (e.g. pump-fun)"
+content_b64 = "Base64-encoded SKILL.toml content"
+
+[[tools]]
+name        = "skill_install_url"
+description = "Download and install a SKILL.toml from an HTTPS URL provided by the user."
+kind        = "shell"
+command     = """jq -nc --arg n {name} --arg u {url} '{"name":${'$'}n,"url":${'$'}u}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/skill/install-url" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-"""
+
+[tools.args]
+name = "Skill name (lowercase, hyphens ok)"
+url  = "Direct HTTPS URL to the SKILL.toml (must be provided by user)"
+
+[[tools]]
+name        = "skill_remove"
+description = "Remove an installed skill by name."
+kind        = "shell"
+command     = """jq -nc --arg n {name} '{"name":${'$'}n}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/skill/remove" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-"""
+
+[tools.args]
+name = "Name of the skill to remove"
+
+[[tools]]
+name        = "skill_reload"
+description = "Restart the agent brain to activate newly installed or removed skills. The agent will be back in seconds."
+kind        = "shell"
+command     = """curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/agent/reload" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" """
+""".trimIndent()
     }
 
     private var nodeProcess:  Process? = null
@@ -81,6 +253,7 @@ class NodeService : Service() {
     private val serviceScope  = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private var bridgeSecret: String = ""
+    private val secureRandom = SecureRandom()
 
     // -------------------------------------------------------------------------
     // Lifecycle
@@ -111,6 +284,7 @@ class NodeService : Service() {
         val bagsFeeBps   = if (intent?.hasExtra(EXTRA_BAGS_FEE_BPS) == true)
                                intent.getIntExtra(EXTRA_BAGS_FEE_BPS, 0) else 0
         val bagsWallet   = intent?.getStringExtra(EXTRA_BAGS_WALLET)
+        val bagsApiKey   = intent?.getStringExtra(EXTRA_BAGS_API_KEY)
         val brainEnabled = intent?.getBooleanExtra(EXTRA_BRAIN_ENABLED, false) ?: false
         val llmProvider  = intent?.getStringExtra(EXTRA_LLM_PROVIDER) ?: "gemini"
         val capabilities = intent?.getStringExtra(EXTRA_CAPABILITIES) ?: "[]"
@@ -132,7 +306,7 @@ class NodeService : Service() {
             try {
                 val binary = prepareNodeBinary()
                 // MED-4: Replace recursive launchNode with iterative loop in separate job
-                launchNodeIterative(binary, relayAddr, fcmToken, agentName, rpcUrl, bagsFeeBps, bagsWallet)
+                launchNodeIterative(binary, relayAddr, fcmToken, agentName, rpcUrl, bagsFeeBps, bagsWallet, bagsApiKey)
             } catch (e: Exception) {
                 Log.e(TAG, "Node start failed: $e")
                 broadcastStatus(STATUS_ERROR, e.message ?: "unknown error")
@@ -206,6 +380,33 @@ class NodeService : Service() {
         return binaryFile
     }
 
+    private fun securePrefs() = EncryptedSharedPreferences.create(
+        applicationContext,
+        SECURE_PREFS_NAME,
+        MasterKey.Builder(applicationContext)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build(),
+        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+    )
+
+    private fun randomHex(bytes: Int): String {
+        val data = ByteArray(bytes)
+        secureRandom.nextBytes(data)
+        return data.joinToString("") { "%02x".format(it) }
+    }
+
+    private fun ensureSecureToken(key: String, prefix: String = ""): String {
+        val prefs = securePrefs()
+        prefs.getString(key, null)?.takeIf { it.isNotBlank() }?.let { return it }
+        val value = prefix + randomHex(32)
+        prefs.edit().putString(key, value).apply()
+        return value
+    }
+
+    private fun loadSecureString(key: String): String? =
+        runCatching { securePrefs().getString(key, null) }.getOrNull()
+
     // -------------------------------------------------------------------------
     // Node process
     // -------------------------------------------------------------------------
@@ -218,9 +419,10 @@ class NodeService : Service() {
         rpcUrl:      String,
         bagsFeeBps:  Int,
         bagsWallet:  String?,
+        bagsApiKey:  String?,
     ) {
         while (coroutineContext.isActive) {
-            launchNode(binary, relayAddr, fcmToken, agentName, rpcUrl, bagsFeeBps, bagsWallet)
+            launchNode(binary, relayAddr, fcmToken, agentName, rpcUrl, bagsFeeBps, bagsWallet, bagsApiKey)
             if (!coroutineContext.isActive) break
             Log.i(TAG, "Restarting node in 5s…")
             updateNotification("Restarting…")
@@ -236,14 +438,17 @@ class NodeService : Service() {
         rpcUrl:      String,
         bagsFeeBps:  Int,
         bagsWallet:  String?,
+        bagsApiKey:  String?,
     ) = withContext(Dispatchers.IO) {
         val logDir      = File(filesDir, "logs").also { it.mkdirs() }
         val keypairPath = File(filesDir, "zerox1-identity.key")
         val aggregatorUrl = "https://api.0x01.world"
+        val localApiSecret = ensureSecureToken(KEY_NODE_API_SECRET)
 
         val cmd = mutableListOf(
             binary.absolutePath,
             "--api-addr",      "127.0.0.1:$NODE_API_PORT",
+            "--api-secret",    localApiSecret,
             "--log-dir",       logDir.absolutePath,
             "--keypair-path",  keypairPath.absolutePath,
             "--agent-name",    agentName,
@@ -258,8 +463,17 @@ class NodeService : Service() {
             cmd += listOf("--bags-fee-bps", bagsFeeBps.toString())
             bagsWallet?.let { cmd += listOf("--bags-wallet", it) }
         }
+        bagsApiKey?.let { cmd += listOf("--bags-api-key", it) }
 
-        Log.i(TAG, "Launching node: ${cmd.joinToString(" ")}")
+        // Skill workspace — enables the skill manager REST endpoints on the node.
+        cmd += listOf("--skill-workspace", File(filesDir, "zw").absolutePath)
+
+        // Redact sensitive flags before logging.
+        val safeCmd = cmd.toMutableList().also { list ->
+            val idx = list.indexOf("--bags-api-key")
+            if (idx >= 0 && idx + 1 < list.size) list[idx + 1] = "[REDACTED]"
+        }
+        Log.i(TAG, "Launching node: ${safeCmd.joinToString(" ")}")
 
         val process = ProcessBuilder(cmd)
             .redirectErrorStream(true)
@@ -310,12 +524,12 @@ class NodeService : Service() {
                 .build()
             val prefs = EncryptedSharedPreferences.create(
                 applicationContext,
-                "zerox1_secure",
+                SECURE_PREFS_NAME,
                 masterKey,
                 EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
             )
-            prefs.getString("llm_api_key", null)
+            prefs.getString(KEY_LLM_API_KEY, null)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to read API key from encrypted storage: $e")
             null
@@ -323,7 +537,10 @@ class NodeService : Service() {
     }
 
     /**
-     * Write a TOML config file for ZeroClaw into filesDir.
+     * Write a TOML config file for ZeroClaw into filesDir, and install bundled skills.
+     *
+     * Skills are written to {filesDir}/zw/skills/<name>/SKILL.toml so that zeroclaw
+     * discovers them via the workspace_dir setting.
      */
     private fun writeAgentConfig(
         provider:     String,
@@ -344,6 +561,10 @@ class NodeService : Service() {
         val apiKey = getLlmApiKey() ?: ""
         val escapedKey = apiKey.replace("\\", "\\\\").replace("\"", "\\\"")
             .replace("\n", "\\n").replace("\r", "\\r")
+        val localApiSecret = ensureSecureToken(KEY_NODE_API_SECRET)
+        val gatewayToken = ensureSecureToken(KEY_GATEWAY_TOKEN, "zc_mobile_")
+        val escapedNodeApiSecret = localApiSecret.replace("\\", "\\\\").replace("\"", "\\\"")
+        val escapedGatewayToken = gatewayToken.replace("\\", "\\\\").replace("\"", "\\\"")
 
         // MED-1: Validate capabilities is a proper JSON array to prevent TOML injection.
         val tomlCaps = try {
@@ -353,23 +574,36 @@ class NodeService : Service() {
             "[]"
         }
 
+        // Zeroclaw workspace directory — skills are discovered from here.
+        val workspaceDir = File(filesDir, "zw")
+        workspaceDir.mkdirs()
+        val escapedWorkspace = workspaceDir.absolutePath
+            .replace("\\", "\\\\").replace("\"", "\\\"")
+
         val config = """
 [llm]
 provider = "$provider"
 api_key  = "$escapedKey"
 model    = "$model"
 
+workspace_dir = "$escapedWorkspace"
+
 [gateway]
 port            = $AGENT_GATEWAY_PORT
 host            = "127.0.0.1"
-require_pairing = false
+require_pairing = true
+paired_tokens   = ["$escapedGatewayToken"]
 
 [channels_config.zerox1]
 node_api_url    = "http://127.0.0.1:$NODE_API_PORT"
+token           = "$escapedNodeApiSecret"
 min_fee_usdc    = $minFee
 min_reputation  = $minRep
 auto_accept     = $autoAccept
 capabilities    = $tomlCaps
+
+[autonomy]
+shell_env_passthrough = ["ZX01_NODE", "ZX01_TOKEN"]
 
 [phone]
 enabled      = true
@@ -380,6 +614,32 @@ timeout_secs = 10
 
         File(filesDir, AGENT_CONFIG_FILE).writeText(config)
         Log.i(TAG, "ZeroClaw TOML config written (bridge secret obfuscated in logs).")
+
+        // Write bundled skills into the workspace skills directory.
+        writeBundledSkills(workspaceDir)
+    }
+
+    /**
+     * Write bundled zeroclaw skill TOML files into the workspace skills directory.
+     *
+     * Each skill lives at {workspaceDir}/skills/<name>/SKILL.toml.
+     * Skills are idempotent — written on every startup so they stay up to date.
+     */
+    private fun writeBundledSkills(workspaceDir: File) {
+        val skillsRoot = File(workspaceDir, "skills")
+        skillsRoot.mkdirs()
+
+        // ── Bags token launch skill ─────────────────────────────────────────
+        val bagsSkillDir = File(skillsRoot, "bags")
+        bagsSkillDir.mkdirs()
+        File(bagsSkillDir, "SKILL.toml").writeText(BAGS_SKILL_TOML)
+
+        // ── Skill manager (dynamic installer) ──────────────────────────────
+        val smSkillDir = File(skillsRoot, "skill_manager")
+        smSkillDir.mkdirs()
+        File(smSkillDir, "SKILL.toml").writeText(SKILL_MANAGER_TOML)
+
+        Log.i(TAG, "Bundled skills written to ${skillsRoot.absolutePath}.")
     }
 
     /**
@@ -407,11 +667,37 @@ timeout_secs = 10
         val cmd = listOf(binary.absolutePath, "--config", configPath)
         Log.i(TAG, "Launching zeroclaw: ${cmd.joinToString(" ")}")
 
+        val workspacePath = File(filesDir, "zw").absolutePath
+        val localApiSecret = loadSecureString(KEY_NODE_API_SECRET).orEmpty()
         val process = ProcessBuilder(cmd)
             .redirectErrorStream(true)
+            .also {
+                it.environment()["ZX01_WORKSPACE"] = workspacePath
+                it.environment()["ZX01_NODE"] = "http://127.0.0.1:$NODE_API_PORT"
+                if (localApiSecret.isNotEmpty()) {
+                    it.environment()["ZX01_TOKEN"] = localApiSecret
+                }
+            }
             .start()
 
         agentProcess = process
+
+        // Register zeroclaw PID with the node so POST /agent/reload can SIGTERM it.
+        try {
+            val pid = process.pid()
+            val body = "{\"pid\":$pid}"
+            val conn = java.net.URL("http://127.0.0.1:$NODE_API_PORT/agent/register-pid")
+                .openConnection() as java.net.HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.doOutput = true
+            conn.outputStream.write(body.toByteArray())
+            conn.responseCode // send request
+            conn.disconnect()
+            Log.i(TAG, "Registered zeroclaw PID $pid with node.")
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not register zeroclaw PID: $e")
+        }
 
         // HIGH-5: only pipe agent output to logcat in debug builds
         launch {

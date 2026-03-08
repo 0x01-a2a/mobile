@@ -543,6 +543,8 @@ function BagsFeeSection({
   onBagsWalletChange,
   bagsEnabled,
   onBagsEnabledChange,
+  bagsApiKey,
+  onBagsApiKeyChange,
 }: {
   isLocalMode: boolean;
   bagsFeePercent: string;
@@ -551,6 +553,8 @@ function BagsFeeSection({
   onBagsWalletChange: (v: string) => void;
   bagsEnabled: boolean;
   onBagsEnabledChange: (v: boolean) => void;
+  bagsApiKey: string;
+  onBagsApiKeyChange: (v: string) => void;
 }) {
   const liveConfig = useBagsConfig();
 
@@ -618,6 +622,28 @@ function BagsFeeSection({
           )}
         </>
       )}
+
+      {/* Bags API Key — always shown (needed for token launch, independent of fee sharing) */}
+      <View style={[bfs.row, { borderBottomWidth: 0, paddingTop: 12 }]}>
+        <View style={bfs.rowLeft}>
+          <Text style={bfs.rowLabel}>BAGS API KEY</Text>
+          <Text style={bfs.rowSub}>
+            Required to launch tokens via Bags.fm. Get yours at bags.fm.
+          </Text>
+        </View>
+      </View>
+      <View style={[bfs.row, { borderBottomWidth: 0, paddingTop: 0 }]}>
+        <TextInput
+          style={[bfs.feeInput, { flex: 1, fontFamily: 'monospace', fontSize: 11 }]}
+          value={bagsApiKey}
+          onChangeText={onBagsApiKeyChange}
+          placeholder="sk-bags-…"
+          placeholderTextColor={C.sub}
+          autoCapitalize="none"
+          autoCorrect={false}
+          secureTextEntry={false}
+        />
+      </View>
     </View>
   );
 }
@@ -697,27 +723,40 @@ export function SettingsScreen() {
   const [agentName, setAgentName] = useState(config.agentName ?? '');
   const [agentAvatar, setAgentAvatar] = useState(config.agentAvatar ?? '');
   const [relayAddr, setRelayAddr] = useState(config.relayAddr ?? '');
-  const [rpcUrl, setRpcUrl] = useState(config.rpcUrl ?? '');
   const [nodeApiUrl, setNodeApiUrl] = useState(config.nodeApiUrl ?? '');
+
+  // MESH NETWORK: derive selected network from current rpcUrl
+  const rpcToNetwork = (url: string): 'devnet' | 'mainnet' =>
+    url.includes('devnet') ? 'devnet' : 'mainnet';
+  const [meshNetwork, setMeshNetwork] = useState<'devnet' | 'mainnet'>(
+    rpcToNetwork(config.rpcUrl ?? 'https://api.devnet.solana.com'),
+  );
+  const networkToRpc = (net: 'devnet' | 'mainnet'): string =>
+    net === 'devnet'
+      ? 'https://api.devnet.solana.com'
+      : 'https://api.mainnet-beta.solana.com';
   const [showBrowser, setShowBrowser] = useState(false);
 
   // Bags fee-sharing state (persisted in AsyncStorage)
   const [bagsEnabled, setBagsEnabled] = useState(false);
   const [bagsFeePercent, setBagsFeePercent] = useState('0.5');
   const [bagsWallet, setBagsWallet] = useState('');
+  const [bagsApiKey, setBagsApiKey] = useState('');
 
   // Load bags settings from AsyncStorage on mount
   useEffect(() => {
     (async () => {
       const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-      const [enabled, feeRaw, wallet] = await Promise.all([
+      const [enabled, feeRaw, wallet, apiKey] = await Promise.all([
         AsyncStorage.getItem('zerox1:bags_enabled'),
         AsyncStorage.getItem('zerox1:bags_fee_percent'),
         AsyncStorage.getItem('zerox1:bags_wallet'),
+        AsyncStorage.getItem('zerox1:bags_api_key'),
       ]);
       if (enabled !== null) setBagsEnabled(enabled === 'true');
       if (feeRaw !== null) setBagsFeePercent(feeRaw);
       if (wallet !== null) setBagsWallet(wallet);
+      if (apiKey !== null) setBagsApiKey(apiKey);
     })();
   }, []);
 
@@ -726,7 +765,7 @@ export function SettingsScreen() {
     setAgentName(config.agentName ?? '');
     setAgentAvatar(config.agentAvatar ?? '');
     setRelayAddr(config.relayAddr ?? '');
-    setRpcUrl(config.rpcUrl ?? '');
+    setMeshNetwork(rpcToNetwork(config.rpcUrl ?? 'https://api.devnet.solana.com'));
     setNodeApiUrl(config.nodeApiUrl ?? '');
   }, [config]);
 
@@ -758,6 +797,14 @@ export function SettingsScreen() {
     );
   };
 
+  const handleBagsApiKeyChange = (v: string) => {
+    setBagsApiKey(v);
+    const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+    AsyncStorage.setItem('zerox1:bags_api_key', v).catch((e: any) =>
+      console.error('Failed to persist bags_api_key:', e),
+    );
+  };
+
   const handleSave = async () => {
     const trimmedNodeApiUrl = nodeApiUrl.trim() || undefined;
     if (trimmedNodeApiUrl) {
@@ -767,11 +814,6 @@ export function SettingsScreen() {
         Alert.alert('Invalid Host URL', e?.message ?? 'URL must use HTTPS.');
         return;
       }
-    }
-    const trimmedRpcUrl = rpcUrl.trim() || undefined;
-    if (trimmedRpcUrl && !trimmedRpcUrl.startsWith('https://')) {
-      Alert.alert('Invalid RPC URL', 'RPC URL must use HTTPS to prevent transaction interception.');
-      return;
     }
     // Validate bags fee percent
     if (bagsEnabled) {
@@ -787,10 +829,11 @@ export function SettingsScreen() {
       agentName: agentName.trim() || undefined,
       agentAvatar: agentAvatar || undefined,
       relayAddr: relayAddr.trim() || undefined,
-      rpcUrl: trimmedRpcUrl,
+      rpcUrl: networkToRpc(meshNetwork),
       nodeApiUrl: trimmedNodeApiUrl,
       bagsFeesBps,
       bagsWallet: bagsWallet.trim() || undefined,
+      bagsApiKey: bagsApiKey.trim() || undefined,
     };
     await saveConfig(newConfig);
     Alert.alert('Saved', 'Config saved. Restart the node to apply changes.');
@@ -824,6 +867,8 @@ export function SettingsScreen() {
           onBagsWalletChange={handleBagsWalletChange}
           bagsEnabled={bagsEnabled}
           onBagsEnabledChange={handleBagsEnabledChange}
+          bagsApiKey={bagsApiKey}
+          onBagsApiKeyChange={handleBagsApiKeyChange}
         />
 
         {/* Node config fields */}
@@ -856,12 +901,28 @@ export function SettingsScreen() {
             onChange={setRelayAddr}
             placeholder="/ip4/0.0.0.0/tcp/4001/p2p/12D3..."
           />
-          <Field
-            label="RPC URL"
-            value={rpcUrl}
-            onChange={setRpcUrl}
-            placeholder="https://api.devnet.solana.com"
-          />
+          {/* Mesh network toggle */}
+          <View style={s.field}>
+            <Text style={s.fieldLabel}>MESH NETWORK</Text>
+            <View style={s.netToggleRow}>
+              {(['devnet', 'mainnet'] as const).map(net => (
+                <TouchableOpacity
+                  key={net}
+                  style={[s.netBtn, meshNetwork === net && s.netBtnActive]}
+                  onPress={() => setMeshNetwork(net)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[s.netBtnText, meshNetwork === net && s.netBtnTextActive]}>
+                    {net.toUpperCase()}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+          {/* Trading always on mainnet — informational badge */}
+          <View style={s.tradingBadge}>
+            <Text style={s.tradingBadgeText}>TRADING · MAINNET · Jupiter · Bags</Text>
+          </View>
           {/* Host node URL — leave empty to run local node */}
           <View style={[s.field, { borderBottomWidth: 0 }]}>
             <Text style={s.fieldLabel}>HOST NODE URL</Text>
@@ -998,6 +1059,13 @@ const s = StyleSheet.create({
     fontSize: 14,
     paddingVertical: 0,
   },
+  netToggleRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
+  netBtn: { flex: 1, borderWidth: 1, borderColor: C.border, borderRadius: 3, paddingVertical: 8, alignItems: 'center' },
+  netBtnActive: { borderColor: C.green, backgroundColor: C.green + '18' },
+  netBtnText: { fontSize: 11, color: C.sub, letterSpacing: 2, fontWeight: '700', fontFamily: 'monospace' },
+  netBtnTextActive: { color: C.green },
+  tradingBadge: { marginHorizontal: 16, marginBottom: 12, borderWidth: 1, borderColor: '#ffc10730', borderRadius: 3, paddingVertical: 6, alignItems: 'center' },
+  tradingBadgeText: { fontSize: 9, color: C.amber, letterSpacing: 2, fontFamily: 'monospace' },
   hostFieldRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   hostUrlInput: { flex: 1 },
   browseBtn: {

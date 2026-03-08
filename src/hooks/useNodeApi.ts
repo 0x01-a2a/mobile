@@ -249,7 +249,9 @@ export interface AgentSummary {
 export type PortfolioEvent =
   | { type: 'swap'; input_mint: string; output_mint: string; input_amount: number; output_amount: number; txid: string; timestamp: number }
   | { type: 'bounty'; amount_usdc: number; from_agent: string; conversation_id: string; timestamp: number }
-  | { type: 'bags_fee'; amount_usdc: number; txid: string; timestamp: number };
+  | { type: 'bags_fee'; amount_usdc: number; txid: string; timestamp: number }
+  | { type: 'bags_launch'; token_mint: string; name: string; symbol: string; txid: string; timestamp: number }
+  | { type: 'bags_claim'; token_mint: string; claimed_txs: number; timestamp: number };
 
 export interface TokenBalance {
   mint: string;

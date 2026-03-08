@@ -860,6 +860,38 @@ function PortfolioEventRow({ event, isLast }: { event: PortfolioEvent; isLast: b
     );
   }
 
+  if (event.type === 'bags_launch') {
+    return (
+      <View style={[s.inboxRow, isLast && { borderBottomWidth: 0 }]}>
+        <View style={{ flex: 1 }}>
+          <Text style={[s.inboxType, { color: '#9c27b0' }]}>TOKEN LAUNCH</Text>
+          <Text style={s.inboxFrom}>{event.name} ({event.symbol})</Text>
+          <Text style={[s.inboxFrom, { fontFamily: 'monospace', fontSize: 10 }]}>{shortId(event.token_mint)}</Text>
+        </View>
+        <View style={{ alignItems: 'flex-end' }}>
+          <Text style={[s.inboxSlot, { color: '#9c27b0' }]}>BAGS</Text>
+          <Text style={[s.inboxSlot, { marginTop: 2 }]}>{dateStr}</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (event.type === 'bags_claim') {
+    return (
+      <View style={[s.inboxRow, isLast && { borderBottomWidth: 0 }]}>
+        <View style={{ flex: 1 }}>
+          <Text style={[s.inboxType, { color: '#9c27b0' }]}>FEE CLAIM</Text>
+          <Text style={s.inboxFrom}>{shortId(event.token_mint)}</Text>
+          <Text style={[s.inboxFrom, { fontSize: 10 }]}>{event.claimed_txs} tx{event.claimed_txs !== 1 ? 's' : ''}</Text>
+        </View>
+        <View style={{ alignItems: 'flex-end' }}>
+          <Text style={[s.inboxSlot, { color: '#9c27b0' }]}>BAGS</Text>
+          <Text style={[s.inboxSlot, { marginTop: 2 }]}>{dateStr}</Text>
+        </View>
+      </View>
+    );
+  }
+
   return null;
 }
 function BridgeLogRow({ entry, isLast }: { entry: BridgeLogEntry; isLast: boolean }) {

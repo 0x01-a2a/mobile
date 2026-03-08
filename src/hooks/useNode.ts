@@ -16,6 +16,26 @@ const STORAGE_KEYS = {
   BRAIN: 'zerox1:agent_brain',
 };
 
+const LOCAL_NODE_API_BASE = 'http://127.0.0.1:9090';
+const LOCAL_NODE_WS_BASE = 'ws://127.0.0.1:9090';
+
+async function configureLocalNodeApi() {
+  try {
+    const auth = await NodeModule.getLocalAuthConfig();
+    configureNodeApi({
+      apiBase: LOCAL_NODE_API_BASE,
+      wsBase: LOCAL_NODE_WS_BASE,
+      token: auth.nodeApiToken ?? undefined,
+    });
+  } catch {
+    configureNodeApi({
+      apiBase: LOCAL_NODE_API_BASE,
+      wsBase: LOCAL_NODE_WS_BASE,
+      token: undefined,
+    });
+  }
+}
+
 /**
  * Read the agent brain config from AsyncStorage and merge it into a
  * startNode config object. Returns the base config unchanged if brain is
@@ -77,6 +97,8 @@ export function useNode() {
           } else {
             const running = await NodeModule.isRunning();
             if (!running) await NodeModule.startNode(await withBrainConfig(cfg));
+            await configureLocalNodeApi();
+            setStatus('running');
           }
         } else {
           if (cfg.nodeApiUrl) {
@@ -90,6 +112,9 @@ export function useNode() {
             setStatus('running');
           } else {
             const running = await NodeModule.isRunning();
+            if (running) {
+              await configureLocalNodeApi();
+            }
             setStatus(running ? 'running' : 'stopped');
           }
         }
@@ -115,6 +140,7 @@ export function useNode() {
       setStatus('running');
     } else {
       await NodeModule.startNode(await withBrainConfig(effective));
+      await configureLocalNodeApi();
       setStatus('running');
     }
 

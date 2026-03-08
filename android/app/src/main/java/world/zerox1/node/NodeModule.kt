@@ -28,6 +28,7 @@ import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.SecureRandom
 
 /**
  * NodeModule — React Native native module exposing node lifecycle to JS.
@@ -46,10 +47,15 @@ class NodeModule(private val ctx: ReactApplicationContext)
     companion object {
         private const val TAG = "NodeModule"
         private const val PERMISSION_REQUEST_CODE = 42
+        private const val SECURE_PREFS_NAME = "zerox1_secure"
+        private const val KEY_LLM_API_KEY = "llm_api_key"
+        private const val KEY_NODE_API_SECRET = "local_node_api_secret"
+        private const val KEY_GATEWAY_TOKEN = "local_gateway_token"
     }
 
     private var isNodeRunning = false
     private var permissionListener: PermissionListener? = null
+    private val secureRandom = SecureRandom()
 
     private val statusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -72,6 +78,30 @@ class NodeModule(private val ctx: ReactApplicationContext)
         runCatching { ctx.unregisterReceiver(statusReceiver) }
     }
 
+    private fun securePrefs() = EncryptedSharedPreferences.create(
+        ctx,
+        SECURE_PREFS_NAME,
+        MasterKey.Builder(ctx)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build(),
+        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+    )
+
+    private fun randomHex(bytes: Int): String {
+        val data = ByteArray(bytes)
+        secureRandom.nextBytes(data)
+        return data.joinToString("") { "%02x".format(it) }
+    }
+
+    private fun ensureSecureToken(key: String, prefix: String = ""): String {
+        val prefs = securePrefs()
+        prefs.getString(key, null)?.takeIf { it.isNotBlank() }?.let { return it }
+        val value = prefix + randomHex(32)
+        prefs.edit().putString(key, value).apply()
+        return value
+    }
+
     // -------------------------------------------------------------------------
     // JS-callable methods
     // -------------------------------------------------------------------------
@@ -84,12 +114,12 @@ class NodeModule(private val ctx: ReactApplicationContext)
                 .build()
             val prefs = EncryptedSharedPreferences.create(
                 ctx,
-                "zerox1_secure",
+                SECURE_PREFS_NAME,
                 masterKey,
                 EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
             )
-            prefs.edit().putString("llm_api_key", key).apply()
+            prefs.edit().putString(KEY_LLM_API_KEY, key).apply()
             promise.resolve(null)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save API key to encrypted storage: $e")
@@ -100,6 +130,8 @@ class NodeModule(private val ctx: ReactApplicationContext)
     @ReactMethod
     fun startNode(config: ReadableMap, promise: Promise) {
         try {
+            ensureSecureToken(KEY_NODE_API_SECRET)
+            ensureSecureToken(KEY_GATEWAY_TOKEN, "zc_mobile_")
             val intent = Intent(ctx, NodeService::class.java).apply {
                 config.getString("relayAddr")?.let      { putExtra(NodeService.EXTRA_RELAY_ADDR,   it) }
                 config.getString("fcmToken")?.let       { putExtra(NodeService.EXTRA_FCM_TOKEN,    it) }
@@ -116,6 +148,7 @@ class NodeModule(private val ctx: ReactApplicationContext)
                 // Bags fee-sharing
                 if (config.hasKey("bagsFeesBps"))       putExtra(NodeService.EXTRA_BAGS_FEE_BPS,  config.getInt("bagsFeesBps"))
                 config.getString("bagsWallet")?.let    { putExtra(NodeService.EXTRA_BAGS_WALLET,  it) }
+                config.getString("bagsApiKey")?.let    { putExtra(NodeService.EXTRA_BAGS_API_KEY, it) }
             }
             ctx.startForegroundService(intent)
             isNodeRunning = true
@@ -131,10 +164,25 @@ class NodeModule(private val ctx: ReactApplicationContext)
             config.getString("capabilities")?.let   { prefs.putString("capabilities",   it) }
             if (config.hasKey("bagsFeesBps"))        prefs.putInt("bags_fee_bps",       config.getInt("bagsFeesBps"))
             config.getString("bagsWallet")?.let     { prefs.putString("bags_wallet",    it) }
+            config.getString("bagsApiKey")?.let     { prefs.putString("bags_api_key",   it) }
             prefs.apply()
             promise.resolve(null)
         } catch (e: Exception) {
             promise.reject("START_FAILED", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun getLocalAuthConfig(promise: Promise) {
+        try {
+            val prefs = securePrefs()
+            val result = Arguments.createMap().apply {
+                putString("nodeApiToken", prefs.getString(KEY_NODE_API_SECRET, null))
+                putString("gatewayToken", prefs.getString(KEY_GATEWAY_TOKEN, null))
+            }
+            promise.resolve(result)
+        } catch (e: Exception) {
+            promise.reject("AUTH_READ_FAILED", e.message, e)
         }
     }
 
