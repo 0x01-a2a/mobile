@@ -408,6 +408,20 @@ command     = ${'$'}TOML_TQcurl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:
     private fun loadSecureString(key: String): String? =
         runCatching { securePrefs().getString(key, null) }.getOrNull()
 
+    private fun extractProcessPid(process: Process): Long? {
+        return try {
+            val field = process.javaClass.getDeclaredField("pid")
+            field.isAccessible = true
+            when (val value = field.get(process)) {
+                is Int -> value.toLong()
+                is Long -> value
+                else -> null
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Node process
     // -------------------------------------------------------------------------
@@ -685,17 +699,21 @@ timeout_secs = 10
 
         // Register zeroclaw PID with the node so POST /agent/reload can SIGTERM it.
         try {
-            val pid = process.pid()
-            val body = "{\"pid\":$pid}"
-            val conn = java.net.URL("http://127.0.0.1:$NODE_API_PORT/agent/register-pid")
-                .openConnection() as java.net.HttpURLConnection
-            conn.requestMethod = "POST"
-            conn.setRequestProperty("Content-Type", "application/json")
-            conn.doOutput = true
-            conn.outputStream.write(body.toByteArray())
-            conn.responseCode // send request
-            conn.disconnect()
-            Log.i(TAG, "Registered zeroclaw PID $pid with node.")
+            val pid = extractProcessPid(process)
+            if (pid != null && pid > 0) {
+                val body = "{\"pid\":$pid}"
+                val conn = java.net.URL("http://127.0.0.1:$NODE_API_PORT/agent/register-pid")
+                    .openConnection() as java.net.HttpURLConnection
+                conn.requestMethod = "POST"
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.doOutput = true
+                conn.outputStream.write(body.toByteArray())
+                conn.responseCode // send request
+                conn.disconnect()
+                Log.i(TAG, "Registered zeroclaw PID $pid with node.")
+            } else {
+                Log.w(TAG, "Could not determine zeroclaw PID; skipping /agent/register-pid.")
+            }
         } catch (e: Exception) {
             Log.w(TAG, "Could not register zeroclaw PID: $e")
         }
