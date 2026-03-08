@@ -649,6 +649,7 @@ export function OnboardingScreen({ onDone }: { onDone: (config: AgentBrainConfig
           onNext={() => setStep(5)}
         />
       );
+    case 5:
       return (
         <RulesStep
           minFeeUsdc={minFeeUsdc}
@@ -665,6 +666,7 @@ export function OnboardingScreen({ onDone }: { onDone: (config: AgentBrainConfig
     case 6:
       return (
         <OnchainRegistrationStep
+          agentName={agentName}
           agentAvatar={agentAvatar}
           config={savedConfig!}
           onFinish={onDone}
@@ -680,10 +682,12 @@ export function OnboardingScreen({ onDone }: { onDone: (config: AgentBrainConfig
 // ============================================================================
 
 function OnchainRegistrationStep({
+  agentName,
   agentAvatar,
   config,
   onFinish,
 }: {
+  agentName: string;
   agentAvatar: string;
   config: AgentBrainConfig;
   onFinish: (config: AgentBrainConfig | null) => void;
@@ -704,7 +708,7 @@ function OnchainRegistrationStep({
       await new Promise(r => setTimeout(() => r(null), 2000));
 
       const { registerLocal8004 } = require('../hooks/useNodeApi');
-      const res = await registerLocal8004(agentAvatar);
+      const res = await registerLocal8004(agentName.trim());
 
       await AsyncStorage.setItem('zerox1:8004_registered', 'true');
       Alert.alert('Success', `Registered on-chain!`);

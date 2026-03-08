@@ -22,6 +22,16 @@ class BootReceiver : BroadcastReceiver() {
             putExtra(NodeService.EXTRA_RPC_URL,    prefs.getString("rpc_url",    "https://api.devnet.solana.com"))
             prefs.getString("relay_addr", null)?.let { putExtra(NodeService.EXTRA_RELAY_ADDR, it) }
             prefs.getString("fcm_token",  null)?.let { putExtra(NodeService.EXTRA_FCM_TOKEN,  it) }
+            // Agent brain config
+            putExtra(NodeService.EXTRA_BRAIN_ENABLED, prefs.getBoolean("brain_enabled", false))
+            prefs.getString("llm_provider",  null)?.let { putExtra(NodeService.EXTRA_LLM_PROVIDER, it) }
+            prefs.getString("capabilities",  null)?.let { putExtra(NodeService.EXTRA_CAPABILITIES, it) }
+            // Bags fee-sharing config
+            val bagsFeeBps = prefs.getInt("bags_fee_bps", 0)
+            if (bagsFeeBps > 0) {
+                putExtra(NodeService.EXTRA_BAGS_FEE_BPS, bagsFeeBps)
+                prefs.getString("bags_wallet", null)?.let { putExtra(NodeService.EXTRA_BAGS_WALLET, it) }
+            }
         }
 
         context.startForegroundService(serviceIntent)

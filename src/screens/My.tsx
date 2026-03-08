@@ -10,12 +10,12 @@ import {
   ActivityIndicator,
   Alert,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
-  Clipboard,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNode } from '../hooks/useNode';
@@ -746,8 +746,7 @@ function PortfolioSubtab() {
           {solanaAddress && (
             <TouchableOpacity
               onPress={() => {
-                Clipboard.setString(solanaAddress);
-                Alert.alert('Address Copied', shortId(solanaAddress));
+                Share.share({ message: solanaAddress });
               }}
               activeOpacity={0.7}
             >

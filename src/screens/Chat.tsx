@@ -340,6 +340,7 @@ export function ChatScreen() {
         keyExtractor={m => m.id}
         renderItem={({ item }) => <Bubble msg={item} />}
         contentContainerStyle={s.listContent}
+        onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
         ListEmptyComponent={
           <View style={s.emptyWrap}>
             <Text style={s.emptyLine}>  _______ ___</Text>

@@ -912,7 +912,7 @@ export function SettingsScreen() {
                 }
                 try {
                   const { registerLocal8004 } = require('../hooks/useNodeApi');
-                  const res = await registerLocal8004(agentAvatar);
+                  const res = await registerLocal8004(agentName.trim());
                   await AsyncStorage.setItem('zerox1:8004_registered', 'true');
                   Alert.alert('Success', `Registered on-chain!\nAsset Pubkey:\n${res.asset_pubkey}`);
                 } catch (e: any) {

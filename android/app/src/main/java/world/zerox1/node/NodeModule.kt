@@ -119,6 +119,19 @@ class NodeModule(private val ctx: ReactApplicationContext)
             }
             ctx.startForegroundService(intent)
             isNodeRunning = true
+            // Persist config to SharedPreferences so BootReceiver can restore it on reboot.
+            val prefs = ctx.getSharedPreferences("zerox1", Context.MODE_PRIVATE).edit()
+            prefs.putBoolean("node_auto_start", true)
+            config.getString("agentName")?.let  { prefs.putString("agent_name",  it) }
+            config.getString("relayAddr")?.let  { prefs.putString("relay_addr",  it) }
+            config.getString("fcmToken")?.let   { prefs.putString("fcm_token",   it) }
+            config.getString("rpcUrl")?.let     { prefs.putString("rpc_url",     it) }
+            if (config.hasKey("agentBrainEnabled")) prefs.putBoolean("brain_enabled", config.getBoolean("agentBrainEnabled"))
+            config.getString("llmProvider")?.let    { prefs.putString("llm_provider",  it) }
+            config.getString("capabilities")?.let   { prefs.putString("capabilities",   it) }
+            if (config.hasKey("bagsFeesBps"))        prefs.putInt("bags_fee_bps",       config.getInt("bagsFeesBps"))
+            config.getString("bagsWallet")?.let     { prefs.putString("bags_wallet",    it) }
+            prefs.apply()
             promise.resolve(null)
         } catch (e: Exception) {
             promise.reject("START_FAILED", e.message, e)
@@ -130,6 +143,8 @@ class NodeModule(private val ctx: ReactApplicationContext)
         try {
             ctx.stopService(Intent(ctx, NodeService::class.java))
             isNodeRunning = false
+            ctx.getSharedPreferences("zerox1", Context.MODE_PRIVATE).edit()
+                .putBoolean("node_auto_start", false).apply()
             promise.resolve(null)
         } catch (e: Exception) {
             promise.reject("STOP_FAILED", e.message, e)
