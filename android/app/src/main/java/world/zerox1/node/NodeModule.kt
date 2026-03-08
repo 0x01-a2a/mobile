@@ -17,6 +17,8 @@ import com.facebook.react.modules.core.PermissionAwareActivity
 import com.facebook.react.modules.core.PermissionListener
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import net.i2p.crypto.eddsa.EdDSAEngine
 import net.i2p.crypto.eddsa.EdDSAPrivateKey
@@ -56,6 +58,9 @@ class NodeModule(private val ctx: ReactApplicationContext)
     private var isNodeRunning = false
     private var permissionListener: PermissionListener? = null
     private val secureRandom = SecureRandom()
+    // Module-scoped coroutine scope — cancelled in invalidate() so in-flight
+    // coroutines (uploadBlob, getBridgeActivityLog) never touch a dead promise.
+    private val moduleScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private val statusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -76,6 +81,7 @@ class NodeModule(private val ctx: ReactApplicationContext)
     override fun invalidate() {
         super.invalidate()
         runCatching { ctx.unregisterReceiver(statusReceiver) }
+        moduleScope.cancel()
     }
 
     private fun securePrefs() = EncryptedSharedPreferences.create(
@@ -83,6 +89,7 @@ class NodeModule(private val ctx: ReactApplicationContext)
         SECURE_PREFS_NAME,
         MasterKey.Builder(ctx)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .setRequestStrongBoxBacked(false)  // emulator compatibility: no StrongBox HSM
             .build(),
         EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
@@ -109,16 +116,7 @@ class NodeModule(private val ctx: ReactApplicationContext)
     @ReactMethod
     fun saveLlmApiKey(key: String, promise: Promise) {
         try {
-            val masterKey = MasterKey.Builder(ctx)
-                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                .build()
-            val prefs = EncryptedSharedPreferences.create(
-                ctx,
-                SECURE_PREFS_NAME,
-                masterKey,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-            )
+            val prefs = securePrefs()
             prefs.edit().putString(KEY_LLM_API_KEY, key).apply()
             promise.resolve(null)
         } catch (e: Exception) {
@@ -149,6 +147,7 @@ class NodeModule(private val ctx: ReactApplicationContext)
                 if (config.hasKey("bagsFeesBps"))       putExtra(NodeService.EXTRA_BAGS_FEE_BPS,  config.getInt("bagsFeesBps"))
                 config.getString("bagsWallet")?.let    { putExtra(NodeService.EXTRA_BAGS_WALLET,  it) }
                 config.getString("bagsApiKey")?.let    { putExtra(NodeService.EXTRA_BAGS_API_KEY, it) }
+                config.getString("bagsPartnerKey")?.let { putExtra(NodeService.EXTRA_BAGS_PARTNER_KEY, it) }
             }
             ctx.startForegroundService(intent)
             isNodeRunning = true
@@ -165,6 +164,7 @@ class NodeModule(private val ctx: ReactApplicationContext)
             if (config.hasKey("bagsFeesBps"))        prefs.putInt("bags_fee_bps",       config.getInt("bagsFeesBps"))
             config.getString("bagsWallet")?.let     { prefs.putString("bags_wallet",    it) }
             config.getString("bagsApiKey")?.let     { prefs.putString("bags_api_key",   it) }
+            config.getString("bagsPartnerKey")?.let { prefs.putString("bags_partner_key", it) }
             prefs.apply()
             promise.resolve(null)
         } catch (e: Exception) {
@@ -220,7 +220,7 @@ class NodeModule(private val ctx: ReactApplicationContext)
      */
     @ReactMethod
     fun uploadBlob(dataBase64: String, mimeType: String, promise: Promise) {
-        CoroutineScope(Dispatchers.IO).launch {
+        moduleScope.launch {
             try {
                 // ── 1. Load the 32-byte identity key seed ──────────────────
                 val keyFile = File(ctx.filesDir, "zerox1-identity.key")
@@ -297,6 +297,10 @@ class NodeModule(private val ctx: ReactApplicationContext)
     // -------------------------------------------------------------------------
 
     private fun emitStatus(status: String, detail: String) {
+        // Guard: do not emit if the React bridge has been torn down (e.g. app
+        // is being destroyed or hot-reloaded). Calling emit on a dead bridge
+        // causes a JVM crash in the RN native module infrastructure.
+        if (!ctx.hasActiveReactInstance()) return
         val params = Arguments.createMap().apply {
             putString("status", status)
             putString("detail", detail)
@@ -414,7 +418,7 @@ class NodeModule(private val ctx: ReactApplicationContext)
      */
     @ReactMethod
     fun getBridgeActivityLog(limit: Int, promise: Promise) {
-        CoroutineScope(Dispatchers.IO).launch {
+        moduleScope.launch {
             try {
                 val json = BridgeActivityLog.toJson(limit.coerceIn(1, 200))
                 promise.resolve(json.toString())

@@ -41,11 +41,11 @@ class NodeService : Service() {
         const val NOTIF_ID         = 1
         const val NODE_API_PORT    = 9090
         const val BINARY_NAME      = "zerox1-node"
-        const val ASSET_VERSION    = "0.2.20"   // bump when binary changes
+        const val ASSET_VERSION    = "0.2.22"   // bump when binary changes
 
         // ZeroClaw agent brain binary
         const val AGENT_BINARY_NAME    = "zeroclaw"
-        const val AGENT_ASSET_VERSION  = "0.1.9"   // bump when zeroclaw binary changes
+        const val AGENT_ASSET_VERSION  = "0.1.10"   // bump when zeroclaw binary changes
         const val AGENT_CONFIG_FILE    = "zeroclaw-config.toml"
         const val AGENT_GATEWAY_PORT   = 42617
         const val AGENT_BRIDGE_PORT    = 9092
@@ -65,6 +65,7 @@ class NodeService : Service() {
         const val EXTRA_BAGS_FEE_BPS = "bags_fee_bps"
         const val EXTRA_BAGS_WALLET  = "bags_wallet"
         const val EXTRA_BAGS_API_KEY = "bags_api_key"
+        const val EXTRA_BAGS_PARTNER_KEY = "bags_partner_key"
 
         // Intent extras — ZeroClaw brain
         const val EXTRA_BRAIN_ENABLED = "brain_enabled"
@@ -286,6 +287,12 @@ command     = ${'$'}TOML_TQcurl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:
                                intent.getIntExtra(EXTRA_BAGS_FEE_BPS, 0) else 0
         val bagsWallet   = intent?.getStringExtra(EXTRA_BAGS_WALLET)
         val bagsApiKey   = intent?.getStringExtra(EXTRA_BAGS_API_KEY)
+            ?.takeIf { it.isNotBlank() }
+            ?: BuildConfig.DEFAULT_BAGS_API_KEY.takeIf { it.isNotBlank() }
+            ?: BuildConfig.DEFAULT_BAGS_PARTNER_KEY.takeIf { it.isNotBlank() }
+        val bagsPartnerKey = intent?.getStringExtra(EXTRA_BAGS_PARTNER_KEY)
+            ?.takeIf { it.isNotBlank() }
+            ?: BuildConfig.DEFAULT_BAGS_PARTNER_KEY.takeIf { it.isNotBlank() }
         val brainEnabled = intent?.getBooleanExtra(EXTRA_BRAIN_ENABLED, false) ?: false
         val llmProvider  = intent?.getStringExtra(EXTRA_LLM_PROVIDER) ?: "gemini"
         val capabilities = intent?.getStringExtra(EXTRA_CAPABILITIES) ?: "[]"
@@ -307,7 +314,7 @@ command     = ${'$'}TOML_TQcurl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:
             try {
                 val binary = prepareNodeBinary()
                 // MED-4: Replace recursive launchNode with iterative loop in separate job
-                launchNodeIterative(binary, relayAddr, fcmToken, agentName, rpcUrl, bagsFeeBps, bagsWallet, bagsApiKey)
+                launchNodeIterative(binary, relayAddr, fcmToken, agentName, rpcUrl, bagsFeeBps, bagsWallet, bagsApiKey, bagsPartnerKey)
             } catch (e: Exception) {
                 Log.e(TAG, "Node start failed: $e")
                 broadcastStatus(STATUS_ERROR, e.message ?: "unknown error")
@@ -386,6 +393,7 @@ command     = ${'$'}TOML_TQcurl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:
         SECURE_PREFS_NAME,
         MasterKey.Builder(applicationContext)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .setRequestStrongBoxBacked(false)  // emulator compatibility: no StrongBox HSM
             .build(),
         EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
@@ -435,9 +443,10 @@ command     = ${'$'}TOML_TQcurl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:
         bagsFeeBps:  Int,
         bagsWallet:  String?,
         bagsApiKey:  String?,
+        bagsPartnerKey: String?,
     ) {
         while (coroutineContext.isActive) {
-            launchNode(binary, relayAddr, fcmToken, agentName, rpcUrl, bagsFeeBps, bagsWallet, bagsApiKey)
+            launchNode(binary, relayAddr, fcmToken, agentName, rpcUrl, bagsFeeBps, bagsWallet, bagsApiKey, bagsPartnerKey)
             if (!coroutineContext.isActive) break
             Log.i(TAG, "Restarting node in 5s…")
             updateNotification("Restarting…")
@@ -454,6 +463,7 @@ command     = ${'$'}TOML_TQcurl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:
         bagsFeeBps:  Int,
         bagsWallet:  String?,
         bagsApiKey:  String?,
+        bagsPartnerKey: String?,
     ) = withContext(Dispatchers.IO) {
         val logDir      = File(filesDir, "logs").also { it.mkdirs() }
         val keypairPath = File(filesDir, "zerox1-identity.key")
@@ -479,6 +489,7 @@ command     = ${'$'}TOML_TQcurl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:
             bagsWallet?.let { cmd += listOf("--bags-wallet", it) }
         }
         bagsApiKey?.let { cmd += listOf("--bags-api-key", it) }
+        bagsPartnerKey?.let { cmd += listOf("--bags-partner-key", it) }
 
         // Skill workspace — enables the skill manager REST endpoints on the node.
         cmd += listOf("--skill-workspace", File(filesDir, "zw").absolutePath)
@@ -487,6 +498,8 @@ command     = ${'$'}TOML_TQcurl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:
         val safeCmd = cmd.toMutableList().also { list ->
             val idx = list.indexOf("--bags-api-key")
             if (idx >= 0 && idx + 1 < list.size) list[idx + 1] = "[REDACTED]"
+            val partnerIdx = list.indexOf("--bags-partner-key")
+            if (partnerIdx >= 0 && partnerIdx + 1 < list.size) list[partnerIdx + 1] = "[REDACTED]"
         }
         Log.i(TAG, "Launching node: ${safeCmd.joinToString(" ")}")
 
@@ -495,8 +508,6 @@ command     = ${'$'}TOML_TQcurl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:
             .start()
 
         nodeProcess = process
-        broadcastStatus(STATUS_RUNNING)
-        updateNotification("Running — connected to 0x01 mesh")
 
         val logJob = launch {
             process.inputStream.bufferedReader().useLines { lines ->
@@ -505,6 +516,13 @@ command     = ${'$'}TOML_TQcurl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:
                 }
             }
         }
+
+        // Wait for the HTTP API to actually accept connections before telling
+        // the JS layer the node is running.  Without this, the UI immediately
+        // makes API calls that hit ECONNREFUSED and shows spurious errors.
+        waitForNodeApi()
+        broadcastStatus(STATUS_RUNNING)
+        updateNotification("Running — connected to 0x01 mesh")
 
         val exitCode = process.waitFor()
         logJob.cancel()
@@ -534,17 +552,7 @@ command     = ${'$'}TOML_TQcurl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:
 
     private fun getLlmApiKey(): String? {
         return try {
-            val masterKey = MasterKey.Builder(applicationContext)
-                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                .build()
-            val prefs = EncryptedSharedPreferences.create(
-                applicationContext,
-                SECURE_PREFS_NAME,
-                masterKey,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-            )
-            prefs.getString(KEY_LLM_API_KEY, null)
+            securePrefs().getString(KEY_LLM_API_KEY, null)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to read API key from encrypted storage: $e")
             null
@@ -660,9 +668,14 @@ timeout_secs = 10
     /**
      * Poll the node REST API until it responds (max 30s), then return.
      * Ensures ZeroClaw doesn't start before the node is ready.
+     *
+     * Uses GET /hosted/ping — a no-auth public endpoint that returns {"ok":true}
+     * as soon as the Axum HTTP server is accepting requests.  The previous
+     * /peers endpoint required the API secret (401 without it), so this check
+     * always timed out and ZeroClaw was always delayed by 30 seconds.
      */
     private suspend fun waitForNodeApi() = withContext(Dispatchers.IO) {
-        val url = "http://127.0.0.1:$NODE_API_PORT/peers"
+        val url = "http://127.0.0.1:$NODE_API_PORT/hosted/ping"
         repeat(30) {
             try {
                 val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection

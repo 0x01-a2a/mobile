@@ -12,12 +12,13 @@
  * On completion calls onDone(config) with the saved config,
  * or onDone(null) if the user skipped.
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Share,
   StyleSheet,
   Switch,
   Text,
@@ -584,6 +585,9 @@ export function OnboardingScreen({ onDone }: { onDone: (config: AgentBrainConfig
         );
       }
 
+      // Enable auto-start so the node launches on every subsequent app open.
+      await AsyncStorage.setItem('zerox1:auto_start', 'true');
+
       await saveLlmApiKey(apiKey.trim());
       const config: AgentBrainConfig = {
         enabled: true,
@@ -694,25 +698,51 @@ function OnchainRegistrationStep({
 }) {
   const [registering, setRegistering] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  const [nodeReady, setNodeReady] = useState(false);
+
+  // Start the node on mount and resolve the hot wallet address.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { NodeModule } = require('../native/NodeModule');
+        const raw = await AsyncStorage.getItem(NODE_CONFIG_KEY);
+        const nodeConfig = raw ? JSON.parse(raw) : {};
+        await NodeModule.startNode(nodeConfig);
+        if (cancelled) return;
+        setNodeReady(true);
+
+        // Poll /identity until the node is up (up to 15 s).
+        for (let i = 0; i < 15; i++) {
+          await new Promise(r => setTimeout(r, 1000));
+          if (cancelled) return;
+          try {
+            const res = await fetch('http://127.0.0.1:9090/identity');
+            if (res.ok) {
+              const data: { agent_id: string } = await res.json();
+              const { PublicKey } = require('@solana/web3.js');
+              const bytes = Uint8Array.from(
+                (data.agent_id.match(/.{1,2}/g) ?? []).map((b: string) => parseInt(b, 16)),
+              );
+              if (!cancelled) setWalletAddress(new PublicKey(bytes).toBase58());
+              break;
+            }
+          } catch { /* node not ready yet */ }
+        }
+      } catch { /* node may already be running */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const handleRegister = async () => {
     setRegistering(true);
     setError(null);
     try {
-      const { NodeModule } = require('../native/NodeModule');
-      const raw = await AsyncStorage.getItem(NODE_CONFIG_KEY);
-      const nodeConfig = raw ? JSON.parse(raw) : {};
-
-      // Start node locally to enable API
-      await NodeModule.startNode(nodeConfig);
-      await new Promise(r => setTimeout(() => r(null), 2000));
-
       const { registerLocal8004 } = require('../hooks/useNodeApi');
-      const res = await registerLocal8004(agentName.trim());
-
+      await registerLocal8004(agentName.trim());
       await AsyncStorage.setItem('zerox1:8004_registered', 'true');
-      Alert.alert('Success', `Registered on-chain!`);
-
+      Alert.alert('Success', 'Registered on-chain!');
       await markOnboardingDone();
       onFinish(config);
     } catch (e: any) {
@@ -731,14 +761,45 @@ function OnchainRegistrationStep({
     <StepShell step={6} total={6}>
       <Heading label="ON-CHAIN REGISTRATION" />
       <Sub>
-        Register your agent on the Solana 8004 network. This is required to participate in token-earning activities.
-        Registration is gasless (paid by the Kora relayer).
+        Register your agent on Solana. This creates your on-chain identity for
+        earning, staking, and token launches. Registration is gasless — the
+        Kora relayer covers the fee.
       </Sub>
-      {error && <Text style={{ color: '#ff4444', marginBottom: 20, fontSize: 13, fontFamily: 'monospace' }}>{error}</Text>}
+
+      {/* Hot wallet card */}
+      <View style={s.walletCard}>
+        <Text style={s.walletLabel}>YOUR HOT WALLET</Text>
+        {walletAddress ? (
+          <>
+            <Text style={s.walletAddress} selectable>{walletAddress}</Text>
+            <TouchableOpacity
+              style={s.walletCopyBtn}
+              onPress={() => Share.share({ message: walletAddress })}
+              activeOpacity={0.7}
+            >
+              <Text style={s.walletCopyText}>[ SHARE / COPY ]</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <Text style={s.walletLoading}>
+            {nodeReady ? 'Resolving address…' : 'Starting node…'}
+          </Text>
+        )}
+        <Text style={s.walletHint}>
+          Send SOL or USDC here to cover staking, fees, and on-chain activity.
+        </Text>
+      </View>
+
+      {error && (
+        <Text style={{ color: '#ff4444', marginBottom: 20, fontSize: 13, fontFamily: 'monospace' }}>
+          {error}
+        </Text>
+      )}
+
       <PrimaryBtn
         label={registering ? 'REGISTERING...' : 'REGISTER ON-CHAIN'}
         onPress={handleRegister}
-        disabled={registering}
+        disabled={registering || !nodeReady}
       />
       <GhostBtn label="Skip (Do later in Settings)" onPress={handleSkip} />
     </StepShell>
@@ -800,4 +861,12 @@ const s = StyleSheet.create({
   ruleInput: { color: C.green, fontFamily: 'monospace', fontSize: 16, fontWeight: '700', width: 60, textAlign: 'right' },
   toggleCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, padding: 16, marginBottom: 28 },
   toggleLeft: { flex: 1, marginRight: 12 },
+  // Wallet card (step 6)
+  walletCard: { backgroundColor: C.card, borderWidth: 1, borderColor: C.green + '40', borderRadius: 4, padding: 16, marginBottom: 24 },
+  walletLabel: { fontSize: 10, color: C.green, letterSpacing: 2, fontFamily: 'monospace', marginBottom: 10 },
+  walletAddress: { fontSize: 12, color: C.text, fontFamily: 'monospace', lineHeight: 18, marginBottom: 10 },
+  walletCopyBtn: { alignSelf: 'flex-start', marginBottom: 12 },
+  walletCopyText: { fontSize: 10, color: C.green, fontFamily: 'monospace', letterSpacing: 1 },
+  walletLoading: { fontSize: 12, color: C.sub, fontFamily: 'monospace', marginBottom: 12 },
+  walletHint: { fontSize: 11, color: C.sub, fontFamily: 'monospace', lineHeight: 16 },
 });

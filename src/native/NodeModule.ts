@@ -56,6 +56,8 @@ export interface NodeConfig {
   bagsWallet?: string;
   /** Bags.fm API key — enables POST /bags/launch, POST /bags/claim, GET /bags/positions. */
   bagsApiKey?: string;
+  /** Optional Bags partner key for partner-attributed launches. */
+  bagsPartnerKey?: string;
 }
 
 export type NodeStatus = 'running' | 'stopped' | 'error';

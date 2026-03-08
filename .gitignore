@@ -1,3 +1,8 @@
+# Tests
+__tests__/assertValidHostUrl.test.ts
+__tests__/groupNegotiations.test.ts
+__tests__/useNode.test.ts
+
 # OSX
 #
 .DS_Store

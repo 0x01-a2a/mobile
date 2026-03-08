@@ -33,6 +33,7 @@ class BootReceiver : BroadcastReceiver() {
                 prefs.getString("bags_wallet", null)?.let { putExtra(NodeService.EXTRA_BAGS_WALLET, it) }
             }
             prefs.getString("bags_api_key", null)?.let { putExtra(NodeService.EXTRA_BAGS_API_KEY, it) }
+            prefs.getString("bags_partner_key", null)?.let { putExtra(NodeService.EXTRA_BAGS_PARTNER_KEY, it) }
         }
 
         context.startForegroundService(serviceIntent)
