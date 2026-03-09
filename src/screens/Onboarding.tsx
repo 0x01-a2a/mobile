@@ -600,6 +600,9 @@ export function OnboardingScreen({ onDone }: { onDone: (config: AgentBrainConfig
         customBaseUrl: customBaseUrl.trim() || '',
         customModel: customModel.trim() || '',
       };
+      // Persist brain config NOW so that step 6 can merge it into startNode,
+      // ensuring ZeroClaw starts with the node and chat works immediately.
+      await AsyncStorage.setItem('zerox1:agent_brain', JSON.stringify(config));
       setSavedConfig(config);
       setStep(6);
     } catch (e: any) {
@@ -712,7 +715,27 @@ function OnchainRegistrationStep({
         const { NodeModule } = require('../native/NodeModule');
         const raw = await AsyncStorage.getItem(NODE_CONFIG_KEY);
         const nodeConfig = raw ? JSON.parse(raw) : {};
-        await NodeModule.startNode(nodeConfig);
+
+        // Merge brain config (saved by handleFinish above) so ZeroClaw starts
+        // alongside the node and chat works without a manual restart.
+        let fullConfig = nodeConfig;
+        try {
+          const brainRaw = await AsyncStorage.getItem('zerox1:agent_brain');
+          const brain = brainRaw ? JSON.parse(brainRaw) : null;
+          if (brain?.enabled && brain?.apiKeySet) {
+            fullConfig = {
+              ...nodeConfig,
+              agentBrainEnabled: true,
+              llmProvider: brain.provider ?? 'gemini',
+              capabilities: JSON.stringify(brain.capabilities ?? []),
+              minFeeUsdc: brain.minFeeUsdc ?? 0.01,
+              minReputation: brain.minReputation ?? 50,
+              autoAccept: brain.autoAccept ?? true,
+            };
+          }
+        } catch { /* proceed without brain if read fails */ }
+
+        await NodeModule.startNode(fullConfig);
         if (cancelled) return;
         setNodeReady(true);
         for (let i = 0; i < 15; i++) {
@@ -911,7 +934,7 @@ function OnchainRegistrationStep({
         <PrimaryBtn
           label={registering ? 'REGISTERING…' : 'REGISTER WITH HOT WALLET →'}
           onPress={handleRegisterEmbedded}
-          disabled={registering || !nodeReady || !!phantomAddress}
+          disabled={registering || !hotWalletAddress || !!phantomAddress}
         />
       </View>
 

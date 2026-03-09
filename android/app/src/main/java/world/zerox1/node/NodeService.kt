@@ -403,7 +403,13 @@ command     = ${'$'}TOML_TQcurl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:
      * Returns the executable File.
      */
     private fun prepareNodeBinary(): File {
-        val binaryFile  = File(filesDir, BINARY_NAME)
+        // Binaries must live in codeCacheDir, not filesDir.
+        // On Android 10+ (API 29+) targeting SDK 29+, the OS blocks execve() on
+        // files written to filesDir (app_data_file SELinux type).  codeCacheDir
+        // carries the app_exec_data_file type which allows execution.
+        // Version files stay in filesDir (plain text, no execution needed).
+        codeCacheDir.mkdirs()
+        val binaryFile  = File(codeCacheDir, BINARY_NAME)
         val versionFile = File(filesDir, "$BINARY_NAME.version")
 
         val alreadyExtracted = binaryFile.exists()
@@ -416,6 +422,7 @@ command     = ${'$'}TOML_TQcurl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:
                 binaryFile.outputStream().use { output -> input.copyTo(output) }
             }
             Os.chmod(binaryFile.absolutePath, 0b111_101_101)   // rwxr-xr-x (755)
+            binaryFile.setExecutable(true, false)               // belt-and-suspenders
             versionFile.writeText(ASSET_VERSION)
             Log.i(TAG, "Binary extracted to ${binaryFile.absolutePath}")
         }
@@ -566,7 +573,8 @@ command     = ${'$'}TOML_TQcurl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:
     }
 
     private fun prepareAgentBinary(): File {
-        val binaryFile  = File(filesDir, AGENT_BINARY_NAME)
+        codeCacheDir.mkdirs()
+        val binaryFile  = File(codeCacheDir, AGENT_BINARY_NAME)
         val versionFile = File(filesDir, "$AGENT_BINARY_NAME.version")
 
         val alreadyExtracted = binaryFile.exists()
@@ -579,6 +587,7 @@ command     = ${'$'}TOML_TQcurl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:
                 binaryFile.outputStream().use { output -> input.copyTo(output) }
             }
             Os.chmod(binaryFile.absolutePath, 0b111_101_101)
+            binaryFile.setExecutable(true, false)
             versionFile.writeText(AGENT_ASSET_VERSION)
         }
 
