@@ -687,7 +687,6 @@ export function OnboardingScreen({ onDone }: { onDone: (config: AgentBrainConfig
 
 function OnchainRegistrationStep({
   agentName,
-  agentAvatar,
   config,
   onFinish,
 }: {
@@ -698,8 +697,12 @@ function OnchainRegistrationStep({
 }) {
   const [registering, setRegistering] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  // Embedded node hot wallet address (base58)
+  const [hotWalletAddress, setHotWalletAddress] = useState<string | null>(null);
   const [nodeReady, setNodeReady] = useState(false);
+  // Phantom wallet address if user connected
+  const [phantomAddress, setPhantomAddress] = useState<string | null>(null);
+  const [phantomConnecting, setPhantomConnecting] = useState(false);
 
   // Start the node on mount and resolve the hot wallet address.
   useEffect(() => {
@@ -712,8 +715,6 @@ function OnchainRegistrationStep({
         await NodeModule.startNode(nodeConfig);
         if (cancelled) return;
         setNodeReady(true);
-
-        // Poll /identity until the node is up (up to 15 s).
         for (let i = 0; i < 15; i++) {
           await new Promise(r => setTimeout(r, 1000));
           if (cancelled) return;
@@ -725,7 +726,7 @@ function OnchainRegistrationStep({
               const bytes = Uint8Array.from(
                 (data.agent_id.match(/.{1,2}/g) ?? []).map((b: string) => parseInt(b, 16)),
               );
-              if (!cancelled) setWalletAddress(new PublicKey(bytes).toBase58());
+              if (!cancelled) setHotWalletAddress(new PublicKey(bytes).toBase58());
               break;
             }
           } catch { /* node not ready yet */ }
@@ -735,18 +736,101 @@ function OnchainRegistrationStep({
     return () => { cancelled = true; };
   }, []);
 
-  const handleRegister = async () => {
+  // Connect Phantom via Mobile Wallet Adapter.
+  const handleConnectPhantom = async () => {
+    setPhantomConnecting(true);
+    setError(null);
+    try {
+      const { transact } = require('@solana-mobile/mobile-wallet-adapter-protocol-web3js');
+      const address: string = await transact(async (wallet: any) => {
+        const { accounts } = await wallet.authorize({
+          cluster: 'devnet',
+          identity: { name: '01 Pilot', uri: 'https://0x01.world' },
+        });
+        // accounts[0].address is a base64-encoded 32-byte pubkey (raw MWA protocol).
+        // Convert to base58 Solana address via @solana/web3.js.
+        const { PublicKey } = require('@solana/web3.js');
+        const addrBytes = Uint8Array.from(Buffer.from(accounts[0].address, 'base64'));
+        return new PublicKey(addrBytes).toBase58();
+      });
+      setPhantomAddress(address);
+    } catch (e: any) {
+      const msg: string = e?.message ?? '';
+      if (msg.includes('No wallet') || msg.includes('not found') || msg.includes('SolanaMobileWalletAdapterWalletNotInstalledError')) {
+        setError('Phantom not installed. Get it from the Play Store, or register with the embedded wallet below.');
+      } else {
+        setError(msg || 'Phantom connection failed.');
+      }
+    } finally {
+      setPhantomConnecting(false);
+    }
+  };
+
+  // Register with Phantom as owner — prepare tx on node, Phantom signs + broadcasts.
+  const handleRegisterWithPhantom = async () => {
+    if (!phantomAddress) return;
+    setRegistering(true);
+    setError(null);
+    try {
+      const { NodeModule } = require('../native/NodeModule');
+      const auth = await NodeModule.getLocalAuthConfig();
+      const token: string = auth?.nodeApiToken ?? '';
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers.Authorization = `Bearer ${token}`;
+
+      const prepareRes = await fetch('http://127.0.0.1:9090/registry/8004/register-prepare', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ owner_pubkey: phantomAddress, agent_uri: agentName.trim() }),
+      });
+      if (!prepareRes.ok) {
+        const err = await prepareRes.json().catch(() => ({}));
+        throw new Error((err as any).error || `prepare failed: ${prepareRes.status}`);
+      }
+      const prepared: { transaction_b64: string; asset_pubkey: string } = await prepareRes.json();
+
+      // Phantom signs the partially-signed tx and broadcasts it directly.
+      // The tx_b64 from the node is a legacy bincode-serialized Transaction.
+      // Deserialize to a web3.js Transaction so the MWA wrapper can call .serialize() on it.
+      const { Transaction } = require('@solana/web3.js');
+      const txBytes = Buffer.from(prepared.transaction_b64, 'base64');
+      const legacyTx = Transaction.from(txBytes);
+      const { transact } = require('@solana-mobile/mobile-wallet-adapter-protocol-web3js');
+      await transact(async (wallet: any) => {
+        await wallet.authorize({
+          cluster: 'devnet',
+          identity: { name: '01 Pilot', uri: 'https://0x01.world' },
+        });
+        await wallet.signAndSendTransactions({
+          transactions: [legacyTx],
+        });
+      });
+
+      await AsyncStorage.multiSet([
+        ['zerox1:8004_registered', 'true'],
+        ['zerox1:linked_wallet', phantomAddress],
+      ]);
+      await markOnboardingDone();
+      onFinish(config);
+    } catch (e: any) {
+      setError(e?.message ?? 'Registration failed.');
+    } finally {
+      setRegistering(false);
+    }
+  };
+
+  // Register with the embedded node wallet (node signs with its own key).
+  const handleRegisterEmbedded = async () => {
     setRegistering(true);
     setError(null);
     try {
       const { registerLocal8004 } = require('../hooks/useNodeApi');
       await registerLocal8004(agentName.trim());
       await AsyncStorage.setItem('zerox1:8004_registered', 'true');
-      Alert.alert('Success', 'Registered on-chain!');
       await markOnboardingDone();
       onFinish(config);
     } catch (e: any) {
-      setError(e.message);
+      setError(e?.message ?? 'Registration failed.');
     } finally {
       setRegistering(false);
     }
@@ -761,20 +845,56 @@ function OnchainRegistrationStep({
     <StepShell step={6} total={6}>
       <Heading label="ON-CHAIN REGISTRATION" />
       <Sub>
-        Register your agent on Solana. This creates your on-chain identity for
-        earning, staking, and token launches. Registration is gasless — the
-        Kora relayer covers the fee.
+        Register your agent on Solana to start earning and launching tokens.
+        Use Phantom as your owner wallet, or register with the embedded hot wallet.
       </Sub>
 
-      {/* Hot wallet card */}
+      {/* Phantom option */}
       <View style={s.walletCard}>
-        <Text style={s.walletLabel}>YOUR HOT WALLET</Text>
-        {walletAddress ? (
+        <Text style={s.walletLabel}>OPTION 1 — PHANTOM WALLET</Text>
+        {phantomAddress ? (
           <>
-            <Text style={s.walletAddress} selectable>{walletAddress}</Text>
+            <Text style={s.walletAddress} selectable>{phantomAddress}</Text>
+            <Text style={[s.walletHint, { color: C.green, marginBottom: 0 }]}>
+              Connected. Phantom will be the on-chain owner of your agent.
+            </Text>
+          </>
+        ) : (
+          <Text style={s.walletHint}>
+            Phantom becomes the owner of your on-chain agent identity.
+            Your signing key stays separate — the agent operates autonomously using the embedded wallet.
+          </Text>
+        )}
+        {!phantomAddress && (
+          <TouchableOpacity
+            style={[s.primaryBtn, { marginTop: 12, marginBottom: 0 }, phantomConnecting && s.primaryBtnDisabled]}
+            onPress={handleConnectPhantom}
+            activeOpacity={0.8}
+            disabled={phantomConnecting || registering}
+          >
+            <Text style={[s.primaryBtnText, phantomConnecting && s.primaryBtnTextDisabled]}>
+              {phantomConnecting ? 'CONNECTING…' : 'CONNECT PHANTOM'}
+            </Text>
+          </TouchableOpacity>
+        )}
+        {phantomAddress && (
+          <PrimaryBtn
+            label={registering ? 'REGISTERING…' : 'REGISTER WITH PHANTOM →'}
+            onPress={handleRegisterWithPhantom}
+            disabled={registering || !nodeReady}
+          />
+        )}
+      </View>
+
+      {/* Embedded wallet option */}
+      <View style={[s.walletCard, { marginTop: 12 }]}>
+        <Text style={s.walletLabel}>OPTION 2 — EMBEDDED WALLET</Text>
+        {hotWalletAddress ? (
+          <>
+            <Text style={s.walletAddress} selectable>{hotWalletAddress}</Text>
             <TouchableOpacity
               style={s.walletCopyBtn}
-              onPress={() => Share.share({ message: walletAddress })}
+              onPress={() => Share.share({ message: hotWalletAddress })}
               activeOpacity={0.7}
             >
               <Text style={s.walletCopyText}>[ SHARE / COPY ]</Text>
@@ -786,22 +906,22 @@ function OnchainRegistrationStep({
           </Text>
         )}
         <Text style={s.walletHint}>
-          Send SOL or USDC here to cover staking, fees, and on-chain activity.
+          The agent's own key signs everything. Good for fully autonomous operation.
         </Text>
+        <PrimaryBtn
+          label={registering ? 'REGISTERING…' : 'REGISTER WITH HOT WALLET →'}
+          onPress={handleRegisterEmbedded}
+          disabled={registering || !nodeReady || !!phantomAddress}
+        />
       </View>
 
       {error && (
-        <Text style={{ color: '#ff4444', marginBottom: 20, fontSize: 13, fontFamily: 'monospace' }}>
+        <Text style={{ color: '#ff4444', marginBottom: 16, fontSize: 12, fontFamily: 'monospace', marginTop: 8 }}>
           {error}
         </Text>
       )}
 
-      <PrimaryBtn
-        label={registering ? 'REGISTERING...' : 'REGISTER ON-CHAIN'}
-        onPress={handleRegister}
-        disabled={registering || !nodeReady}
-      />
-      <GhostBtn label="Skip (Do later in Settings)" onPress={handleSkip} />
+      <GhostBtn label="Skip (do later in Settings)" onPress={handleSkip} />
     </StepShell>
   );
 }

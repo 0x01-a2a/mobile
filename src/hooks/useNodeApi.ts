@@ -694,6 +694,12 @@ export async function registerLocal8004(agentUri: string = ''): Promise<{ signat
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (_hostedToken) {
     headers.Authorization = `Bearer ${_hostedToken}`;
+  } else {
+    // Local mode: get the node's local API secret from the native module.
+    try {
+      const auth = await NodeModule.getLocalAuthConfig();
+      if (auth?.nodeApiToken) headers.Authorization = `Bearer ${auth.nodeApiToken}`;
+    } catch { /* node may not be ready yet — proceed without token */ }
   }
 
   const res = await fetch(`${_apiBase}/registry/8004/register-local`, {

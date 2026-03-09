@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import android.system.Os
@@ -271,7 +272,22 @@ command     = ${'$'}TOML_TQcurl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForeground(NOTIF_ID, buildNotification("Starting…"))
+        // Android 12+ (API 31+) throws ForegroundServiceStartNotAllowedException when
+        // startForeground() is called from a background context (e.g. auto-restart after
+        // the OS killed the process, or BootReceiver on some devices/emulators).
+        // Catch it, emit an error event so the JS layer knows, and stop cleanly.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                startForeground(NOTIF_ID, buildNotification("Starting…"))
+            } catch (e: android.app.ForegroundServiceStartNotAllowedException) {
+                Log.w(TAG, "startForeground denied (background FGS restriction) — stopping gracefully", e)
+                broadcastStatus(STATUS_ERROR, "Cannot start node from background — open the app to start")
+                stopSelf()
+                return START_NOT_STICKY
+            }
+        } else {
+            startForeground(NOTIF_ID, buildNotification("Starting…"))
+        }
 
         // Re-acquire wake lock for this session. 8-hour timeout keeps the CPU awake
         // for overnight use while still being bounded against leaks if onDestroy is

@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.os.Build
 import android.content.pm.PackageManager
 import android.util.Base64
 import android.util.Log
@@ -149,7 +150,20 @@ class NodeModule(private val ctx: ReactApplicationContext)
                 config.getString("bagsApiKey")?.let    { putExtra(NodeService.EXTRA_BAGS_API_KEY, it) }
                 config.getString("bagsPartnerKey")?.let { putExtra(NodeService.EXTRA_BAGS_PARTNER_KEY, it) }
             }
-            ctx.startForegroundService(intent)
+            // Android 12+ may throw ForegroundServiceStartNotAllowedException here
+            // when the calling context is background (e.g. JS triggered from background task).
+            // NodeService.onStartCommand also catches it, but guard here too for belt-and-suspenders.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                try {
+                    ctx.startForegroundService(intent)
+                } catch (e: android.app.ForegroundServiceStartNotAllowedException) {
+                    Log.w(TAG, "startForegroundService denied (background): ${e.message}")
+                    promise.reject("FGS_DENIED", "Cannot start node from background — bring the app to foreground first")
+                    return
+                }
+            } else {
+                ctx.startForegroundService(intent)
+            }
             isNodeRunning = true
             // Persist config to SharedPreferences so BootReceiver can restore it on reboot.
             val prefs = ctx.getSharedPreferences("zerox1", Context.MODE_PRIVATE).edit()
