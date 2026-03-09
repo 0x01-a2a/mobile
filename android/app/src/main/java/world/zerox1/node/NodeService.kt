@@ -45,7 +45,7 @@ class NodeService : Service() {
 
         // ZeroClaw agent brain binary
         const val AGENT_BINARY_NAME    = "zeroclaw"
-        const val AGENT_ASSET_VERSION  = "0.1.10"   // bump when zeroclaw binary changes
+        const val AGENT_ASSET_VERSION  = "0.1.11"   // bump when zeroclaw binary changes
         const val AGENT_CONFIG_FILE    = "zeroclaw-config.toml"
         const val AGENT_GATEWAY_PORT   = 42617
         const val AGENT_BRIDGE_PORT    = 9092
@@ -288,8 +288,6 @@ command     = ${'$'}TOML_TQcurl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:
         val bagsWallet   = intent?.getStringExtra(EXTRA_BAGS_WALLET)
         val bagsApiKey   = intent?.getStringExtra(EXTRA_BAGS_API_KEY)
             ?.takeIf { it.isNotBlank() }
-            ?: BuildConfig.DEFAULT_BAGS_API_KEY.takeIf { it.isNotBlank() }
-            ?: BuildConfig.DEFAULT_BAGS_PARTNER_KEY.takeIf { it.isNotBlank() }
         val bagsPartnerKey = intent?.getStringExtra(EXTRA_BAGS_PARTNER_KEY)
             ?.takeIf { it.isNotBlank() }
             ?: BuildConfig.DEFAULT_BAGS_PARTNER_KEY.takeIf { it.isNotBlank() }
@@ -331,7 +329,14 @@ command     = ${'$'}TOML_TQcurl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:
                     waitForNodeApi()
                     val agentBinary = prepareAgentBinary()
                     writeAgentConfig(llmProvider, capabilities, minFee, minRep, autoAccept)
-                    launchAgent(agentBinary)
+                    // Restart loop — zeroclaw is SIGTERM'd by /agent/reload to pick up new skills.
+                    // After exit it must restart so the new skills are active.
+                    while (isActive) {
+                        launchAgent(agentBinary)
+                        if (!isActive) break
+                        Log.i(TAG, "ZeroClaw exited — restarting in 3s…")
+                        delay(3_000)
+                    }
                 } catch (e: Exception) {
                     Log.e(TAG, "Agent brain start failed: $e")
                     // Non-fatal — node continues without brain
@@ -719,6 +724,7 @@ timeout_secs = 10
                     .openConnection() as java.net.HttpURLConnection
                 conn.requestMethod = "POST"
                 conn.setRequestProperty("Content-Type", "application/json")
+                conn.setRequestProperty("Authorization", "Bearer $localApiSecret")
                 conn.doOutput = true
                 conn.outputStream.write(body.toByteArray())
                 conn.responseCode // send request

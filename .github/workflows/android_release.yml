@@ -89,7 +89,6 @@ jobs:
           ZEROX1_RELEASE_STORE_PASS: ${{ secrets.ZEROX1_RELEASE_STORE_PASS }}
           ZEROX1_RELEASE_KEY_PASS:   ${{ secrets.ZEROX1_RELEASE_KEY_PASS }}
           ZEROX1_RELEASE_KEYSTORE:   release.keystore
-          ZEROX1_BAGS_API_KEY:       ${{ secrets.ZEROX1_BAGS_API_KEY }}
           ZEROX1_BAGS_PARTNER_KEY:   ${{ secrets.ZEROX1_BAGS_PARTNER_KEY }}
           VERSION_CODE:              ${{ steps.version.outputs.code }}
           VERSION_NAME:              ${{ steps.version.outputs.name }}
