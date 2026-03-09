@@ -19,6 +19,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.isActive
 import org.json.JSONArray
 import java.io.File
+import java.io.IOException
 import java.security.SecureRandom
 
 /**
@@ -47,7 +48,7 @@ class NodeService : Service() {
         // ZeroClaw agent brain binary
         const val AGENT_BINARY_NAME    = "zeroclaw"
         const val AGENT_ASSET_VERSION  = "0.1.11"   // bump when zeroclaw binary changes
-        const val AGENT_CONFIG_FILE    = "zeroclaw-config.toml"
+        const val AGENT_CONFIG_FILE    = "config.toml"  // zeroclaw --config-dir looks for config.toml
         const val AGENT_GATEWAY_PORT   = 42617
         const val AGENT_BRIDGE_PORT    = 9092
         const val SECURE_PREFS_NAME    = "zerox1_secure"
@@ -403,31 +404,18 @@ command     = ${'$'}TOML_TQcurl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:
      * Returns the executable File.
      */
     private fun prepareNodeBinary(): File {
-        // Binaries must live in codeCacheDir, not filesDir.
-        // On Android 10+ (API 29+) targeting SDK 29+, the OS blocks execve() on
-        // files written to filesDir (app_data_file SELinux type).  codeCacheDir
-        // carries the app_exec_data_file type which allows execution.
-        // Version files stay in filesDir (plain text, no execution needed).
-        codeCacheDir.mkdirs()
-        val binaryFile  = File(codeCacheDir, BINARY_NAME)
-        val versionFile = File(filesDir, "$BINARY_NAME.version")
-
-        val alreadyExtracted = binaryFile.exists()
-            && versionFile.exists()
-            && versionFile.readText().trim() == ASSET_VERSION
-
-        if (!alreadyExtracted) {
-            Log.i(TAG, "Extracting $BINARY_NAME $ASSET_VERSION from assets…")
-            assets.open(BINARY_NAME).use { input ->
-                binaryFile.outputStream().use { output -> input.copyTo(output) }
-            }
-            Os.chmod(binaryFile.absolutePath, 0b111_101_101)   // rwxr-xr-x (755)
-            binaryFile.setExecutable(true, false)               // belt-and-suspenders
-            versionFile.writeText(ASSET_VERSION)
-            Log.i(TAG, "Binary extracted to ${binaryFile.absolutePath}")
+        // Android 14+ (API 34+) targeting SDK 34+ blocks execve() from ALL writable
+        // app data directories (filesDir, codeCacheDir, cacheDir) via SELinux policy.
+        // The only path where execution is allowed is nativeLibraryDir, which is
+        // system-managed and non-writable at runtime.
+        // The binary is packaged as jniLibs/arm64-v8a/libzerox1_node.so and Android
+        // installs it to nativeLibraryDir with execute permission at install time.
+        val binary = File(applicationInfo.nativeLibraryDir, "libzerox1_node.so")
+        if (!binary.exists()) {
+            throw IOException("Node binary not found at ${binary.absolutePath} — rebuild APK with updated jniLibs")
         }
-
-        return binaryFile
+        Log.i(TAG, "Using node binary: ${binary.absolutePath}")
+        return binary
     }
 
     private fun securePrefs() = EncryptedSharedPreferences.create(
@@ -508,6 +496,7 @@ command     = ${'$'}TOML_TQcurl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:
         bagsPartnerKey: String?,
     ) = withContext(Dispatchers.IO) {
         val logDir      = File(filesDir, "logs").also { it.mkdirs() }
+        File(filesDir, "zw").mkdirs()   // skill workspace must exist before node starts
         val keypairPath = File(filesDir, "zerox1-identity.key")
         val aggregatorUrl = "https://api.0x01.world"
         val localApiSecret = ensureSecureToken(KEY_NODE_API_SECRET)
@@ -521,7 +510,7 @@ command     = ${'$'}TOML_TQcurl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:
             "--agent-name",    agentName,
             "--rpc-url",       rpcUrl,
             "--aggregator-url", aggregatorUrl,
-            "--relay-server",  "false",
+            // --relay-server is a boolean flag; omit it (default is false)
         )
 
         relayAddr?.let { cmd += listOf("--relay-addr", it) }
@@ -573,25 +562,12 @@ command     = ${'$'}TOML_TQcurl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:
     }
 
     private fun prepareAgentBinary(): File {
-        codeCacheDir.mkdirs()
-        val binaryFile  = File(codeCacheDir, AGENT_BINARY_NAME)
-        val versionFile = File(filesDir, "$AGENT_BINARY_NAME.version")
-
-        val alreadyExtracted = binaryFile.exists()
-            && versionFile.exists()
-            && versionFile.readText().trim() == AGENT_ASSET_VERSION
-
-        if (!alreadyExtracted) {
-            Log.i(TAG, "Extracting $AGENT_BINARY_NAME $AGENT_ASSET_VERSION from assets…")
-            assets.open(AGENT_BINARY_NAME).use { input ->
-                binaryFile.outputStream().use { output -> input.copyTo(output) }
-            }
-            Os.chmod(binaryFile.absolutePath, 0b111_101_101)
-            binaryFile.setExecutable(true, false)
-            versionFile.writeText(AGENT_ASSET_VERSION)
+        val binary = File(applicationInfo.nativeLibraryDir, "libzeroclaw.so")
+        if (!binary.exists()) {
+            throw IOException("Agent binary not found at ${binary.absolutePath} — rebuild APK with updated jniLibs")
         }
-
-        return binaryFile
+        Log.i(TAG, "Using agent binary: ${binary.absolutePath}")
+        return binary
     }
 
     private fun getLlmApiKey(): String? {
@@ -644,22 +620,22 @@ command     = ${'$'}TOML_TQcurl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:
         // Zeroclaw workspace directory — skills are discovered from here.
         val workspaceDir = File(filesDir, "zw")
         workspaceDir.mkdirs()
-        val escapedWorkspace = workspaceDir.absolutePath
-            .replace("\\", "\\\\").replace("\"", "\\\"")
 
         val config = """
-[llm]
-provider = "$provider"
-api_key  = "$escapedKey"
-model    = "$model"
-
-workspace_dir = "$escapedWorkspace"
+# Top-level provider settings (no [llm] section — these are root keys)
+default_provider    = "$provider"
+api_key             = "$escapedKey"
+default_model       = "$model"
+default_temperature = 0.7
 
 [gateway]
 port            = $AGENT_GATEWAY_PORT
 host            = "127.0.0.1"
 require_pairing = true
 paired_tokens   = ["$escapedGatewayToken"]
+
+[channels_config]
+cli = false
 
 [channels_config.zerox1]
 node_api_url    = "http://127.0.0.1:$NODE_API_PORT"
@@ -670,7 +646,13 @@ auto_accept     = $autoAccept
 capabilities    = $tomlCaps
 
 [autonomy]
-shell_env_passthrough = ["ZX01_NODE", "ZX01_TOKEN"]
+level                  = "supervised"
+workspace_only         = false
+allowed_commands       = ["curl", "jq", "sh", "bash"]
+forbidden_paths        = []
+max_actions_per_hour   = 100
+max_cost_per_day_cents = 1000
+shell_env_passthrough  = ["ZX01_NODE", "ZX01_TOKEN"]
 
 [phone]
 enabled      = true
@@ -735,8 +717,8 @@ timeout_secs = 10
     }
 
     private suspend fun launchAgent(binary: File) = withContext(Dispatchers.IO) {
-        val configPath = File(filesDir, AGENT_CONFIG_FILE).absolutePath
-        val cmd = listOf(binary.absolutePath, "--config", configPath)
+        val configDir = filesDir.absolutePath
+        val cmd = listOf(binary.absolutePath, "--config-dir", configDir, "daemon")
         Log.i(TAG, "Launching zeroclaw: ${cmd.joinToString(" ")}")
 
         val workspacePath = File(filesDir, "zw").absolutePath
@@ -744,6 +726,10 @@ timeout_secs = 10
         val process = ProcessBuilder(cmd)
             .redirectErrorStream(true)
             .also {
+                // ZeroClaw uses the HOME env var to locate its config directory.
+                // Android doesn't set HOME, so point it at filesDir so that
+                // "~/.config" and similar paths resolve inside the app's sandbox.
+                it.environment()["HOME"] = filesDir.absolutePath
                 it.environment()["ZX01_WORKSPACE"] = workspacePath
                 it.environment()["ZX01_NODE"] = "http://127.0.0.1:$NODE_API_PORT"
                 if (localApiSecret.isNotEmpty()) {

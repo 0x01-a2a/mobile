@@ -318,7 +318,7 @@ export function EarnScreen() {
             You must register your agent on the Solana 8004 network to participate in earning activities.
           </Text>
           <TouchableOpacity
-            style={[s.acceptBtn, { alignSelf: 'center', paddingHorizontal: 24, marginTop: 12 }]}
+            style={s.settingsBtn}
             onPress={() => navigation.navigate('Settings')}
           >
             <Text style={s.acceptText}>GO TO SETTINGS</Text>
@@ -524,6 +524,7 @@ const s = StyleSheet.create({
   skipText: { fontSize: 11, color: C.sub, letterSpacing: 2, fontWeight: '700' },
   acceptBtn: { flex: 2, backgroundColor: C.green, borderRadius: 3, paddingVertical: 9, alignItems: 'center' },
   acceptText: { fontSize: 11, color: '#000', letterSpacing: 2, fontWeight: '700' },
+  settingsBtn: { backgroundColor: C.green, borderRadius: 3, paddingVertical: 10, paddingHorizontal: 28, alignItems: 'center', marginTop: 16 },
   empty: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 },
   emptyText: { color: C.sub, fontFamily: 'monospace', textAlign: 'center', lineHeight: 22, fontSize: 13 },
   // agent picker

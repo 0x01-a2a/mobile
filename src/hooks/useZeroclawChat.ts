@@ -45,6 +45,7 @@ export function useZeroclawChat(agentId?: string): UseZeroclawChatResult {
   const [error, setError] = useState<string | null>(null);
   const sessionRef = useRef<string | null>(null);
   const gatewayTokenRef = useRef<string | null>(null);
+  const systemContextRef = useRef<string[]>([]);
 
   // Track the current key so async callbacks always write to the right slot.
   const sessionKeyRef = useRef(sessionKey(agentId));
@@ -59,6 +60,58 @@ export function useZeroclawChat(agentId?: string): UseZeroclawChatResult {
     sessionRef.current = null;
     setMessages([]);
     setError(null);
+
+    // Build wallet identity context so ZeroClaw knows about its Solana wallet.
+    if (agentId && agentId.length === 64) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { PublicKey } = require('@solana/web3.js');
+        const bytes = Uint8Array.from(
+          (agentId.match(/.{1,2}/g) ?? []).map((b: string) => parseInt(b, 16))
+        );
+        const solanaAddress = new PublicKey(bytes).toBase58();
+        const baseContext = [
+          `You are an autonomous agent on the 0x01 mesh network (zerox1).`,
+          `Your agent ID (hex): ${agentId}`,
+          `Your Solana wallet address (base58): ${solanaAddress}`,
+          `You have an on-chain hot wallet on Solana devnet used for task rewards, staking, and USDC payments on the mesh.`,
+          `IMPORTANT: The Solana CLI is not available on this device. Never run "solana", "which solana", or similar CLI commands.`,
+          `To check your wallet balance, call: GET http://127.0.0.1:9090/portfolio/balances with header "Authorization: Bearer <nodeApiToken>". The nodeApiToken is the same token configured in your zerox1 channel.`,
+        ];
+        systemContextRef.current = baseContext;
+
+        // Fetch live balance and append it to context once resolved.
+        NodeModule.getLocalAuthConfig()
+          .then(auth => {
+            if (!auth.nodeApiToken || sessionKeyRef.current !== key) return null;
+            return fetch('http://127.0.0.1:9090/portfolio/balances', {
+              headers: { Authorization: `Bearer ${auth.nodeApiToken}` },
+            }).then(r => r.ok ? r.json() : null);
+          })
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .then((data: any) => {
+            if (!data?.tokens || sessionKeyRef.current !== key) return;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const sol  = data.tokens.find((t: any) =>
+              t.mint === 'So11111111111111111111111111111111111111112');
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const usdc = data.tokens.find((t: any) =>
+              t.mint === 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' ||
+              t.mint === '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU');
+            const solAmt  = (sol?.amount  ?? 0) as number;
+            const usdcAmt = (usdc?.amount ?? 0) as number;
+            systemContextRef.current = [
+              ...baseContext,
+              `Current hot wallet balance: ${solAmt.toFixed(6)} SOL, ${usdcAmt.toFixed(2)} USDC (Solana devnet).`,
+            ];
+          })
+          .catch(() => { /* balance fetch failed — context stays without balance line */ });
+      } catch {
+        systemContextRef.current = [];
+      }
+    } else {
+      systemContextRef.current = [];
+    }
 
     // Attempt to restore a previously saved session for this agent.
     AsyncStorage.getItem(key).then(id => {
@@ -122,7 +175,11 @@ export function useZeroclawChat(agentId?: string): UseZeroclawChatResult {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${gatewayTokenRef.current}`,
         },
-        body: JSON.stringify({ message: trimmed, session_id: sessionId }),
+        body: JSON.stringify({
+          message: trimmed,
+          session_id: sessionId,
+          context: systemContextRef.current,
+        }),
         signal: controller.signal,
       });
       clearTimeout(timer);

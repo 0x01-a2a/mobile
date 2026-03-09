@@ -54,12 +54,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           NODE_TAG="${{ github.event.inputs.node_tag || github.ref_name }}"
-          mkdir -p android/app/src/main/assets
+          mkdir -p android/app/src/main/jniLibs/arm64-v8a
           gh release download "$NODE_TAG" \
             --repo 0x01-a2a/node \
             --pattern 'zerox1-node-android-arm64' \
-            --output android/app/src/main/assets/zerox1-node
-          chmod +x android/app/src/main/assets/zerox1-node
+            --output android/app/src/main/jniLibs/arm64-v8a/libzerox1_node.so
 
       - name: Download zeroclaw binary
         # Non-fatal: zeroclaw releases are published separately; app runs without brain if missing
@@ -71,8 +70,7 @@ jobs:
           gh release download "$ZEROCLAW_TAG" \
             --repo 0x01-a2a/zeroclaw \
             --pattern 'zeroclaw-android-arm64' \
-            --output android/app/src/main/assets/zeroclaw
-          chmod +x android/app/src/main/assets/zeroclaw
+            --output android/app/src/main/jniLibs/arm64-v8a/libzeroclaw.so
 
       - name: Decode Keystore
         run: |
