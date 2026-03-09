@@ -70,6 +70,7 @@ export interface NodeStatusEvent {
 export interface LocalAuthConfig {
   nodeApiToken: string | null;
   gatewayToken: string | null;
+  heliusApiKey: string | null;
 }
 
 // ============================================================================

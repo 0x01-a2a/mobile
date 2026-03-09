@@ -18,6 +18,7 @@ import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.*
 import kotlinx.coroutines.isActive
 import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 import java.security.SecureRandom
@@ -360,6 +361,7 @@ command     = ${'$'}TOML_TQcurl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:
                     waitForNodeApi()
                     val agentBinary = prepareAgentBinary()
                     writeAgentConfig(llmProvider, capabilities, minFee, minRep, autoAccept)
+                    writeIdentityFile(File(filesDir, "zw"), rpcUrl)
                     // Restart loop — zeroclaw is SIGTERM'd by /agent/reload to pick up new skills.
                     // After exit it must restart so the new skills are active.
                     while (isActive) {
@@ -501,6 +503,17 @@ command     = ${'$'}TOML_TQcurl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:
         val aggregatorUrl = "https://api.0x01.world"
         val localApiSecret = ensureSecureToken(KEY_NODE_API_SECRET)
 
+        // Use Helius RPC for mainnet if a platform key is baked in — the public
+        // mainnet RPC is aggressively rate-limited and unsuitable for trading.
+        val effectiveRpcUrl = if (
+            rpcUrl.contains("mainnet") &&
+            BuildConfig.HELIUS_API_KEY.isNotBlank()
+        ) {
+            "https://mainnet.helius-rpc.com/?api-key=${BuildConfig.HELIUS_API_KEY}"
+        } else {
+            rpcUrl
+        }
+
         val cmd = mutableListOf(
             binary.absolutePath,
             "--api-addr",      "127.0.0.1:$NODE_API_PORT",
@@ -508,7 +521,7 @@ command     = ${'$'}TOML_TQcurl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:
             "--log-dir",       logDir.absolutePath,
             "--keypair-path",  keypairPath.absolutePath,
             "--agent-name",    agentName,
-            "--rpc-url",       rpcUrl,
+            "--rpc-url",       effectiveRpcUrl,
             "--aggregator-url", aggregatorUrl,
             // --relay-server is a boolean flag; omit it (default is false)
         )
@@ -689,6 +702,165 @@ timeout_secs = 10
         File(smSkillDir, "SKILL.toml").writeText(SKILL_MANAGER_TOML)
 
         Log.i(TAG, "Bundled skills written to ${skillsRoot.absolutePath}.")
+    }
+
+    /**
+     * Write workspace/IDENTITY.md so ZeroClaw knows its Solana wallet address and
+     * how to check balances via the node REST API (no Solana CLI on Android).
+     *
+     * Called once after the node API is confirmed ready, before launching zeroclaw.
+     * Non-fatal: if the API calls fail the file is still written with what is known.
+     */
+    private suspend fun writeIdentityFile(workspaceDir: File, rpcUrl: String = "") = withContext(Dispatchers.IO) {
+        val isMainnet = rpcUrl.contains("mainnet")
+        val localApiSecret = loadSecureString(KEY_NODE_API_SECRET).orEmpty()
+        if (localApiSecret.isEmpty()) {
+            Log.w(TAG, "No API secret available — skipping IDENTITY.md write.")
+            return@withContext
+        }
+        try {
+            // ── Fetch agent identity ─────────────────────────────────────────
+            var agentIdHex: String? = null
+            var solanaAddress: String? = null
+            try {
+                val conn = java.net.URL("http://127.0.0.1:$NODE_API_PORT/identity")
+                    .openConnection() as java.net.HttpURLConnection
+                conn.setRequestProperty("Authorization", "Bearer $localApiSecret")
+                conn.connectTimeout = 5_000
+                conn.readTimeout    = 5_000
+                if (conn.responseCode == 200) {
+                    val body = conn.inputStream.bufferedReader().readText()
+                    val hex  = JSONObject(body).optString("agent_id").takeIf { it.length == 64 }
+                    if (hex != null) {
+                        agentIdHex    = hex
+                        val bytes     = hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+                        solanaAddress = base58Encode(bytes)
+                    }
+                }
+                conn.disconnect()
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not fetch /identity for IDENTITY.md: $e")
+            }
+
+            // ── Fetch live balance ───────────────────────────────────────────
+            var balanceLine = ""
+            try {
+                val conn = java.net.URL("http://127.0.0.1:$NODE_API_PORT/portfolio/balances")
+                    .openConnection() as java.net.HttpURLConnection
+                conn.setRequestProperty("Authorization", "Bearer $localApiSecret")
+                conn.connectTimeout = 5_000
+                conn.readTimeout    = 5_000
+                if (conn.responseCode == 200) {
+                    val body   = conn.inputStream.bufferedReader().readText()
+                    val tokens = JSONObject(body).optJSONArray("tokens")
+                    var solAmt = 0.0; var usdcAmt = 0.0
+                    if (tokens != null) {
+                        for (i in 0 until tokens.length()) {
+                            val t      = tokens.getJSONObject(i)
+                            val amount = t.optDouble("amount", 0.0)
+                            when (t.optString("mint")) {
+                                "So11111111111111111111111111111111111111112" -> solAmt  = amount
+                                "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+                                "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"  -> usdcAmt = amount
+                            }
+                        }
+                    }
+                    balanceLine = "\nCurrent hot wallet balance: ${"%.6f".format(solAmt)} SOL, ${"%.2f".format(usdcAmt)} USDC."
+                }
+                conn.disconnect()
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not fetch /portfolio/balances for IDENTITY.md: $e")
+            }
+
+            // ── Write IDENTITY.md ────────────────────────────────────────────
+            val walletBlock = if (agentIdHex != null && solanaAddress != null) {
+                "- Agent ID (hex): $agentIdHex\n- Solana wallet address (base58): $solanaAddress\n- Network: Solana devnet$balanceLine"
+            } else {
+                "Wallet identity will be available after the node fully starts."
+            }
+
+            val networkLabel = if (isMainnet) "Solana MAINNET" else "Solana devnet"
+            val walletNetwork = if (isMainnet) "mainnet" else "devnet"
+            val usdcMint = if (isMainnet)
+                "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+            else
+                "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
+
+            val mainnetWarning = if (isMainnet) """
+
+## ⚠ MAINNET — REAL MONEY
+You are operating on Solana MAINNET. All transactions involve REAL funds.
+
+- bags_launch, bags_claim, bags_positions → Bags.fm MAINNET (real SOL/USDC)
+- Jupiter swaps → MAINNET (real tokens, real prices)
+- Every transaction you sign costs real SOL in fees and moves real value
+- There is NO undo. Failed or mistaken transactions lose real money.
+
+Rules:
+1. Always confirm the action and amounts with the user before signing any transaction.
+2. Never send more than the user explicitly authorised.
+3. If you are unsure about an action, ask first — do not proceed speculatively.
+4. Double-check destination addresses before any transfer.
+""" else ""
+
+            val content = """
+# Agent Identity
+
+## Who you are
+You are an autonomous AI agent on the 0x01 mesh network (zerox1).
+You run as a background process on a mobile device.
+You have a Solana hot wallet on $networkLabel used for task rewards, staking, and USDC payments on the mesh.
+$mainnetWarning
+## Your Wallet
+- Network: $networkLabel
+$walletBlock
+
+## Checking Your Balance
+IMPORTANT: The Solana CLI is NOT available on this device.
+Do NOT attempt to run `solana balance`, `which solana`, or any `solana` CLI command — it will fail.
+
+To check your balance, call the node REST API:
+  GET http://127.0.0.1:$NODE_API_PORT/portfolio/balances
+  Authorization: Bearer <value of ZX01_TOKEN env var>
+
+Response format: {"tokens":[{"mint":"...","amount":1.5,"decimals":9}]}
+- SOL mint:  So11111111111111111111111111111111111111112
+- USDC mint ($walletNetwork): $usdcMint
+
+In a shell tool:
+  curl -s http://127.0.0.1:$NODE_API_PORT/portfolio/balances -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}"
+
+## Node API
+Your local zerox1 node API: http://127.0.0.1:$NODE_API_PORT
+Auth: Authorization: Bearer <ZX01_TOKEN> (already available as env var ZX01_TOKEN).
+""".trimStart()
+
+            File(workspaceDir, "IDENTITY.md").writeText(content)
+            Log.i(TAG, "IDENTITY.md written to workspace (address: ${solanaAddress ?: "unknown"}).")
+        } catch (e: Exception) {
+            Log.w(TAG, "writeIdentityFile failed: $e")
+            // Non-fatal — zeroclaw starts without wallet identity context
+        }
+    }
+
+    /**
+     * Base58 encode using the Bitcoin/Solana alphabet (no checksum).
+     * Used to derive the human-readable Solana wallet address from raw key bytes.
+     */
+    private fun base58Encode(input: ByteArray): String {
+        val alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+        var value    = java.math.BigInteger(1, input)
+        val base     = java.math.BigInteger.valueOf(58)
+        val sb       = StringBuilder()
+        while (value.signum() > 0) {
+            val (q, r) = value.divideAndRemainder(base)
+            sb.append(alphabet[r.toInt()])
+            value = q
+        }
+        for (b in input) {
+            if (b == 0.toByte()) sb.append(alphabet[0]) else break
+        }
+        return sb.reverse().toString()
     }
 
     /**

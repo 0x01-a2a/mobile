@@ -231,9 +231,11 @@ class NodeModule(private val ctx: ReactApplicationContext)
     fun getLocalAuthConfig(promise: Promise) {
         try {
             val prefs = securePrefs()
+            val heliusKey = BuildConfig.HELIUS_API_KEY.takeIf { it.isNotBlank() }
             val result = Arguments.createMap().apply {
                 putString("nodeApiToken", prefs.getString(KEY_NODE_API_SECRET, null))
                 putString("gatewayToken", prefs.getString(KEY_GATEWAY_TOKEN, null))
+                putString("heliusApiKey", heliusKey)
             }
             promise.resolve(result)
         } catch (e: Exception) {
