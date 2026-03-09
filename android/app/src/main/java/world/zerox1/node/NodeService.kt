@@ -275,18 +275,32 @@ command     = ${'$'}TOML_TQcurl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:
         // Android 12+ (API 31+) throws ForegroundServiceStartNotAllowedException when
         // startForeground() is called from a background context (e.g. auto-restart after
         // the OS killed the process, or BootReceiver on some devices/emulators).
-        // Catch it, emit an error event so the JS layer knows, and stop cleanly.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            try {
+        // Android 14+ (API 34+) with targetSdk 34+ throws MissingForegroundServiceTypeException
+        // when the 2-parameter startForeground() is used — a service type is now required.
+        // Use the 3-parameter version (available since API 29) to satisfy API 34+ requirements,
+        // and catch both exception types to stop cleanly instead of crashing.
+        try {
+            if (Build.VERSION.SDK_INT >= 29) {
+                startForeground(
+                    NOTIF_ID,
+                    buildNotification("Starting…"),
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                )
+            } else {
                 startForeground(NOTIF_ID, buildNotification("Starting…"))
-            } catch (e: android.app.ForegroundServiceStartNotAllowedException) {
-                Log.w(TAG, "startForeground denied (background FGS restriction) — stopping gracefully", e)
-                broadcastStatus(STATUS_ERROR, "Cannot start node from background — open the app to start")
-                stopSelf()
-                return START_NOT_STICKY
             }
-        } else {
-            startForeground(NOTIF_ID, buildNotification("Starting…"))
+        } catch (e: android.app.ForegroundServiceStartNotAllowedException) {
+            Log.w(TAG, "startForeground denied (background FGS restriction) — stopping gracefully", e)
+            broadcastStatus(STATUS_ERROR, "Cannot start node from background — open the app to start")
+            stopSelf()
+            return START_NOT_STICKY
+        } catch (e: Exception) {
+            // Catches MissingForegroundServiceTypeException (API 34+) and any other
+            // foreground service startup failures.
+            Log.e(TAG, "startForeground failed — stopping gracefully", e)
+            broadcastStatus(STATUS_ERROR, "Foreground service start failed: ${e.message}")
+            stopSelf()
+            return START_NOT_STICKY
         }
 
         // Re-acquire wake lock for this session. 8-hour timeout keeps the CPU awake

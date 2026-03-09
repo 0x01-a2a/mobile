@@ -13,6 +13,7 @@ import androidx.core.content.ContextCompat
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.facebook.react.bridge.*
+import com.facebook.react.bridge.LifecycleEventListener
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.facebook.react.modules.core.PermissionAwareActivity
 import com.facebook.react.modules.core.PermissionListener
@@ -45,7 +46,7 @@ import java.security.SecureRandom
  *   'nodeStatus' { status: 'running' | 'stopped' | 'error', detail?: string }
  */
 class NodeModule(private val ctx: ReactApplicationContext)
-    : ReactContextBaseJavaModule(ctx) {
+    : ReactContextBaseJavaModule(ctx), LifecycleEventListener {
 
     companion object {
         private const val TAG = "NodeModule"
@@ -58,6 +59,10 @@ class NodeModule(private val ctx: ReactApplicationContext)
 
     private var isNodeRunning = false
     private var permissionListener: PermissionListener? = null
+    // Pending FGS start — populated when startForegroundService() is denied due to background
+    // UID state (Android 12+). Retried in onHostResume() when the Activity is confirmed foreground.
+    @Volatile private var pendingStartIntent: Intent? = null
+    @Volatile private var pendingStartPromise: Promise? = null
     private val secureRandom = SecureRandom()
     // Module-scoped coroutine scope — cancelled in invalidate() so in-flight
     // coroutines (uploadBlob, getBridgeActivityLog) never touch a dead promise.
@@ -75,6 +80,7 @@ class NodeModule(private val ctx: ReactApplicationContext)
     init {
         val filter = IntentFilter(NodeService.ACTION_STATUS)
         ctx.registerReceiver(statusReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        ctx.addLifecycleEventListener(this)
     }
 
     override fun getName() = "ZeroxNodeModule"
@@ -82,7 +88,39 @@ class NodeModule(private val ctx: ReactApplicationContext)
     override fun invalidate() {
         super.invalidate()
         runCatching { ctx.unregisterReceiver(statusReceiver) }
+        runCatching { ctx.removeLifecycleEventListener(this) }
+        pendingStartPromise?.reject("CANCELLED", "Module invalidated")
+        pendingStartIntent = null
+        pendingStartPromise = null
         moduleScope.cancel()
+    }
+
+    // -------------------------------------------------------------------------
+    // LifecycleEventListener — retry FGS start once Activity is foreground
+    // -------------------------------------------------------------------------
+
+    override fun onHostResume() {
+        val intent  = pendingStartIntent  ?: return
+        val promise = pendingStartPromise ?: return
+        pendingStartIntent  = null
+        pendingStartPromise = null
+        Log.i(TAG, "Activity resumed — retrying pending FGS start")
+        try {
+            ctx.startForegroundService(intent)
+            isNodeRunning = true
+            promise.resolve(null)
+        } catch (e: Exception) {
+            Log.e(TAG, "Retry startForegroundService failed: ${e.message}")
+            promise.reject("START_FAILED", e.message, e)
+        }
+    }
+
+    override fun onHostPause() {}
+
+    override fun onHostDestroy() {
+        pendingStartPromise?.reject("CANCELLED", "Activity destroyed")
+        pendingStartIntent  = null
+        pendingStartPromise = null
     }
 
     private fun securePrefs() = EncryptedSharedPreferences.create(
@@ -157,8 +195,11 @@ class NodeModule(private val ctx: ReactApplicationContext)
                 try {
                     ctx.startForegroundService(intent)
                 } catch (e: android.app.ForegroundServiceStartNotAllowedException) {
-                    Log.w(TAG, "startForegroundService denied (background): ${e.message}")
-                    promise.reject("FGS_DENIED", "Cannot start node from background — bring the app to foreground first")
+                    // Activity not yet foreground (timing race on cold launch or emulator quirk).
+                    // Park the intent; onHostResume() will fire within ~100ms and retry.
+                    Log.w(TAG, "startForegroundService denied — parking until onHostResume()")
+                    pendingStartIntent  = intent
+                    pendingStartPromise = promise
                     return
                 }
             } else {

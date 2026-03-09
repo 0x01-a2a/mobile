@@ -19,6 +19,11 @@ const STORAGE_KEYS = {
 const LOCAL_NODE_API_BASE = 'http://127.0.0.1:9090';
 const LOCAL_NODE_WS_BASE = 'ws://127.0.0.1:9090';
 
+// Module-level lock: if a startNode() call is already in flight, subsequent
+// callers (e.g. NodeAutoStarter + EarnScreen both mounting with auto_start=true)
+// await the same promise instead of firing a second startForegroundService.
+let _startLock: Promise<void> | null = null;
+
 async function configureLocalNodeApi() {
   try {
     const auth = await NodeModule.getLocalAuthConfig();
@@ -95,9 +100,18 @@ export function useNode() {
             });
             setStatus('running');
           } else {
-            const running = await NodeModule.isRunning();
-            if (!running) await NodeModule.startNode(await withBrainConfig(cfg));
-            await configureLocalNodeApi();
+            if (!_startLock) {
+              _startLock = (async () => {
+                try {
+                  const running = await NodeModule.isRunning();
+                  if (!running) await NodeModule.startNode(await withBrainConfig(cfg));
+                  await configureLocalNodeApi();
+                } finally {
+                  _startLock = null;
+                }
+              })();
+            }
+            await _startLock;
             setStatus('running');
           }
         } else {
@@ -139,8 +153,18 @@ export function useNode() {
       });
       setStatus('running');
     } else {
-      await NodeModule.startNode(await withBrainConfig(effective));
-      await configureLocalNodeApi();
+      if (!_startLock) {
+        _startLock = (async () => {
+          try {
+            const running = await NodeModule.isRunning();
+            if (!running) await NodeModule.startNode(await withBrainConfig(effective));
+            await configureLocalNodeApi();
+          } finally {
+            _startLock = null;
+          }
+        })();
+      }
+      await _startLock;
       setStatus('running');
     }
 
