@@ -773,13 +773,12 @@ timeout_secs = 10
             }
 
             // ── Write IDENTITY.md ────────────────────────────────────────────
+            val networkLabel = if (isMainnet) "Solana MAINNET" else "Solana devnet"
             val walletBlock = if (agentIdHex != null && solanaAddress != null) {
-                "- Agent ID (hex): $agentIdHex\n- Solana wallet address (base58): $solanaAddress\n- Network: Solana devnet$balanceLine"
+                "- Agent ID (hex): $agentIdHex\n- Solana wallet address (base58): $solanaAddress\n- Network: $networkLabel$balanceLine"
             } else {
                 "Wallet identity will be available after the node fully starts."
             }
-
-            val networkLabel = if (isMainnet) "Solana MAINNET" else "Solana devnet"
             val walletNetwork = if (isMainnet) "mainnet" else "devnet"
             val usdcMint = if (isMainnet)
                 "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"

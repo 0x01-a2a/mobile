@@ -710,7 +710,14 @@ export async function registerLocal8004(agentUri: string = ''): Promise<{ signat
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `Registration failed: ${res.status}`);
+    const msg: string = err.error || `Registration failed: ${res.status}`;
+    // Translate the low-level Solana fee error into something actionable.
+    if (msg.includes('no record of a prior credit') || msg.includes('Attempt to debit')) {
+      throw new Error(
+        'Your agent wallet has no SOL.\n\nSend a small amount of SOL (devnet or mainnet, matching your RPC) to your agent wallet to cover the registration fee (~0.01 SOL), then try again.\n\nYour wallet address is shown under My Agent → Hot Wallet.',
+      );
+    }
+    throw new Error(msg);
   }
 
   return res.json();
@@ -756,7 +763,7 @@ export function useHotKeyBalance(): HotKeyBalanceResult {
       setLoading(true);
       const data = await apiFetch<PortfolioBalances>('/portfolio/balances');
       if (!cancelled && data) {
-        setTokens(data.tokens);
+        setTokens(Array.isArray(data.tokens) ? data.tokens : []);
       }
       setLoading(false);
     };
@@ -780,7 +787,7 @@ export function usePortfolioHistory(intervalMs = 30_000): PortfolioEvent[] {
     const poll = async () => {
       if (!_appActive) return;
       const data = await apiFetch<PortfolioHistory>('/portfolio/history');
-      if (!cancelled && data) setEvents(data.events);
+      if (!cancelled && data) setEvents(Array.isArray(data.events) ? data.events : []);
     };
     poll();
     const id = setInterval(poll, intervalMs);
@@ -960,7 +967,8 @@ export function useBridgeActivityLog(limit: number = 50): BridgeLogEntry[] {
       if (!_appActive || cancelled) return;
       try {
         const raw = await NodeModule.getBridgeActivityLog(limit);
-        if (!cancelled) setEntries(JSON.parse(raw));
+        const parsed = JSON.parse(raw);
+        if (!cancelled && Array.isArray(parsed)) setEntries(parsed);
       } catch { /* native module not ready */ }
     };
 

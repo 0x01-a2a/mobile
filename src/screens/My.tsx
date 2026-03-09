@@ -663,7 +663,7 @@ function NegotiationCard({ thread }: { thread: NegotiationThread }) {
 }
 
 function InboxRow({ env }: { env: InboundEnvelope }) {
-  let displayFrom = env.sender;
+  let displayFrom = env.sender ?? '';
   if (displayFrom.length > 16) {
     displayFrom = `${displayFrom.slice(0, 6)}…${displayFrom.slice(-6)}`;
   }
