@@ -29,6 +29,9 @@ import {
   useBridgeCapabilities,
   useHostingNodes,
   useBagsConfig,
+  saveBagsApiKey,
+  clearBagsApiKey,
+  loadBagsApiKey,
 } from '../hooks/useNodeApi';
 import {
   ALL_CAPABILITIES,
@@ -543,8 +546,9 @@ function BagsFeeSection({
   onBagsWalletChange,
   bagsEnabled,
   onBagsEnabledChange,
-  bagsApiKey,
-  onBagsApiKeyChange,
+  bagsApiKeySet,
+  onBagsApiKeySave,
+  onBagsApiKeyClear,
 }: {
   isLocalMode: boolean;
   bagsFeePercent: string;
@@ -553,10 +557,13 @@ function BagsFeeSection({
   onBagsWalletChange: (v: string) => void;
   bagsEnabled: boolean;
   onBagsEnabledChange: (v: boolean) => void;
-  bagsApiKey: string;
-  onBagsApiKeyChange: (v: string) => void;
+  bagsApiKeySet: boolean;
+  onBagsApiKeySave: (key: string) => Promise<void>;
+  onBagsApiKeyClear: () => Promise<void>;
 }) {
   const liveConfig = useBagsConfig();
+  const [showKeyInput, setShowKeyInput] = useState(false);
+  const [keyDraft, setKeyDraft] = useState('');
 
   if (!isLocalMode) return null;
 
@@ -623,27 +630,65 @@ function BagsFeeSection({
         </>
       )}
 
-      {/* Bags API Key — always shown (needed for token launch, independent of fee sharing) */}
+      {/* Bags API Key — Keychain-protected */}
       <View style={[bfs.row, { borderBottomWidth: 0, paddingTop: 12 }]}>
         <View style={bfs.rowLeft}>
           <Text style={bfs.rowLabel}>BAGS API KEY</Text>
           <Text style={bfs.rowSub}>
-            Required to launch tokens via Bags.fm. Get yours at bags.fm.
+            Required to launch tokens via Bags.fm. Stored in OS Keychain.
           </Text>
         </View>
       </View>
-      <View style={[bfs.row, { borderBottomWidth: 0, paddingTop: 0 }]}>
-        <TextInput
-          style={[bfs.feeInput, { flex: 1, fontFamily: 'monospace', fontSize: 11 }]}
-          value={bagsApiKey}
-          onChangeText={onBagsApiKeyChange}
-          placeholder="sk-bags-…"
-          placeholderTextColor={C.sub}
-          autoCapitalize="none"
-          autoCorrect={false}
-          secureTextEntry={false}
-        />
-      </View>
+      {showKeyInput ? (
+        <View style={[bfs.row, { borderBottomWidth: 0, paddingTop: 0, gap: 8 }]}>
+          <TextInput
+            style={[bfs.feeInput, { flex: 1, fontFamily: 'monospace', fontSize: 11 }]}
+            value={keyDraft}
+            onChangeText={setKeyDraft}
+            placeholder="sk-bags-…"
+            placeholderTextColor={C.sub}
+            autoCapitalize="none"
+            autoCorrect={false}
+            secureTextEntry
+            autoFocus
+          />
+          <TouchableOpacity
+            style={bfs.miniBtn}
+            onPress={async () => {
+              const trimmed = keyDraft.trim();
+              if (!trimmed) return;
+              await onBagsApiKeySave(trimmed);
+              setShowKeyInput(false);
+              setKeyDraft('');
+            }}
+          >
+            <Text style={bfs.miniBtnText}>SAVE</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[bfs.miniBtn, { backgroundColor: C.border }]}
+            onPress={() => { setShowKeyInput(false); setKeyDraft(''); }}
+          >
+            <Text style={bfs.miniBtnText}>CANCEL</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <View style={[bfs.row, { borderBottomWidth: 0, paddingTop: 0 }]}>
+          <Text style={[bfs.rowSub, { flex: 1, color: bagsApiKeySet ? C.text : C.sub }]}>
+            {bagsApiKeySet ? '●●●●●●●● (keychain)' : 'not set'}
+          </Text>
+          <TouchableOpacity style={bfs.miniBtn} onPress={() => setShowKeyInput(true)}>
+            <Text style={bfs.miniBtnText}>{bagsApiKeySet ? 'CHANGE' : 'SET'}</Text>
+          </TouchableOpacity>
+          {bagsApiKeySet && (
+            <TouchableOpacity
+              style={[bfs.miniBtn, { backgroundColor: '#1a0000', borderColor: C.red + '60', marginLeft: 6 }]}
+              onPress={onBagsApiKeyClear}
+            >
+              <Text style={[bfs.miniBtnText, { color: C.red }]}>CLEAR</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
     </View>
   );
 }
@@ -713,6 +758,15 @@ const bfs = StyleSheet.create({
   },
   liveDot: { fontSize: 8, color: '#9c27b0', marginRight: 6 },
   liveText: { fontSize: 10, color: C.sub, fontFamily: 'monospace' },
+  miniBtn: {
+    backgroundColor: '#1a1a1a',
+    borderWidth: 1,
+    borderColor: '#333',
+    borderRadius: 3,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  miniBtnText: { fontSize: 9, fontWeight: '700', color: C.text, letterSpacing: 1, fontFamily: 'monospace' },
 });
 
 // ── Main screen ───────────────────────────────────────────────────────────────
@@ -737,17 +791,17 @@ export function SettingsScreen() {
       : 'https://api.mainnet-beta.solana.com';
   const [showBrowser, setShowBrowser] = useState(false);
 
-  // Bags fee-sharing state (persisted in AsyncStorage)
+  // Bags fee-sharing state
   const [bagsEnabled, setBagsEnabled] = useState(false);
   const [bagsFeePercent, setBagsFeePercent] = useState('0.5');
   const [bagsWallet, setBagsWallet] = useState('');
-  const [bagsApiKey, setBagsApiKey] = useState('');
+  const [bagsApiKeySet, setBagsApiKeySet] = useState(false);
 
-  // Load bags settings from AsyncStorage on mount
+  // Load bags settings on mount; migrate plaintext key from AsyncStorage → Keychain
   useEffect(() => {
     (async () => {
       const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-      const [enabled, feeRaw, wallet, apiKey] = await Promise.all([
+      const [enabled, feeRaw, wallet, legacyKey] = await Promise.all([
         AsyncStorage.getItem('zerox1:bags_enabled'),
         AsyncStorage.getItem('zerox1:bags_fee_percent'),
         AsyncStorage.getItem('zerox1:bags_wallet'),
@@ -756,7 +810,16 @@ export function SettingsScreen() {
       if (enabled !== null) setBagsEnabled(enabled === 'true');
       if (feeRaw !== null) setBagsFeePercent(feeRaw);
       if (wallet !== null) setBagsWallet(wallet);
-      if (apiKey !== null) setBagsApiKey(apiKey);
+
+      // Migrate plaintext key to Keychain if present
+      if (legacyKey) {
+        await saveBagsApiKey(legacyKey);
+        await AsyncStorage.removeItem('zerox1:bags_api_key');
+        setBagsApiKeySet(true);
+      } else {
+        const existing = await loadBagsApiKey();
+        setBagsApiKeySet(!!existing);
+      }
     })();
   }, []);
 
@@ -797,12 +860,14 @@ export function SettingsScreen() {
     );
   };
 
-  const handleBagsApiKeyChange = (v: string) => {
-    setBagsApiKey(v);
-    const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-    AsyncStorage.setItem('zerox1:bags_api_key', v).catch((e: any) =>
-      console.error('Failed to persist bags_api_key:', e),
-    );
+  const handleBagsApiKeySave = async (key: string) => {
+    await saveBagsApiKey(key);
+    setBagsApiKeySet(true);
+  };
+
+  const handleBagsApiKeyClear = async () => {
+    await clearBagsApiKey();
+    setBagsApiKeySet(false);
   };
 
   const handleSave = async () => {
@@ -833,7 +898,7 @@ export function SettingsScreen() {
       nodeApiUrl: trimmedNodeApiUrl,
       bagsFeesBps,
       bagsWallet: bagsWallet.trim() || undefined,
-      bagsApiKey: bagsApiKey.trim() || undefined,
+      // bagsApiKey is in Keychain; merged into config at startNode time via withBagsConfig
     };
     await saveConfig(newConfig);
     Alert.alert('Saved', 'Config saved. Restart the node to apply changes.');
@@ -867,8 +932,9 @@ export function SettingsScreen() {
           onBagsWalletChange={handleBagsWalletChange}
           bagsEnabled={bagsEnabled}
           onBagsEnabledChange={handleBagsEnabledChange}
-          bagsApiKey={bagsApiKey}
-          onBagsApiKeyChange={handleBagsApiKeyChange}
+          bagsApiKeySet={bagsApiKeySet}
+          onBagsApiKeySave={handleBagsApiKeySave}
+          onBagsApiKeyClear={handleBagsApiKeyClear}
         />
 
         {/* Node config fields */}

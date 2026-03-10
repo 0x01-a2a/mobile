@@ -1062,3 +1062,121 @@ export function useBagsConfig(intervalMs = 60_000): BagsConfigInfo | null {
 
   return info;
 }
+
+// ============================================================================
+// Bags API key — Keychain storage
+// ============================================================================
+
+const BAGS_KEYCHAIN_SERVICE = 'zerox1.bags_api_key';
+
+/** Save the Bags.fm API key to the OS Keychain (hardware-protected). */
+export async function saveBagsApiKey(key: string): Promise<void> {
+  await Keychain.setGenericPassword('bags_api_key', key, {
+    service: BAGS_KEYCHAIN_SERVICE,
+    accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+  });
+}
+
+/** Load the Bags.fm API key from the OS Keychain. Returns null if not set. */
+export async function loadBagsApiKey(): Promise<string | null> {
+  try {
+    const creds = await Keychain.getGenericPassword({ service: BAGS_KEYCHAIN_SERVICE });
+    return creds ? creds.password : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Remove the Bags.fm API key from the OS Keychain. */
+export async function clearBagsApiKey(): Promise<void> {
+  try {
+    await Keychain.resetGenericPassword({ service: BAGS_KEYCHAIN_SERVICE });
+  } catch { /* already clear */ }
+}
+
+// ============================================================================
+// Bags token launch + claim
+// ============================================================================
+
+export interface BagsToken {
+  token_mint: string;
+  name: string;
+  symbol: string;
+  txid: string;
+  launched_at: number;
+}
+
+export interface BagsLaunchParams {
+  name: string;
+  symbol: string;
+  description: string;
+  /** Raw image as base64 string. Mutually exclusive with image_url. */
+  image_bytes?: string;
+  /** HTTPS URL to an already-hosted image. Mutually exclusive with image_bytes. */
+  image_url?: string;
+  website_url?: string;
+  twitter_url?: string;
+  telegram_url?: string;
+  initial_buy_lamports?: number;
+}
+
+export interface BagsLaunchResult {
+  token_mint: string;
+  txid: string;
+}
+
+export interface BagsClaimResult {
+  claimed_txs: number;
+  total_claimed_usdc: number;
+}
+
+/** POST /bags/launch — create and launch a new token on Bags.fm. */
+export async function bagsLaunch(params: BagsLaunchParams): Promise<BagsLaunchResult> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (_hostedToken) headers['Authorization'] = `Bearer ${_hostedToken}`;
+  const res = await fetch(`${_apiBase}/bags/launch`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as any).error || `Launch failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+/** POST /bags/claim — claim accumulated Bags pool fees for a launched token. */
+export async function bagsClaim(token_mint: string): Promise<BagsClaimResult> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (_hostedToken) headers['Authorization'] = `Bearer ${_hostedToken}`;
+  const res = await fetch(`${_apiBase}/bags/claim`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ token_mint }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as any).error || `Claim failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+/** Polls GET /bags/positions — agent's launched tokens. */
+export function useBagsPositions(intervalMs = 60_000): BagsToken[] {
+  const [tokens, setTokens] = useState<BagsToken[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      if (!_appActive) return;
+      const data = await apiFetch<BagsToken[]>('/bags/positions');
+      if (!cancelled && data) setTokens(Array.isArray(data) ? data : []);
+    };
+    poll();
+    const id = setInterval(poll, intervalMs);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [intervalMs]);
+
+  return tokens;
+}

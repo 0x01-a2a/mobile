@@ -7,7 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NodeModule, NodeConfig, NodeStatus, onNodeStatus } from '../native/NodeModule';
-import { configureNodeApi, loadTokenFromKeychain } from './useNodeApi';
+import { configureNodeApi, loadTokenFromKeychain, loadBagsApiKey } from './useNodeApi';
 import { loadLlmApiKey } from './useAgentBrain';
 
 const STORAGE_KEYS = {
@@ -38,6 +38,20 @@ async function configureLocalNodeApi() {
       wsBase: LOCAL_NODE_WS_BASE,
       token: undefined,
     });
+  }
+}
+
+/**
+ * Retrieve the Bags.fm API key from the OS Keychain and merge it into a
+ * startNode config. Returns the base config unchanged if no key is stored.
+ */
+async function withBagsConfig(base: NodeConfig): Promise<NodeConfig> {
+  try {
+    const key = await loadBagsApiKey();
+    if (!key) return base;
+    return { ...base, bagsApiKey: key };
+  } catch {
+    return base;
   }
 }
 
@@ -104,7 +118,7 @@ export function useNode() {
               _startLock = (async () => {
                 try {
                   const running = await NodeModule.isRunning();
-                  if (!running) await NodeModule.startNode(await withBrainConfig(cfg));
+                  if (!running) await NodeModule.startNode(await withBagsConfig(await withBrainConfig(cfg)));
                   await configureLocalNodeApi();
                 } finally {
                   _startLock = null;
@@ -157,7 +171,7 @@ export function useNode() {
         _startLock = (async () => {
           try {
             const running = await NodeModule.isRunning();
-            if (!running) await NodeModule.startNode(await withBrainConfig(effective));
+            if (!running) await NodeModule.startNode(await withBagsConfig(await withBrainConfig(effective)));
             await configureLocalNodeApi();
           } finally {
             _startLock = null;

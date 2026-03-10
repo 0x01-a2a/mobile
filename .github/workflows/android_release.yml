@@ -17,6 +17,12 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      ZEROX1_RELEASE_STORE_PASS: ${{ secrets.ZEROX1_RELEASE_STORE_PASS }}
+      ZEROX1_RELEASE_KEY_PASS:   ${{ secrets.ZEROX1_RELEASE_KEY_PASS }}
+      ZEROX1_RELEASE_KEYSTORE:   release.keystore
+      ZEROX1_BAGS_PARTNER_KEY:   ${{ secrets.ZEROX1_BAGS_PARTNER_KEY }}
+      ZEROX1_HELIUS_API_KEY:     ${{ secrets.ZEROX1_HELIUS_API_KEY }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -57,27 +63,51 @@ jobs:
         run: chmod +x gradlew
         working-directory: android
 
-      - name: Build Release APK
-        run: ./gradlew assembleRelease --stacktrace
+      - name: Build Full APK
+        run: ./gradlew assembleFullRelease --stacktrace
         working-directory: android
         env:
-          ZEROX1_RELEASE_STORE_PASS: ${{ secrets.ZEROX1_RELEASE_STORE_PASS }}
-          ZEROX1_RELEASE_KEY_PASS:   ${{ secrets.ZEROX1_RELEASE_KEY_PASS }}
-          ZEROX1_RELEASE_KEYSTORE:   release.keystore
-          ZEROX1_BAGS_PARTNER_KEY:   ${{ secrets.ZEROX1_BAGS_PARTNER_KEY }}
-          ZEROX1_HELIUS_API_KEY:     ${{ secrets.ZEROX1_HELIUS_API_KEY }}
-          VERSION_CODE:              ${{ steps.version.outputs.code }}
-          VERSION_NAME:              ${{ steps.version.outputs.name }}
+          VERSION_CODE: ${{ steps.version.outputs.code }}
+          VERSION_NAME: ${{ steps.version.outputs.name }}
 
-      - name: Upload APK artifact
+      - name: Build dApp Store APK
+        run: ./gradlew assembleDappstoreRelease --stacktrace
+        working-directory: android
+        env:
+          VERSION_CODE: ${{ steps.version.outputs.code }}
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+
+      - name: Build Google Play AAB
+        run: ./gradlew bundleGoogleplayRelease --stacktrace
+        working-directory: android
+        env:
+          VERSION_CODE: ${{ steps.version.outputs.code }}
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+
+      - name: Upload Full APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-release
-          path: android/app/build/outputs/apk/release/app-release.apk
+          name: app-full-release
+          path: android/app/build/outputs/apk/full/release/app-full-release.apk
+
+      - name: Upload dApp Store APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-dappstore-release
+          path: android/app/build/outputs/apk/dappstore/release/app-dappstore-release.apk
+
+      - name: Upload Google Play AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-googleplay-release
+          path: android/app/build/outputs/bundle/googleplayRelease/app-googleplay-release.aab
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: android/app/build/outputs/apk/release/app-release.apk
+          files: |
+            android/app/build/outputs/apk/full/release/app-full-release.apk
+            android/app/build/outputs/apk/dappstore/release/app-dappstore-release.apk
+            android/app/build/outputs/bundle/googleplayRelease/app-googleplay-release.aab
           generate_release_notes: true

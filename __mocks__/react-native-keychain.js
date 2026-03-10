@@ -1,0 +1,15 @@
+module.exports = {
+  getGenericPassword:    jest.fn(() => Promise.resolve(false)),
+  setGenericPassword:    jest.fn(() => Promise.resolve({ service: '', storage: '' })),
+  resetGenericPassword:  jest.fn(() => Promise.resolve(true)),
+  getInternetCredentials: jest.fn(() => Promise.resolve(false)),
+  setInternetCredentials: jest.fn(() => Promise.resolve()),
+  getSupportedBiometryType: jest.fn(() => Promise.resolve(null)),
+  ACCESSIBLE: {},
+  ACCESS_CONTROL: {},
+  AUTHENTICATION_TYPE: {},
+  BIOMETRY_TYPE: {},
+  SECURITY_RULES: {},
+  SECURITY_LEVEL: {},
+  STORAGE_TYPE: {},
+};

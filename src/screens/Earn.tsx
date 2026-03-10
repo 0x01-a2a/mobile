@@ -21,7 +21,12 @@ import {
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useInbox, InboundEnvelope, sendEnvelope, executeJupiterSwap, useTradeQuote } from '../hooks/useNodeApi';
+import { launchImageLibrary } from 'react-native-image-picker';
+import {
+  useInbox, InboundEnvelope, sendEnvelope, executeJupiterSwap, useTradeQuote,
+  bagsLaunch, bagsClaim, useBagsPositions, useBagsConfig,
+  BagsLaunchParams, BagsToken,
+} from '../hooks/useNodeApi';
 import { useOwnedAgents, OwnedAgent } from '../hooks/useOwnedAgents';
 import { useNode } from '../hooks/useNode';
 import { useZeroclawChat } from '../hooks/useZeroclawChat';
@@ -180,6 +185,60 @@ function BountyCard({
   );
 }
 
+// ── Bags form field ───────────────────────────────────────────────────────
+
+function BagsField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  optional,
+  multiline,
+  maxLength,
+  keyboardType,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  optional?: boolean;
+  multiline?: boolean;
+  maxLength?: number;
+  keyboardType?: 'default' | 'decimal-pad';
+}) {
+  return (
+    <View style={{ marginBottom: 12 }}>
+      <Text style={{ fontSize: 9, color: C.sub, letterSpacing: 2, fontFamily: 'monospace', marginBottom: 4 }}>
+        {label}{optional ? ' (optional)' : ''}
+      </Text>
+      <TextInput
+        style={{
+          backgroundColor: C.bg,
+          borderWidth: 1,
+          borderColor: C.dim,
+          borderRadius: 3,
+          color: C.text,
+          fontFamily: 'monospace',
+          fontSize: 13,
+          paddingHorizontal: 10,
+          paddingVertical: multiline ? 8 : 6,
+          minHeight: multiline ? 64 : undefined,
+          textAlignVertical: multiline ? 'top' : undefined,
+        }}
+        value={value}
+        onChangeText={onChange}
+        placeholder={placeholder}
+        placeholderTextColor={C.dim}
+        autoCapitalize="none"
+        autoCorrect={false}
+        multiline={multiline}
+        maxLength={maxLength}
+        keyboardType={keyboardType ?? 'default'}
+      />
+    </View>
+  );
+}
+
 // ── Main screen ───────────────────────────────────────────────────────────
 
 export function EarnScreen() {
@@ -190,13 +249,120 @@ export function EarnScreen() {
   const [pickerTarget, setPickerTarget] = useState<Bounty | null>(null);
   const [registered, setRegistered] = useState<boolean | null>(null);
   const [activeTab, setActiveTab] = useState<'bounty' | 'trade'>('bounty');
+  const [bagsExpanded, setBagsExpanded] = useState(false);
 
-  const { injectSystemMessage } = useZeroclawChat();
+  const { injectSystemMessage } = useZeroclawChat(agents[0]?.id);
+
+  // ── Trade tab ──────────────────────────────────────────────────────────────
   const [swapAmount, setSwapAmount] = useState('0.1');
   const [swapping, setSwapping] = useState(false);
   const [inputIdx, setInputIdx] = useState(1);  // USDC
   const [outputIdx, setOutputIdx] = useState(0); // SOL
   const [pickerFor, setPickerFor] = useState<'input' | 'output' | null>(null);
+
+  // ── Bags tab ───────────────────────────────────────────────────────────────
+  const bagsConfig = useBagsConfig();
+  const bagsPositions = useBagsPositions();
+  const [launching, setLaunching] = useState(false);
+  const [claiming, setClaiming] = useState<string | null>(null); // token_mint being claimed
+  const [launchName, setLaunchName] = useState('');
+  const [launchSymbol, setLaunchSymbol] = useState('');
+  const [launchDesc, setLaunchDesc] = useState('');
+  const [launchImageBytes, setLaunchImageBytes] = useState<string | null>(null);
+  const [launchImageName, setLaunchImageName] = useState<string | null>(null);
+  const [launchWebUrl, setLaunchWebUrl] = useState('');
+  const [launchTwitter, setLaunchTwitter] = useState('');
+  const [launchTelegram, setLaunchTelegram] = useState('');
+  const [launchInitialBuy, setLaunchInitialBuy] = useState('');
+  const bagsApiConfigured = bagsConfig !== null;
+
+  const handlePickImage = useCallback(() => {
+    launchImageLibrary(
+      { mediaType: 'photo', includeBase64: true, quality: 0.8, maxWidth: 1024, maxHeight: 1024 },
+      (response) => {
+        if (response.didCancel || response.errorCode) return;
+        const asset = response.assets?.[0];
+        if (!asset?.base64) return;
+        setLaunchImageBytes(asset.base64);
+        setLaunchImageName(asset.fileName ?? 'image.jpg');
+      },
+    );
+  }, []);
+
+  const handleBagsLaunch = useCallback(async () => {
+    if (!launchName.trim() || !launchSymbol.trim() || !launchDesc.trim()) {
+      Alert.alert('Missing Fields', 'Name, symbol and description are required.');
+      return;
+    }
+    Alert.alert(
+      'Launch Token',
+      `Launch ${launchSymbol.toUpperCase()} on Bags.fm?\n\nThis will sign and broadcast transactions on Solana.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'LAUNCH',
+          onPress: async () => {
+            setLaunching(true);
+            try {
+              const params: BagsLaunchParams = {
+                name: launchName.trim(),
+                symbol: launchSymbol.trim().toUpperCase(),
+                description: launchDesc.trim(),
+                image_bytes: launchImageBytes ?? undefined,
+                website_url: launchWebUrl.trim() || undefined,
+                twitter_url: launchTwitter.trim() || undefined,
+                telegram_url: launchTelegram.trim() || undefined,
+                initial_buy_lamports: launchInitialBuy
+                  ? Math.round(parseFloat(launchInitialBuy) * 1e9)
+                  : undefined,
+              };
+              const res = await bagsLaunch(params);
+              Alert.alert(
+                'Token Launched',
+                `${launchSymbol.toUpperCase()} is live!\nMint: ${shortId(res.token_mint)}\nTx: ${shortId(res.txid)}`,
+              );
+              // Reset form
+              setLaunchName(''); setLaunchSymbol(''); setLaunchDesc('');
+              setLaunchImageBytes(null); setLaunchImageName(null);
+              setLaunchWebUrl(''); setLaunchTwitter('');
+              setLaunchTelegram(''); setLaunchInitialBuy('');
+            } catch (e: any) {
+              Alert.alert('Launch Failed', e?.message ?? 'Unknown error');
+            } finally {
+              setLaunching(false);
+            }
+          },
+        },
+      ],
+    );
+  }, [launchName, launchSymbol, launchDesc, launchImageBytes, launchWebUrl, launchTwitter, launchTelegram, launchInitialBuy]);
+
+  const handleBagsClaim = useCallback(async (token: BagsToken) => {
+    Alert.alert(
+      'Claim Fees',
+      `Claim accumulated Bags pool fees for ${token.symbol}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'CLAIM',
+          onPress: async () => {
+            setClaiming(token.token_mint);
+            try {
+              const res = await bagsClaim(token.token_mint);
+              Alert.alert(
+                'Claimed',
+                `${res.claimed_txs} transaction${res.claimed_txs !== 1 ? 's' : ''} submitted.\n~${(res.total_claimed_usdc / 1e6).toFixed(4)} USDC claimed.`,
+              );
+            } catch (e: any) {
+              Alert.alert('Claim Failed', e?.message ?? 'Unknown error');
+            } finally {
+              setClaiming(null);
+            }
+          },
+        },
+      ],
+    );
+  }, []);
 
   const inputToken  = SWAP_TOKENS[inputIdx];
   const outputToken = SWAP_TOKENS[outputIdx];
@@ -462,6 +628,99 @@ export function EarnScreen() {
               <Text style={s.swapBtnText}>{swapping ? 'SWAPPING…' : 'SWAP'}</Text>
             </TouchableOpacity>
           </View>
+
+          {/* ── BAGS.FM collapsible section ─────────────────────────────── */}
+          <TouchableOpacity
+            style={s.sectionToggle}
+            activeOpacity={0.7}
+            onPress={() => setBagsExpanded(e => !e)}
+          >
+            <Text style={s.sectionLabel}>BAGS.FM</Text>
+            <Text style={s.toggleChevron}>{bagsExpanded ? '▲' : '▼'}</Text>
+          </TouchableOpacity>
+
+          {bagsExpanded && (
+            !bagsApiConfigured ? (
+              <View style={s.bagsNotConfigured}>
+                <Text style={s.emptyText}>
+                  {'Set a Bags API key in Settings to\nlaunch and manage tokens.'}
+                </Text>
+                <TouchableOpacity
+                  style={[s.settingsBtn, { marginTop: 12 }]}
+                  onPress={() => navigation.navigate('Settings')}
+                >
+                  <Text style={s.acceptText}>GO TO SETTINGS</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <>
+                {/* Launch form */}
+                <Text style={[s.sectionLabel, { marginTop: 12, marginBottom: 8 }]}>LAUNCH TOKEN</Text>
+                <View style={s.card}>
+                  <BagsField label="NAME" value={launchName} onChange={setLaunchName} placeholder="My Token" />
+                  <BagsField label="SYMBOL" value={launchSymbol} onChange={v => setLaunchSymbol(v.toUpperCase())} placeholder="TKN" maxLength={10} />
+                  <BagsField label="DESCRIPTION" value={launchDesc} onChange={setLaunchDesc} placeholder="A token for…" multiline />
+                  {/* Image picker */}
+                  <View style={{ marginBottom: 12 }}>
+                    <Text style={{ fontSize: 9, color: C.sub, letterSpacing: 2, fontFamily: 'monospace', marginBottom: 4 }}>
+                      IMAGE (optional)
+                    </Text>
+                    <TouchableOpacity
+                      style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.bg, borderWidth: 1, borderColor: C.dim, borderRadius: 3, paddingHorizontal: 10, paddingVertical: 8, gap: 8 }}
+                      onPress={handlePickImage}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={{ fontSize: 13, color: launchImageBytes ? C.green : C.dim, fontFamily: 'monospace', flex: 1 }} numberOfLines={1}>
+                        {launchImageName ?? 'Tap to pick image…'}
+                      </Text>
+                      {launchImageBytes && (
+                        <TouchableOpacity onPress={() => { setLaunchImageBytes(null); setLaunchImageName(null); }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                          <Text style={{ fontSize: 11, color: C.red, fontFamily: 'monospace' }}>✕</Text>
+                        </TouchableOpacity>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                  <BagsField label="WEBSITE" value={launchWebUrl} onChange={setLaunchWebUrl} placeholder="https://…" optional />
+                  <BagsField label="TWITTER" value={launchTwitter} onChange={setLaunchTwitter} placeholder="https://x.com/…" optional />
+                  <BagsField label="TELEGRAM" value={launchTelegram} onChange={setLaunchTelegram} placeholder="https://t.me/…" optional />
+                  <BagsField label="INITIAL BUY (SOL)" value={launchInitialBuy} onChange={setLaunchInitialBuy} placeholder="0 (skip)" optional keyboardType="decimal-pad" />
+                  <TouchableOpacity
+                    style={[s.swapBtn, (launching || !launchName.trim() || !launchSymbol.trim() || !launchDesc.trim()) && { opacity: 0.4 }]}
+                    activeOpacity={0.8}
+                    onPress={handleBagsLaunch}
+                    disabled={launching || !launchName.trim() || !launchSymbol.trim() || !launchDesc.trim()}
+                  >
+                    <Text style={s.swapBtnText}>{launching ? 'LAUNCHING…' : 'LAUNCH ON BAGS.FM'}</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Positions */}
+                {bagsPositions.length > 0 && (
+                  <>
+                    <Text style={[s.sectionLabel, { marginTop: 20 }]}>MY TOKENS</Text>
+                    {bagsPositions.map(token => (
+                      <View key={token.token_mint} style={[s.card, { marginBottom: 10 }]}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={s.agentName}>{token.name}</Text>
+                            <Text style={s.agentId}>{token.symbol} · {shortId(token.token_mint)}</Text>
+                          </View>
+                          <TouchableOpacity
+                            style={[s.acceptBtn, { flex: 0, paddingHorizontal: 16, opacity: claiming === token.token_mint ? 0.5 : 1 }]}
+                            onPress={() => handleBagsClaim(token)}
+                            disabled={claiming === token.token_mint}
+                            activeOpacity={0.8}
+                          >
+                            <Text style={s.acceptText}>{claiming === token.token_mint ? '…' : 'CLAIM'}</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ))}
+                  </>
+                )}
+              </>
+            )
+          )}
         </ScrollView>
       )}
 
@@ -556,4 +815,8 @@ const s = StyleSheet.create({
   impactRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12, paddingHorizontal: 4 },
   impactLabel: { fontSize: 10, color: C.sub, fontFamily: 'monospace' },
   impactVal: { fontSize: 10, fontWeight: '700', fontFamily: 'monospace' },
+  // Bags collapsible
+  sectionToggle: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 24, marginBottom: 4 },
+  toggleChevron: { fontSize: 10, color: C.sub, fontFamily: 'monospace' },
+  bagsNotConfigured: { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, padding: 20, alignItems: 'center', marginTop: 8 },
 });
