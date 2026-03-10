@@ -729,7 +729,7 @@ export function SettingsScreen() {
   const rpcToNetwork = (url: string): 'devnet' | 'mainnet' =>
     url.includes('devnet') ? 'devnet' : 'mainnet';
   const [meshNetwork, setMeshNetwork] = useState<'devnet' | 'mainnet'>(
-    rpcToNetwork(config.rpcUrl ?? 'https://api.devnet.solana.com'),
+    rpcToNetwork(config.rpcUrl ?? 'https://api.mainnet-beta.solana.com'),
   );
   const networkToRpc = (net: 'devnet' | 'mainnet'): string =>
     net === 'devnet'

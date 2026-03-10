@@ -314,7 +314,11 @@ command     = ${'$'}TOML_TQcurl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:
         val relayAddr    = intent?.getStringExtra(EXTRA_RELAY_ADDR)
         val fcmToken     = intent?.getStringExtra(EXTRA_FCM_TOKEN)
         val agentName    = intent?.getStringExtra(EXTRA_AGENT_NAME) ?: "zerox1-agent"
-        val rpcUrl       = intent?.getStringExtra(EXTRA_RPC_URL) ?: "https://api.devnet.solana.com"
+        val rpcUrl       = intent?.getStringExtra(EXTRA_RPC_URL)
+            ?: if (BuildConfig.HELIUS_API_KEY.isNotBlank())
+                "https://mainnet.helius-rpc.com/?api-key=${BuildConfig.HELIUS_API_KEY}"
+               else
+                "https://api.mainnet-beta.solana.com"
         val bagsFeeBps   = if (intent?.hasExtra(EXTRA_BAGS_FEE_BPS) == true)
                                intent.getIntExtra(EXTRA_BAGS_FEE_BPS, 0) else 0
         val bagsWallet   = intent?.getStringExtra(EXTRA_BAGS_WALLET)
