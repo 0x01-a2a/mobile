@@ -20,6 +20,7 @@ import {
 } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { useNode } from '../hooks/useNode';
+import { NodeModule } from '../native/NodeModule';
 import {
   BridgeCapabilityKey,
   HostingNode,
@@ -495,6 +496,7 @@ const CAPABILITY_INFO: Record<BridgeCapabilityKey, { label: string; desc: string
   calls: { label: 'CALLS', desc: 'Read call history and screen incoming calls (allow / reject / silence)' },
   calendar: { label: 'CALENDAR', desc: 'Read upcoming events and create new calendar entries' },
   media: { label: 'MEDIA', desc: 'Browse photos and documents on device storage' },
+  motion: { label: 'MOTION', desc: 'Read accelerometer and gyroscope for movement and activity data collection' },
 };
 
 function AgentCapabilitiesSection() {
@@ -566,6 +568,88 @@ function AgentCapabilitiesSection() {
     </View>
   );
 }
+
+// ── Data Collection section ────────────────────────────────────────────────────
+
+type BudgetLevel = 0 | 25 | 50 | 100;
+const BUDGET_LEVELS: { label: string; pct: BudgetLevel; desc: string }[] = [
+  { label: 'OFF',  pct: 0,   desc: 'disabled' },
+  { label: 'LOW',  pct: 25,  desc: '>25%' },
+  { label: 'MED',  pct: 50,  desc: '>50%' },
+  { label: 'FULL', pct: 100, desc: '>100%' },
+];
+
+function DataCollectionSection() {
+  const [budget, setBudget] = useState<BudgetLevel>(100);
+
+  useEffect(() => {
+    NodeModule.getDataBudget().then(pct => {
+      const snapped: BudgetLevel = pct === 0 ? 0 : pct <= 25 ? 25 : pct <= 50 ? 50 : 100;
+      setBudget(snapped);
+    }).catch(() => {});
+  }, []);
+
+  const handleSelect = (pct: BudgetLevel) => {
+    setBudget(pct);
+    NodeModule.setDataBudget(pct).catch(() => {});
+  };
+
+  return (
+    <View style={dcs.section}>
+      <View style={dcs.header}>
+        <Text style={dcs.title}>DATA COLLECTION</Text>
+        <Text style={dcs.subtitle}>
+          Minimum battery % to serve sensor requests (IMU, audio, camera).
+        </Text>
+      </View>
+      <View style={dcs.levels}>
+        {BUDGET_LEVELS.map(({ label, pct, desc }) => (
+          <TouchableOpacity
+            key={label}
+            style={[dcs.levelBtn, budget === pct && dcs.levelBtnActive]}
+            onPress={() => handleSelect(pct)}
+            activeOpacity={0.8}
+          >
+            <Text style={[dcs.levelLabel, budget === pct && dcs.levelLabelActive]}>{label}</Text>
+            <Text style={dcs.levelDesc}>{desc}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+const dcs = StyleSheet.create({
+  section: {
+    backgroundColor: C.card,
+    borderWidth: 1,
+    borderColor: '#00bcd430',
+    borderRadius: 4,
+    marginBottom: 16,
+    overflow: 'hidden',
+  },
+  header: {
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
+    backgroundColor: '#00080a',
+  },
+  title: { fontSize: 11, color: '#00bcd4', letterSpacing: 3, fontWeight: '700', fontFamily: 'monospace' },
+  subtitle: { fontSize: 10, color: C.sub, fontFamily: 'monospace', marginTop: 4, lineHeight: 14 },
+  levels: { flexDirection: 'row', padding: 12, gap: 8 },
+  levelBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 3,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  levelBtnActive: { borderColor: '#00bcd4', backgroundColor: '#00bcd418' },
+  levelLabel: { fontSize: 10, fontWeight: '700', color: C.sub, letterSpacing: 1, fontFamily: 'monospace' },
+  levelLabelActive: { color: '#00bcd4' },
+  levelDesc: { fontSize: 9, color: C.sub, fontFamily: 'monospace', marginTop: 3 },
+});
 
 // ── Bags Fee Sharing section ──────────────────────────────────────────────────
 
@@ -953,6 +1037,9 @@ export function SettingsScreen() {
 
         {/* Agent capability toggles */}
         <AgentCapabilitiesSection />
+
+        {/* Data collection battery budget */}
+        <DataCollectionSection />
 
         {/* Bags fee-sharing (local node only) */}
         <BagsFeeSection

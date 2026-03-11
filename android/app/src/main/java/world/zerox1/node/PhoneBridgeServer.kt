@@ -700,6 +700,7 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
 
     private fun handleCameraCapture(body: JSONObject?): BridgeResponse {
         if (!hasPermission(Manifest.permission.CAMERA)) return permDenied()
+        if (!checkDataBudget()) return jsonError("battery below data collection budget threshold", 429)
         if (!cameraMutex.tryLock()) return jsonError("another capture is in progress", 409)
 
         val facingPref = if (body?.optString("facing") == "front")
@@ -815,6 +816,7 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
 
     private fun handleAudioRecord(body: JSONObject?): BridgeResponse {
         if (!hasPermission(Manifest.permission.RECORD_AUDIO)) return permDenied()
+        if (!checkDataBudget()) return jsonError("battery below data collection budget threshold", 429)
         val durationMs = body?.optLong("duration_ms", 3_000L) ?: 3_000L
         val maxMs      = 30_000L
         val clampedMs  = durationMs.coerceIn(500L, maxMs)
@@ -1081,6 +1083,19 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
             jsonError("step count not available (sensor timeout)", 503)
     }
 
+    /**
+     * Returns true if the current battery level meets the operator-configured
+     * data-collection budget threshold.  Call before any long-running sensor op.
+     */
+    private fun checkDataBudget(): Boolean {
+        val budgetPct = context.getSharedPreferences("zerox1_bridge", Context.MODE_PRIVATE)
+            .getInt("data_budget_pct", 100)
+        if (budgetPct == 0) return false
+        val bm = context.getSystemService(Context.BATTERY_SERVICE) as android.os.BatteryManager
+        val batteryPct = bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)
+        return batteryPct >= budgetPct
+    }
+
     private fun handleImuSnapshot(): BridgeResponse {
         val sm = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
         val accelSensor = sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
@@ -1137,6 +1152,7 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
             ?: params["rate_hz"]?.toIntOrNull() ?: 50).coerceIn(10, 200)
         val delayUs = (1_000_000.0 / rateHz).toInt()
 
+        if (!checkDataBudget()) return jsonError("battery below data collection budget threshold", 429)
         if (!imuMutex.tryLock()) return jsonError("another IMU recording is in progress", 409)
 
         val deferred = scope.async {
@@ -1147,8 +1163,10 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
 
                 if (accelSensor == null) return@async jsonError("accelerometer not available", 404)
 
-                val accelSamples = mutableListOf<JSONObject>()
-                val gyroSamples  = mutableListOf<JSONObject>()
+                // CopyOnWriteArrayList: sensor callbacks write from main thread,
+                // coroutine reads after delay from IO thread — needs thread safety.
+                val accelSamples = java.util.concurrent.CopyOnWriteArrayList<JSONObject>()
+                val gyroSamples  = java.util.concurrent.CopyOnWriteArrayList<JSONObject>()
                 val startMs = System.currentTimeMillis()
 
                 val accelListener = object : SensorEventListener {

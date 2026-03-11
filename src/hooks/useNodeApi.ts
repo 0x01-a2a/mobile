@@ -1195,3 +1195,76 @@ export function useBagsPositions(intervalMs = 60_000): BagsToken[] {
 
   return tokens;
 }
+
+// ============================================================================
+// DataBounty campaigns
+// ============================================================================
+
+export interface Campaign {
+  id: string;
+  data_type: 'imu' | 'gps' | 'audio' | 'camera' | string;
+  title: string;
+  description: string;
+  collection_params: string; // JSON string
+  payout_usdc_micro: number;
+  max_samples_per_node: number;
+  max_total_samples: number;
+  samples_collected: number;
+  expires_at: number;       // Unix seconds
+  privacy_level: 'anonymized' | 'pseudonymized' | 'raw';
+  data_retention_days: number;
+  purpose: string;
+  active: boolean;
+  created_at: number;       // Unix seconds
+}
+
+export function useCampaigns(includeExpired = false): Campaign[] {
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const reconnectDelay = useRef(1_000);
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Initial fetch
+  useEffect(() => {
+    let cancelled = false;
+    const url = `${AGGREGATOR_API}/campaigns${includeExpired ? '?include_expired=true' : ''}`;
+    fetch(url)
+      .then(r => r.ok ? r.json() : null)
+      .then((data: Campaign[] | null) => {
+        if (!cancelled && Array.isArray(data)) setCampaigns(data);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [includeExpired]);
+
+  // WS for real-time new campaigns
+  useEffect(() => {
+    let stopped = false;
+    const connect = () => {
+      if (stopped) return;
+      const ws = new WebSocket(`${AGGREGATOR_WS}/ws/campaigns`);
+      wsRef.current = ws;
+      ws.onopen = () => { reconnectDelay.current = 1_000; };
+      ws.onmessage = (e) => {
+        try {
+          const c: Campaign = JSON.parse(e.data);
+          setCampaigns(prev => [c, ...prev]);
+        } catch { /* malformed */ }
+      };
+      ws.onclose = () => {
+        if (!stopped) {
+          reconnectTimer.current = setTimeout(connect, reconnectDelay.current);
+          reconnectDelay.current = Math.min(reconnectDelay.current * 2, 30_000);
+        }
+      };
+    };
+    connect();
+    return () => {
+      stopped = true;
+      if (reconnectTimer.current !== null) clearTimeout(reconnectTimer.current);
+      wsRef.current?.close();
+    };
+  }, []);
+
+  return campaigns;
+}

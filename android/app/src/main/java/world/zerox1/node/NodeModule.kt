@@ -469,6 +469,38 @@ class NodeModule(private val ctx: ReactApplicationContext)
     }
 
     /**
+     * Set the minimum battery % required to serve sensor data-collection requests.
+     * levelPct: 0 = disabled, 25 = low (>25%), 50 = medium (>50%), 100 = full (>100%)
+     */
+    @ReactMethod
+    fun setDataBudget(levelPct: Int, promise: Promise) {
+        try {
+            ctx.getSharedPreferences("zerox1_bridge", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putInt("data_budget_pct", levelPct.coerceIn(0, 100))
+                .apply()
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("PREFS_ERROR", e.message)
+        }
+    }
+
+    /**
+     * Read the current data-collection battery budget threshold (0–100).
+     * Default is 100 (full battery required). 0 = collection disabled.
+     */
+    @ReactMethod
+    fun getDataBudget(promise: Promise) {
+        try {
+            val pct = ctx.getSharedPreferences("zerox1_bridge", android.content.Context.MODE_PRIVATE)
+                .getInt("data_budget_pct", 100)
+            promise.resolve(pct)
+        } catch (e: Exception) {
+            promise.reject("PREFS_ERROR", e.message)
+        }
+    }
+
+    /**
      * Fetch the bridge activity log from the PhoneBridgeServer.
      * Returns a JSON string (array of {time, capability, action, outcome}).
      * Only works while the node/agent is running.

@@ -137,6 +137,17 @@ export const NodeModule = {
     ZeroxNodeModule.getBridgeCapabilities(),
 
   /**
+   * Set the minimum battery % required to serve sensor data-collection requests.
+   * 0 = disabled, 25 = low, 50 = medium, 100 = full charge required.
+   */
+  setDataBudget: (levelPct: number): Promise<void> =>
+    ZeroxNodeModule.setDataBudget(levelPct),
+
+  /** Read the current data-collection battery budget threshold (0–100). Default 100. */
+  getDataBudget: (): Promise<number> =>
+    ZeroxNodeModule.getDataBudget(),
+
+  /**
    * Fetch the human-readable bridge activity log from the native layer.
    * Returns a JSON string (array of {time, capability, action, outcome}).
    */
