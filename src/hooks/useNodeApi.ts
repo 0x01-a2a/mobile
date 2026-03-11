@@ -883,7 +883,7 @@ export interface BridgeLogEntry {
 
 const CAPABILITY_KEYS = [
   'messaging', 'contacts', 'location', 'camera',
-  'microphone', 'screen', 'calls', 'calendar', 'media',
+  'microphone', 'screen', 'calls', 'calendar', 'media', 'motion',
 ] as const;
 
 export type BridgeCapabilityKey = typeof CAPABILITY_KEYS[number];
@@ -891,6 +891,7 @@ export type BridgeCapabilityKey = typeof CAPABILITY_KEYS[number];
 const DEFAULT_CAPABILITIES: Record<BridgeCapabilityKey, boolean> = {
   messaging: true, contacts: true, location: true, camera: true,
   microphone: true, screen: true, calls: true, calendar: true, media: true,
+  motion: true,
 };
 
 /** Read + write bridge capability toggles (persisted via SharedPreferences). */

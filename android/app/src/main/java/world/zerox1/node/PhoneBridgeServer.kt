@@ -1105,9 +1105,9 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
         val needed = if (gyroSensor != null) 2 else 1
         val latch   = CountDownLatch(needed)
 
-        @Volatile var ax = 0f; @Volatile var ay = 0f; @Volatile var az = 0f
-        @Volatile var gx = 0f; @Volatile var gy = 0f; @Volatile var gz = 0f
-        @Volatile var gyroReady = false
+        var ax = 0f; var ay = 0f; var az = 0f
+        var gx = 0f; var gy = 0f; var gz = 0f
+        var gyroReady = false
 
         val accelListener = object : SensorEventListener {
             override fun onSensorChanged(event: SensorEvent) {

@@ -1,6 +1,6 @@
 {
   "name": "world.zerox1.node",
-  "version": "0.2.24",
+  "version": "0.2.26",
   "private": true,
   "scripts": {
     "android": "react-native run-android",

@@ -44,7 +44,7 @@ class NodeService : Service() {
         const val NOTIF_ID         = 1
         const val NODE_API_PORT    = 9090
         const val BINARY_NAME      = "zerox1-node"
-        const val ASSET_VERSION    = "0.2.24"   // bump when binary changes
+        const val ASSET_VERSION    = "0.2.26"   // bump when binary changes
 
         // ZeroClaw agent brain binary
         const val AGENT_BINARY_NAME    = "zeroclaw"
@@ -485,6 +485,13 @@ name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'w
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Guard: if the node process is already alive, ignore duplicate start commands.
+        // This prevents double-spawn when autostart + user tap both fire onStartCommand.
+        if (nodeProcess?.isAlive == true) {
+            Log.i(TAG, "Node already running — ignoring duplicate onStartCommand")
+            return START_STICKY
+        }
+
         // Android 12+ (API 31+) throws ForegroundServiceStartNotAllowedException when
         // startForeground() is called from a background context (e.g. auto-restart after
         // the OS killed the process, or BootReceiver on some devices/emulators).
