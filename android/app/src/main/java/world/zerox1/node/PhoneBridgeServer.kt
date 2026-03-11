@@ -91,6 +91,7 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
     private val notifyTimestamps = mutableListOf<Long>()
     private val audioMutex       = kotlinx.coroutines.sync.Mutex()
     private val cameraMutex      = kotlinx.coroutines.sync.Mutex()
+    private val imuMutex         = kotlinx.coroutines.sync.Mutex()
 
     // -------------------------------------------------------------------------
     // Lifecycle
@@ -293,6 +294,12 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
             method == "GET"  && path == "/phone/bluetooth"   -> handleBluetooth()
             method == "GET"  && path == "/phone/activity"    -> handleActivity()
 
+            // ---- IMU (accelerometer + gyroscope) ----
+            method == "GET"  && path == "/phone/imu" ->
+                if (!isCapEnabled("motion")) capDisabled("motion") else handleImuSnapshot()
+            method == "POST" && path == "/phone/imu/record" ->
+                if (!isCapEnabled("motion")) capDisabled("motion") else handleImuRecord(body, params)
+
             // ---- Media images ----
             method == "GET"  && path == "/phone/media/images" ->
                 if (!isCapEnabled("media")) capDisabled("media") else handleMediaImages(params)
@@ -384,6 +391,10 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
         path == "/phone/calls/pending" -> "CALLS" to "Checked pending calls"
         path == "/phone/calls/history" -> "CALLS" to "Read call screening history"
         path == "/phone/calls/respond" -> "CALLS" to "${body?.optString("action")?.replaceFirstChar { it.uppercase() } ?: "Handled"} incoming call"
+        path == "/phone/imu" -> "MOTION" to "Read IMU snapshot (accelerometer + gyroscope)"
+        path == "/phone/imu/record" -> "MOTION" to "Recorded ${
+            (body?.optLong("duration_ms") ?: params["duration_ms"]?.toLongOrNull() ?: 5_000L) / 1000
+        }s IMU data at ${body?.optInt("rate_hz") ?: params["rate_hz"]?.toIntOrNull() ?: 50}Hz"
         else -> "SYSTEM" to "$method $path"
     }
 
@@ -1068,6 +1079,122 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
             jsonOk(JSONObject().put("steps_since_reboot", steps))
         else
             jsonError("step count not available (sensor timeout)", 503)
+    }
+
+    private fun handleImuSnapshot(): BridgeResponse {
+        val sm = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        val accelSensor = sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+            ?: return jsonError("accelerometer not available", 404)
+        val gyroSensor = sm.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
+
+        val needed = if (gyroSensor != null) 2 else 1
+        val latch   = CountDownLatch(needed)
+
+        @Volatile var ax = 0f; @Volatile var ay = 0f; @Volatile var az = 0f
+        @Volatile var gx = 0f; @Volatile var gy = 0f; @Volatile var gz = 0f
+        @Volatile var gyroReady = false
+
+        val accelListener = object : SensorEventListener {
+            override fun onSensorChanged(event: SensorEvent) {
+                ax = event.values[0]; ay = event.values[1]; az = event.values[2]
+                latch.countDown()
+            }
+            override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) {}
+        }
+        val gyroListener = object : SensorEventListener {
+            override fun onSensorChanged(event: SensorEvent) {
+                gx = event.values[0]; gy = event.values[1]; gz = event.values[2]
+                gyroReady = true
+                latch.countDown()
+            }
+            override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) {}
+        }
+
+        sm.registerListener(accelListener, accelSensor, SensorManager.SENSOR_DELAY_NORMAL)
+        gyroSensor?.let { sm.registerListener(gyroListener, it, SensorManager.SENSOR_DELAY_NORMAL) }
+
+        val got = latch.await(5, TimeUnit.SECONDS)
+        sm.unregisterListener(accelListener)
+        gyroSensor?.let { sm.unregisterListener(gyroListener) }
+
+        if (!got) return jsonError("IMU snapshot timeout", 503)
+
+        val result = JSONObject()
+            .put("timestamp_ms", System.currentTimeMillis())
+            .put("accelerometer", JSONObject()
+                .put("x", ax).put("y", ay).put("z", az).put("unit", "m/s²"))
+        if (gyroReady) {
+            result.put("gyroscope", JSONObject()
+                .put("x", gx).put("y", gy).put("z", gz).put("unit", "rad/s"))
+        }
+        return jsonOk(result)
+    }
+
+    private fun handleImuRecord(body: JSONObject?, params: Map<String, String>): BridgeResponse {
+        val durationMs = (body?.optLong("duration_ms")
+            ?: params["duration_ms"]?.toLongOrNull() ?: 5_000L).coerceIn(500L, 30_000L)
+        val rateHz = (body?.optInt("rate_hz")
+            ?: params["rate_hz"]?.toIntOrNull() ?: 50).coerceIn(10, 200)
+        val delayUs = (1_000_000.0 / rateHz).toInt()
+
+        if (!imuMutex.tryLock()) return jsonError("another IMU recording is in progress", 409)
+
+        val deferred = scope.async {
+            try {
+                val sm = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+                val accelSensor = sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+                val gyroSensor  = sm.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
+
+                if (accelSensor == null) return@async jsonError("accelerometer not available", 404)
+
+                val accelSamples = mutableListOf<JSONObject>()
+                val gyroSamples  = mutableListOf<JSONObject>()
+                val startMs = System.currentTimeMillis()
+
+                val accelListener = object : SensorEventListener {
+                    override fun onSensorChanged(event: SensorEvent) {
+                        accelSamples.add(JSONObject()
+                            .put("t_ms", System.currentTimeMillis() - startMs)
+                            .put("x", event.values[0])
+                            .put("y", event.values[1])
+                            .put("z", event.values[2]))
+                    }
+                    override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) {}
+                }
+                val gyroListener = object : SensorEventListener {
+                    override fun onSensorChanged(event: SensorEvent) {
+                        gyroSamples.add(JSONObject()
+                            .put("t_ms", System.currentTimeMillis() - startMs)
+                            .put("x", event.values[0])
+                            .put("y", event.values[1])
+                            .put("z", event.values[2]))
+                    }
+                    override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) {}
+                }
+
+                sm.registerListener(accelListener, accelSensor, delayUs)
+                gyroSensor?.let { sm.registerListener(gyroListener, it, delayUs) }
+
+                delay(durationMs)
+
+                sm.unregisterListener(accelListener)
+                gyroSensor?.let { sm.unregisterListener(gyroListener) }
+
+                val accelArr = JSONArray().apply { accelSamples.forEach { put(it) } }
+                val gyroArr  = JSONArray().apply { gyroSamples.forEach { put(it) } }
+
+                jsonOk(JSONObject()
+                    .put("duration_ms", durationMs)
+                    .put("rate_hz", rateHz)
+                    .put("sample_count", accelSamples.size)
+                    .put("has_gyroscope", gyroSensor != null)
+                    .put("accelerometer", accelArr)
+                    .put("gyroscope", gyroArr))
+            } finally {
+                imuMutex.unlock()
+            }
+        }
+        return runBlocking { deferred.await() }
     }
 
     private fun handleMediaImages(params: Map<String, String>): BridgeResponse {

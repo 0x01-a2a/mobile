@@ -1162,6 +1162,21 @@ export async function bagsClaim(token_mint: string): Promise<BagsClaimResult> {
   return res.json();
 }
 
+/** POST /bags/set-api-key — replace the Bags API key in-memory without restart. */
+export async function setBagsApiKey(apiKey: string): Promise<void> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (_hostedToken) headers['Authorization'] = `Bearer ${_hostedToken}`;
+  const res = await fetch(`${_apiBase}/bags/set-api-key`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ api_key: apiKey }),
+  });
+  if (!res.ok && res.status !== 204) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as any).error || `set-api-key failed: ${res.status}`);
+  }
+}
+
 /** Polls GET /bags/positions — agent's launched tokens. */
 export function useBagsPositions(intervalMs = 60_000): BagsToken[] {
   const [tokens, setTokens] = useState<BagsToken[]>([]);

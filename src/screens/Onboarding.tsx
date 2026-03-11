@@ -739,7 +739,7 @@ function OnchainRegistrationStep({
         if (cancelled) return;
         setNodeReady(true);
         for (let i = 0; i < 15; i++) {
-          await new Promise(r => setTimeout(r, 1000));
+          await new Promise<void>(resolve => setTimeout(resolve, 1000));
           if (cancelled) return;
           try {
             const res = await fetch('http://127.0.0.1:9090/identity');
@@ -773,7 +773,7 @@ function OnchainRegistrationStep({
         // accounts[0].address is a base64-encoded 32-byte pubkey (raw MWA protocol).
         // Convert to base58 Solana address via @solana/web3.js.
         const { PublicKey } = require('@solana/web3.js');
-        const addrBytes = Uint8Array.from(Buffer.from(accounts[0].address, 'base64'));
+        const addrBytes = Uint8Array.from(atob(accounts[0].address), c => c.charCodeAt(0));
         return new PublicKey(addrBytes).toBase58();
       });
       setPhantomAddress(address);
@@ -816,7 +816,7 @@ function OnchainRegistrationStep({
       // The tx_b64 from the node is a legacy bincode-serialized Transaction.
       // Deserialize to a web3.js Transaction so the MWA wrapper can call .serialize() on it.
       const { Transaction } = require('@solana/web3.js');
-      const txBytes = Buffer.from(prepared.transaction_b64, 'base64');
+      const txBytes = Uint8Array.from(atob(prepared.transaction_b64), c => c.charCodeAt(0));
       const legacyTx = Transaction.from(txBytes);
       const { transact } = require('@solana-mobile/mobile-wallet-adapter-protocol-web3js');
       await transact(async (wallet: any) => {

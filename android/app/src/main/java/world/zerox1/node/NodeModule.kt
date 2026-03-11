@@ -431,7 +431,7 @@ class NodeModule(private val ctx: ReactApplicationContext)
     /**
      * Set or clear a bridge capability toggle.
      * Keys: "messaging", "contacts", "location", "camera", "microphone",
-     *       "screen", "calls", "calendar", "media"
+     *       "screen", "calls", "calendar", "media", "motion"
      * Default for all keys is enabled (true) — disable explicitly.
      */
     @ReactMethod
@@ -456,7 +456,7 @@ class NodeModule(private val ctx: ReactApplicationContext)
             val prefs = ctx.getSharedPreferences("zerox1_bridge", android.content.Context.MODE_PRIVATE)
             val caps  = listOf(
                 "messaging", "contacts", "location", "camera",
-                "microphone", "screen", "calls", "calendar", "media",
+                "microphone", "screen", "calls", "calendar", "media", "motion",
             )
             val result = WritableNativeMap()
             for (cap in caps) {

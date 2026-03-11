@@ -44,7 +44,7 @@ class NodeService : Service() {
         const val NOTIF_ID         = 1
         const val NODE_API_PORT    = 9090
         const val BINARY_NAME      = "zerox1-node"
-        const val ASSET_VERSION    = "0.2.22"   // bump when binary changes
+        const val ASSET_VERSION    = "0.2.24"   // bump when binary changes
 
         // ZeroClaw agent brain binary
         const val AGENT_BINARY_NAME    = "zeroclaw"
@@ -88,37 +88,47 @@ class NodeService : Service() {
         val BAGS_SKILL_TOML = """
 [skill]
 name        = "bags"
-version     = "1.0.0"
-description = "Launch and manage tokens on Bags.fm with automatic fee-sharing. Every token you launch gives you 100% of trading fee revenue."
+version     = "1.1.0"
+description = "Launch and manage tokens on Bags.fm — trade, price-check, view claimable fees, and list on Dexscreener."
 author      = "0x01 World"
-tags        = ["bags", "token", "launch", "defi", "solana", "fee-sharing"]
+tags        = ["bags", "token", "launch", "defi", "solana", "fee-sharing", "trading"]
 
 prompts = [${'$'}TOML_TQ
-# Bags Token Launch
+# Bags Token Launch & Trading
 
-You can launch your own Solana tokens on Bags.fm directly from this agent.
-Every token you launch automatically routes 100% of pool trading fees back to you as the creator.
+You can launch, trade, and manage Solana tokens on Bags.fm directly from this agent.
 
-## How it works
+## Capabilities
 
 1. **Launch** — bags_launch creates IPFS metadata, sets up fee-sharing, and deploys your token.
    Requires ~0.05 SOL in your agent hot wallet for mint account creation.
-2. **Claim** — bags_claim collects accumulated trading fees from your launched tokens.
-3. **Positions** — bags_positions shows all tokens you've launched and their fee balances.
+2. **Trade** — bags_swap_quote to check price, bags_swap_execute to buy or sell.
+   Amounts: lamports for buys (1 SOL = 1_000_000_000), token base units for sells.
+3. **Pool info / price** — bags_pool shows current reserves and implied price for any token.
+4. **Claim fees** — bags_claim collects fees for a specific token; bags_claimable shows all pending.
+5. **Positions** — bags_positions lists all tokens you launched with their fee balances.
+6. **Dexscreener listing** — bags_dexscreener_check shows availability and cost;
+   bags_dexscreener_list pays and submits the listing in one step.
 
 ## Rules
 
-- Only launch tokens with honest names and descriptions — no impersonation.
-- The initial_buy_lamports is optional; omit it to launch with no initial buy.
-- After launch, share the token_mint address so others can trade it on Bags.fm.
-- Fees accumulate in the pool — claim them periodically with bags_claim.
+- Only launch tokens with honest names and descriptions — no impersonation or fraud.
+- Confirm with the user before executing any trade or spending SOL.
+- The initial_buy_lamports field is optional. Use 0 or omit for no initial purchase.
+- After claiming, tell the user how many transactions were submitted.
+- For bags_swap_execute, report the txid and the quote details so the user can verify.
+
+## Rate limiting
+
+If a tool returns JSON containing `"error":"bags_rate_limited"` or HTTP 429, include the exact
+token `[BAGS_RATE_LIMITED]` somewhere in your reply. Do not include this token for any other error.
 ${'$'}TOML_TQ]
 
 [[tools]]
 name        = "bags_launch"
-description = "Launch a new Solana token on Bags.fm. You receive 100% of all future pool trading fees. Requires ~0.05 SOL in hot wallet for mint account."
+description = "Launch a new Solana token on Bags.fm. You receive 100% of all future pool trading fees. Requires ~0.05 SOL in hot wallet."
 kind        = "shell"
-command     = ${'$'}TOML_TQjq -nc --arg n {name} --arg s {symbol} --arg d {description} --arg img {image_url} --argjson buy {initial_buy_lamports} '{"name":${'$'}n,"symbol":${'$'}s,"description":${'$'}d,"image_url":(${'$'}img|if . == "" then null else . end),"initial_buy_lamports":(${'$'}buy|if . == 0 then null else . end)}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/launch" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${'$'}TOML_TQjq -nc --arg n {name} --arg s {symbol} --arg d {description} --arg img {image_url} --argjson buy {initial_buy_lamports} '{"name":${'$'}n,"symbol":${'$'}s,"description":${'$'}d,"image_url":(${'$'}img|if . == "" then null else . end),"initial_buy_lamports":(${'$'}buy|if . == 0 then null else . end)}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/launch" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
 
 [tools.args]
 name                 = "Token name (e.g. 'My Agent Token')"
@@ -128,10 +138,49 @@ image_url            = "URL of the token image (optional — leave empty string 
 initial_buy_lamports = "Lamports to spend on initial token buy (0 = no initial buy; 100000000 = 0.1 SOL)"
 
 [[tools]]
-name        = "bags_claim"
-description = "Claim accumulated pool trading fees for a token you launched on Bags.fm."
+name        = "bags_swap_quote"
+description = "Get a swap quote for buying or selling a token on the Bags AMM. Check price before executing."
 kind        = "shell"
-command     = ${'$'}TOML_TQjq -nc --arg m {token_mint} '{"token_mint":${'$'}m}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/claim" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${'$'}TOML_TQjq -nc --arg m {token_mint} --argjson amt {amount} --arg act {action} --argjson slip {slippage_bps} '{"token_mint":${'$'}m,"amount":${'$'}amt,"action":${'$'}act,"slippage_bps":(${'$'}slip|if . == 0 then null else . end)}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/swap/quote" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+
+[tools.args]
+token_mint   = "Base58 mint address of the token to trade"
+amount       = "Lamports for buys (100000000 = 0.1 SOL), token base units for sells"
+action       = "\"buy\" or \"sell\""
+slippage_bps = "Slippage in basis points (50 = 0.5%). Use 0 for default."
+
+[[tools]]
+name        = "bags_swap_execute"
+description = "Execute a token swap on the Bags AMM — gets quote, signs, and broadcasts in one step. Returns txid."
+kind        = "shell"
+command     = ${'$'}TOML_TQjq -nc --arg m {token_mint} --argjson amt {amount} --arg act {action} --argjson slip {slippage_bps} '{"token_mint":${'$'}m,"amount":${'$'}amt,"action":${'$'}act,"slippage_bps":(${'$'}slip|if . == 0 then null else . end)}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/swap/execute" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+
+[tools.args]
+token_mint   = "Base58 mint address of the token to trade"
+amount       = "Lamports for buys (100000000 = 0.1 SOL), token base units for sells"
+action       = "\"buy\" or \"sell\""
+slippage_bps = "Slippage in basis points (50 = 0.5%). Use 0 for default."
+
+[[tools]]
+name        = "bags_pool"
+description = "Get Bags AMM pool info for a token: reserves, implied price, TVL, and 24h volume."
+kind        = "shell"
+command     = ${'$'}TOML_TQcurl -s "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/pool/{token_mint}" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${'$'}TOML_TQ
+
+[tools.args]
+token_mint = "Base58 mint address of the token to look up"
+
+[[tools]]
+name        = "bags_claimable"
+description = "List all tokens with unclaimed pool fee revenue across your entire agent wallet."
+kind        = "shell"
+command     = ${'$'}TOML_TQcurl -s "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/claimable" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${'$'}TOML_TQ
+
+[[tools]]
+name        = "bags_claim"
+description = "Claim accumulated pool trading fees for a specific token you launched on Bags.fm."
+kind        = "shell"
+command     = ${'$'}TOML_TQjq -nc --arg m {token_mint} '{"token_mint":${'$'}m}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/claim" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
 
 [tools.args]
 token_mint = "Base58 mint address of the token to claim fees for"
@@ -140,19 +189,159 @@ token_mint = "Base58 mint address of the token to claim fees for"
 name        = "bags_positions"
 description = "List all tokens you have launched on Bags.fm and their claimable fee balances."
 kind        = "shell"
-command     = ${'$'}TOML_TQcurl -sf "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/positions" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${'$'}TOML_TQ
+command     = ${'$'}TOML_TQcurl -s "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/positions" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${'$'}TOML_TQ
+
+[[tools]]
+name        = "bags_dexscreener_check"
+description = "Check if a Dexscreener listing is available for a token and how much it costs."
+kind        = "shell"
+command     = ${'$'}TOML_TQcurl -s "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/dexscreener/check/{token_mint}" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${'$'}TOML_TQ
+
+[tools.args]
+token_mint = "Base58 mint address of the token to check"
+
+[[tools]]
+name        = "bags_dexscreener_list"
+description = "Create and pay for a Dexscreener listing in one step. Always check bags_dexscreener_check first and confirm the cost with the user."
+kind        = "shell"
+command     = ${'$'}TOML_TQjq -nc --arg m {token_mint} --arg img {image_url} '{"token_mint":${'$'}m,"image_url":(${'$'}img|if . == "" then null else . end)}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/dexscreener/list" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+
+[tools.args]
+token_mint = "Base58 mint address of the token to list"
+image_url  = "HTTPS URL of token image for Dexscreener. Leave empty string to skip."
 """.trimIndent()
 
         // ── Skill manager (dynamic skill installer) ──────────────────────────
+        val TRADE_SKILL_TOML = """
+[skill]
+name        = "trade"
+version     = "1.0.0"
+description = "Trade any token on Solana via Jupiter — swap, price check, token search, limit orders, and DCA."
+author      = "0x01 World"
+tags        = ["jupiter", "swap", "trading", "defi", "solana", "limit-orders", "dca"]
+
+prompts = [${'$'}TOML_TQ
+# Jupiter Trading
+
+You can trade any Solana token directly from this agent using Jupiter's routing.
+
+## Capabilities
+
+1. **Swap** — trade_swap executes a market swap instantly. One-shot: quote + sign + broadcast.
+2. **Quote** — trade_quote checks the expected output before committing.
+3. **Price** — trade_price looks up current USD price for any token by mint address.
+4. **Token search** — trade_tokens finds a token mint by name or symbol.
+5. **Limit orders** — trade_limit_create places a buy/sell at a target price.
+   trade_limit_orders lists open orders. trade_limit_cancel cancels them.
+6. **DCA** — trade_dca_create sets up recurring buys at a fixed interval.
+
+## Amount conventions
+
+- SOL amounts: lamports (1 SOL = 1_000_000_000)
+- USDC amounts: micro-USDC (1 USDC = 1_000_000)
+- Use trade_price or trade_quote to calculate amounts before swapping.
+
+## Rules
+
+- Always confirm trade details (token, amount, expected output) with the user before executing.
+- Use trade_quote or trade_price first so the user knows what they're getting.
+- For limit orders, confirm the target price and expiry before placing.
+- For DCA, confirm total amount, per-cycle amount, and interval before creating.
+${'$'}TOML_TQ]
+
+[[tools]]
+name        = "trade_price"
+description = "Look up current USD price for one or more tokens by mint address."
+kind        = "shell"
+command     = ${'$'}TOML_TQcurl -s "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/price?ids={mints}" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${'$'}TOML_TQ
+
+[tools.args]
+mints = "Comma-separated list of base58 mint addresses (e.g. 'So11111111111111111111111111111111111111112,EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v')"
+
+[[tools]]
+name        = "trade_tokens"
+description = "Search for a token by name or symbol to find its mint address."
+kind        = "shell"
+command     = ${'$'}TOML_TQcurl -s "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/tokens?q={query}" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${'$'}TOML_TQ
+
+[tools.args]
+query = "Token name or ticker symbol to search for (e.g. 'bonk' or 'USDC')"
+
+[[tools]]
+name        = "trade_quote"
+description = "Get a swap quote — expected output amount for a given input. Use before swapping to confirm the rate."
+kind        = "shell"
+command     = ${'$'}TOML_TQcurl -s "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/quote?input_mint={input_mint}&output_mint={output_mint}&amount={amount}&slippage_bps={slippage_bps}" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${'$'}TOML_TQ
+
+[tools.args]
+input_mint   = "Mint address of the token to sell"
+output_mint  = "Mint address of the token to buy"
+amount       = "Amount to sell in base units (lamports for SOL, micro-USDC for USDC)"
+slippage_bps = "Slippage tolerance in basis points (50 = 0.5%). Use 50 as default."
+
+[[tools]]
+name        = "trade_swap"
+description = "Execute a market swap — quote, sign, and broadcast in one step. Returns txid."
+kind        = "shell"
+command     = ${'$'}TOML_TQjq -nc --arg im {input_mint} --arg om {output_mint} --argjson amt {amount} --argjson slip {slippage_bps} '{"input_mint":${'$'}im,"output_mint":${'$'}om,"amount":${'$'}amt,"slippage_bps":${'$'}slip}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/swap" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+
+[tools.args]
+input_mint   = "Mint address of the token to sell"
+output_mint  = "Mint address of the token to buy"
+amount       = "Amount to sell in base units"
+slippage_bps = "Slippage in basis points (50 = 0.5%)"
+
+[[tools]]
+name        = "trade_limit_create"
+description = "Place a limit order — buy or sell at a specific price. Signs and broadcasts the order tx."
+kind        = "shell"
+command     = ${'$'}TOML_TQjq -nc --arg im {input_mint} --arg om {output_mint} --argjson mka {making_amount} --argjson tka {taking_amount} --argjson exp {expired_at} '{"input_mint":${'$'}im,"output_mint":${'$'}om,"making_amount":${'$'}mka,"taking_amount":${'$'}tka,"expired_at":(${'$'}exp|if . == 0 then null else . end)}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/limit/create" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+
+[tools.args]
+input_mint    = "Mint to sell"
+output_mint   = "Mint to buy"
+making_amount = "Amount of input_mint to spend (base units)"
+taking_amount = "Amount of output_mint to receive (base units) — this sets your target price"
+expired_at    = "Unix timestamp when order expires (0 = never)"
+
+[[tools]]
+name        = "trade_limit_orders"
+description = "List all open limit orders for this agent wallet."
+kind        = "shell"
+command     = ${'$'}TOML_TQcurl -s "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/limit/orders" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${'$'}TOML_TQ
+
+[[tools]]
+name        = "trade_limit_cancel"
+description = "Cancel one or more open limit orders by their order pubkeys."
+kind        = "shell"
+command     = ${'$'}TOML_TQjq -nc --argjson orders {orders} '{"orders":${'$'}orders}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/limit/cancel" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+
+[tools.args]
+orders = "JSON array of order pubkey strings to cancel (e.g. '[\"ABC...\",\"DEF...\"]')"
+
+[[tools]]
+name        = "trade_dca_create"
+description = "Create a DCA (dollar-cost averaging) order — recurring buys at a fixed interval."
+kind        = "shell"
+command     = ${'$'}TOML_TQjq -nc --arg im {input_mint} --arg om {output_mint} --argjson total {in_amount} --argjson per_cycle {in_amount_per_cycle} --argjson secs {cycle_seconds} '{"input_mint":${'$'}im,"output_mint":${'$'}om,"in_amount":${'$'}total,"in_amount_per_cycle":${'$'}per_cycle,"cycle_seconds":${'$'}secs}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/dca/create" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+
+[tools.args]
+input_mint        = "Mint to sell (e.g. USDC)"
+output_mint       = "Mint to buy (e.g. SOL)"
+in_amount         = "Total amount of input_mint to DCA (base units)"
+in_amount_per_cycle = "Amount to swap each cycle (base units)"
+cycle_seconds     = "Seconds between each cycle (3600 = hourly, 86400 = daily)"
+""".trimIndent()
+
         // All tools call the node REST API — no shell file operations.
         // This prevents path traversal and shell injection.
         val SKILL_MANAGER_TOML = """
 [skill]
 name        = "skill_manager"
-version     = "1.1.0"
-description = "Install, remove, and reload zeroclaw skills without an app update. Write any SKILL.toml from chat."
+version     = "1.2.0"
+description = "Install, remove, and reload zeroclaw skills without an app update. Browse the 0x01 marketplace or write any SKILL.toml from chat."
 author      = "0x01 World"
-tags        = ["skills", "plugins", "extensibility"]
+tags        = ["skills", "plugins", "extensibility", "marketplace"]
 
 prompts = [${'$'}TOML_TQ
 # Skill Manager
@@ -166,18 +355,6 @@ A skill is a SKILL.toml file that defines:
 - One or more shell tools (`[[tools]]`) executed with `kind = "shell"`
 
 Tools are simple curl commands to any REST API.
-
-## How to install a skill
-
-### Option A — Generate from scratch (most powerful)
-1. Generate the full SKILL.toml content as a string
-2. Base64-encode it: `printf '%s' '<toml>' | base64`
-3. Call `skill_write` with the skill name and base64 content
-4. Call `skill_reload` — you restart and come back with the new skill active
-
-### Option B — Install from URL
-Call `skill_install_url` with a name and HTTPS URL pointing to a SKILL.toml.
-Only use URLs explicitly provided by the user.
 
 ## SKILL.toml format
 
@@ -201,11 +378,30 @@ command     = ${'$'}TOML_TQcurl -sf https://api.example.com/endpoint -H "Authori
 param1 = "Description of param1"
 ```
 
+## How to install a skill
+
+### Option A — Generate from scratch (most powerful)
+1. Generate the full SKILL.toml content as a string
+2. Base64-encode it: `printf '%s' '<toml>' | base64`
+3. Call `skill_write` with the skill name and base64 content
+4. Call `skill_reload` — you restart and come back with the new skill active
+
+### Option B — Install from the 0x01 Marketplace
+1. Call `skill_marketplace_list` to see what's available
+2. Call `skill_marketplace_install` with the skill name
+3. Call `skill_reload` — you restart with the new skill active
+
+### Option C — Install from URL
+Call `skill_install_url` with a name and HTTPS URL pointing to a SKILL.toml.
+Only use URLs explicitly provided by the user.
+
 ## Rules
 - Skill names: lowercase letters, digits, hyphens, underscores only. No slashes or dots.
 - Only HTTPS URLs for skill_install_url.
-- Always call skill_reload after writing.
+- Always call skill_reload after writing or installing.
 - Tell the user which tools are now available after reload.
+- When browsing the marketplace, show requires_node and free fields so the user knows what's needed.
+- Do not install skills from URLs unless the user explicitly provided the URL or found it via skill_marketplace_list.
 ${'$'}TOML_TQ]
 
 [[tools]]
@@ -248,6 +444,21 @@ name        = "skill_reload"
 description = "Restart the agent brain to activate newly installed or removed skills. The agent will be back in seconds."
 kind        = "shell"
 command     = ${'$'}TOML_TQcurl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/agent/reload" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${'$'}TOML_TQ
+
+[[tools]]
+name        = "skill_marketplace_list"
+description = "Browse the 0x01 skill marketplace — returns all available skills with name, description, tags, and whether a running node or API key is required."
+kind        = "shell"
+command     = ${'$'}TOML_TQcurl -sf "https://skills.0x01.world/skills" ${'$'}TOML_TQ
+
+[[tools]]
+name        = "skill_marketplace_install"
+description = "Install a skill directly from the 0x01 marketplace by name. Call skill_reload after to activate it."
+kind        = "shell"
+command     = ${'$'}TOML_TQjq -nc --arg n {name} --arg u "https://skills.0x01.world/skills/{name}/SKILL.toml" '{"name":${'$'}n,"url":${'$'}u}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/skill/install-url" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+
+[tools.args]
+name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'web-search')"
 """.trimIndent()
     }
 
@@ -324,6 +535,7 @@ command     = ${'$'}TOML_TQcurl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:
         val bagsWallet   = intent?.getStringExtra(EXTRA_BAGS_WALLET)
         val bagsApiKey   = intent?.getStringExtra(EXTRA_BAGS_API_KEY)
             ?.takeIf { it.isNotBlank() }
+            ?: BuildConfig.DEFAULT_BAGS_API_KEY.takeIf { it.isNotBlank() }
         val bagsPartnerKey = intent?.getStringExtra(EXTRA_BAGS_PARTNER_KEY)
             ?.takeIf { it.isNotBlank() }
             ?: BuildConfig.DEFAULT_BAGS_PARTNER_KEY.takeIf { it.isNotBlank() }
@@ -699,6 +911,11 @@ timeout_secs = 10
         val bagsSkillDir = File(skillsRoot, "bags")
         bagsSkillDir.mkdirs()
         File(bagsSkillDir, "SKILL.toml").writeText(BAGS_SKILL_TOML)
+
+        // ── Jupiter trading skill ───────────────────────────────────────────
+        val tradeSkillDir = File(skillsRoot, "trade")
+        tradeSkillDir.mkdirs()
+        File(tradeSkillDir, "SKILL.toml").writeText(TRADE_SKILL_TOML)
 
         // ── Skill manager (dynamic installer) ──────────────────────────────
         val smSkillDir = File(skillsRoot, "skill_manager")

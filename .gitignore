@@ -85,3 +85,9 @@ android/app/src/main/res/drawable-*/node_modules_*
 !.yarn/releases
 !.yarn/sdks
 !.yarn/versions
+
+# ZeroClaw agent config (written at runtime, contains LLM keys)
+android/app/src/main/assets/zeroclaw-config.json
+
+# Bridge server token (generated at runtime)
+android/app/src/main/assets/bridge.token

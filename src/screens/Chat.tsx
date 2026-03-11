@@ -10,6 +10,7 @@ import {
   Alert,
   FlatList,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -24,7 +25,7 @@ import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
 import { useZeroclawChat, ChatMessage } from '../hooks/useZeroclawChat';
 import { useOwnedAgents, OwnedAgent } from '../hooks/useOwnedAgents';
 import { useBlobs } from '../hooks/useBlobs';
-import { sendEnvelope } from '../hooks/useNodeApi';
+import { sendEnvelope, setBagsApiKey } from '../hooks/useNodeApi';
 import { useNode } from '../hooks/useNode';
 import type { BountyTask } from './Earn';
 
@@ -176,6 +177,19 @@ export function ChatScreen() {
   const { upload, uploading, error: uploadError } = useBlobs();
   const [draft, setDraft] = useState('');
   const listRef = useRef<FlatList>(null);
+
+  // Bags rate-limit modal state
+  const [bagsKeyModalVisible, setBagsKeyModalVisible] = useState(false);
+  const [bagsKeyDraft, setBagsKeyDraft] = useState('');
+  const [bagsKeySaving, setBagsKeySaving] = useState(false);
+
+  // Show the Bags API key modal when ZeroClaw signals rate limiting.
+  useEffect(() => {
+    const last = messages[messages.length - 1];
+    if (last?.role === 'assistant' && last.text.includes('[BAGS_RATE_LIMITED]')) {
+      setBagsKeyModalVisible(true);
+    }
+  }, [messages]);
 
   // Inject task context as first message when routed from Earn.
   // Reset taskInjected whenever the agent changes so context is re-injected
@@ -376,6 +390,61 @@ export function ChatScreen() {
         </View>
       ) : null}
 
+      {/* Bags rate-limit modal */}
+      <Modal
+        visible={bagsKeyModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setBagsKeyModalVisible(false)}
+      >
+        <View style={s.modalOverlay}>
+          <View style={s.modalCard}>
+            <Text style={s.modalTitle}>BAGS API KEY REQUIRED</Text>
+            <Text style={s.modalBody}>
+              The default Bags API key is rate-limited. Paste your own key from bags.fm to continue.
+            </Text>
+            <TextInput
+              style={s.modalInput}
+              value={bagsKeyDraft}
+              onChangeText={setBagsKeyDraft}
+              placeholder="Enter Bags API key..."
+              placeholderTextColor={C.sub}
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!bagsKeySaving}
+            />
+            <View style={s.modalActions}>
+              <TouchableOpacity
+                style={s.modalCancel}
+                onPress={() => { setBagsKeyModalVisible(false); setBagsKeyDraft(''); }}
+                disabled={bagsKeySaving}
+              >
+                <Text style={s.modalCancelText}>CANCEL</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.modalSave, (!bagsKeyDraft.trim() || bagsKeySaving) && s.sendBtnDisabled]}
+                disabled={!bagsKeyDraft.trim() || bagsKeySaving}
+                onPress={async () => {
+                  setBagsKeySaving(true);
+                  try {
+                    await setBagsApiKey(bagsKeyDraft.trim());
+                    setBagsKeyModalVisible(false);
+                    setBagsKeyDraft('');
+                    Alert.alert('Saved', 'Bags API key updated. Try your request again.');
+                  } catch (e: any) {
+                    Alert.alert('Error', e?.message ?? 'Failed to save key.');
+                  } finally {
+                    setBagsKeySaving(false);
+                  }
+                }}
+              >
+                <Text style={s.modalSaveText}>{bagsKeySaving ? '...' : 'SAVE'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Input row */}
       <View style={s.inputRow}>
         <TextInput
@@ -453,4 +522,15 @@ const s = StyleSheet.create({
   sendBtn: { backgroundColor: C.green, width: 44, height: 44, borderRadius: 4, alignItems: 'center', justifyContent: 'center' },
   sendBtnDisabled: { backgroundColor: C.border },
   sendBtnText: { color: '#000000', fontFamily: 'monospace', fontSize: 18, fontWeight: '700' },
+  // bags rate-limit modal
+  modalOverlay: { flex: 1, backgroundColor: '#000000cc', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  modalCard: { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 6, padding: 20, width: '100%' },
+  modalTitle: { color: C.amber, fontFamily: 'monospace', fontSize: 11, fontWeight: '700', letterSpacing: 2, marginBottom: 10 },
+  modalBody: { color: C.sub, fontFamily: 'monospace', fontSize: 12, lineHeight: 18, marginBottom: 14 },
+  modalInput: { backgroundColor: C.input, borderWidth: 1, borderColor: C.border, borderRadius: 4, paddingHorizontal: 12, paddingVertical: 10, color: C.text, fontFamily: 'monospace', fontSize: 12, marginBottom: 16 },
+  modalActions: { flexDirection: 'row', gap: 10, justifyContent: 'flex-end' },
+  modalCancel: { paddingHorizontal: 14, paddingVertical: 10 },
+  modalCancelText: { color: C.sub, fontFamily: 'monospace', fontSize: 11 },
+  modalSave: { backgroundColor: C.green, borderRadius: 3, paddingHorizontal: 18, paddingVertical: 10 },
+  modalSaveText: { color: '#000', fontFamily: 'monospace', fontSize: 11, fontWeight: '700', letterSpacing: 1 },
 });

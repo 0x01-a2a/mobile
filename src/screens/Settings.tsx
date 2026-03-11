@@ -504,6 +504,22 @@ function AgentCapabilitiesSection() {
 
   const keys = Object.keys(CAPABILITY_INFO) as BridgeCapabilityKey[];
 
+  function openAccessibility() {
+    if (Platform.OS === 'android') {
+      Linking.sendIntent('android.settings.ACCESSIBILITY_SETTINGS').catch(() =>
+        Linking.openSettings(),
+      );
+    }
+  }
+
+  function openNotificationAccess() {
+    if (Platform.OS === 'android') {
+      Linking.sendIntent(
+        'android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS',
+      ).catch(() => Linking.openSettings());
+    }
+  }
+
   return (
     <View style={cs.section}>
       <View style={cs.header}>
@@ -532,6 +548,21 @@ function AgentCapabilitiesSection() {
           </View>
         );
       })}
+      {Platform.OS === 'android' && (
+        <View style={cs.permButtons}>
+          <Text style={cs.permHint}>
+            Some capabilities require manual system permission:
+          </Text>
+          <TouchableOpacity style={cs.permBtn} onPress={openAccessibility}>
+            <Text style={cs.permBtnText}>↗ Accessibility Settings</Text>
+            <Text style={cs.permBtnSub}>Required for SCREEN capability</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={cs.permBtn} onPress={openNotificationAccess}>
+            <Text style={cs.permBtnText}>↗ Notification Access</Text>
+            <Text style={cs.permBtnSub}>Required for MESSAGING capability</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }
@@ -1103,6 +1134,11 @@ const cs = StyleSheet.create({
   rowText: { flex: 1, marginRight: 12 },
   capLabel: { fontSize: 10, color: C.text, letterSpacing: 2, fontWeight: '700', fontFamily: 'monospace' },
   capDesc: { fontSize: 10, color: C.sub, fontFamily: 'monospace', marginTop: 3, lineHeight: 15 },
+  permButtons: { paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 1, borderTopColor: C.border, gap: 8 },
+  permHint: { fontSize: 10, color: C.sub, fontFamily: 'monospace', marginBottom: 4 },
+  permBtn: { backgroundColor: '#0a0a0a', borderWidth: 1, borderColor: C.border, borderRadius: 4, paddingHorizontal: 12, paddingVertical: 8 },
+  permBtnText: { fontSize: 10, color: C.amber, fontFamily: 'monospace', fontWeight: '700', letterSpacing: 1 },
+  permBtnSub: { fontSize: 9, color: C.sub, fontFamily: 'monospace', marginTop: 2 },
 });
 
 const s = StyleSheet.create({
