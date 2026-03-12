@@ -44,10 +44,13 @@ export async function fetchBlob(cid: string): Promise<string> {
   }
   if (!res.ok) throw new Error(`Fetch blob failed: HTTP ${res.status}`);
   const buffer = await res.arrayBuffer();
-  // Convert ArrayBuffer → base64
-  const bytes  = new Uint8Array(buffer);
-  let binary   = '';
-  bytes.forEach(b => { binary += String.fromCharCode(b); });
+  // Convert ArrayBuffer → base64 using chunked approach to avoid stack overflow on large arrays
+  const bytes = new Uint8Array(buffer);
+  const CHUNK = 8192;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
   return btoa(binary);
 }
 

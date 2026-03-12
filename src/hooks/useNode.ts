@@ -70,6 +70,8 @@ async function withBrainConfig(base: NodeConfig): Promise<NodeConfig> {
       ...base,
       agentBrainEnabled: true,
       llmProvider: brain.provider ?? 'gemini',
+      llmModel: brain.customModel ?? '',
+      llmBaseUrl: brain.customBaseUrl ?? '',
       capabilities: JSON.stringify(brain.capabilities ?? []),
       minFeeUsdc: brain.minFeeUsdc ?? 0.01,
       minReputation: brain.minReputation ?? 50,
@@ -125,7 +127,10 @@ export function useNode() {
                 }
               })();
             }
-            await _startLock;
+            await Promise.race([
+              _startLock,
+              new Promise<void>((_, reject) => setTimeout(() => reject(new Error('Node start timed out')), 30_000)),
+            ]);
             setStatus('running');
           }
         } else {
@@ -178,7 +183,10 @@ export function useNode() {
           }
         })();
       }
-      await _startLock;
+      await Promise.race([
+        _startLock,
+        new Promise<void>((_, reject) => setTimeout(() => reject(new Error('Node start timed out')), 30_000)),
+      ]);
       setStatus('running');
     }
 

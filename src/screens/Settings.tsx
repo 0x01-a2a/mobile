@@ -206,10 +206,12 @@ function HostBrowserSheet({
 // ── Agent Brain section ───────────────────────────────────────────────────────
 
 function AgentBrainSection() {
-  const { config, save } = useAgentBrain();
+  const { config, loading, save } = useAgentBrain();
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [newKey, setNewKey] = useState('');
   const [dirty, setDirty] = useState(false);
+
+  if (loading) return null;
 
   const saveAndDirty = (cfg: typeof config) => { save(cfg); setDirty(true); };
 
@@ -674,7 +676,7 @@ function BagsFeeSection({
   onBagsEnabledChange: (v: boolean) => void;
   bagsApiKeySet: boolean;
   onBagsApiKeySave: (key: string) => Promise<void>;
-  onBagsApiKeyClear: () => Promise<void>;
+  onBagsApiKeyClear: () => void;
 }) {
   const liveConfig = useBagsConfig();
   const [showKeyInput, setShowKeyInput] = useState(false);
@@ -893,6 +895,7 @@ export function SettingsScreen() {
   const [agentAvatar, setAgentAvatar] = useState(config.agentAvatar ?? '');
   const [relayAddr, setRelayAddr] = useState(config.relayAddr ?? '');
   const [nodeApiUrl, setNodeApiUrl] = useState(config.nodeApiUrl ?? '');
+  const [savedBanner, setSavedBanner] = useState(false);
 
   // MESH NETWORK: derive selected network from current rpcUrl
   const rpcToNetwork = (url: string): 'devnet' | 'mainnet' =>
@@ -980,9 +983,18 @@ export function SettingsScreen() {
     setBagsApiKeySet(true);
   };
 
-  const handleBagsApiKeyClear = async () => {
-    await clearBagsApiKey();
-    setBagsApiKeySet(false);
+  const handleBagsApiKeyClear = () => {
+    Alert.alert('Remove Bags API key', 'This will clear your Bags API key from the keychain.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          await clearBagsApiKey();
+          setBagsApiKeySet(false);
+        },
+      },
+    ]);
   };
 
   const handleSave = async () => {
@@ -1016,7 +1028,8 @@ export function SettingsScreen() {
       // bagsApiKey is in Keychain; merged into config at startNode time via withBagsConfig
     };
     await saveConfig(newConfig);
-    Alert.alert('Saved', 'Config saved. Restart the node to apply changes.');
+    setSavedBanner(true);
+    setTimeout(() => setSavedBanner(false), 2000);
   };
 
   const running = status === 'running';
@@ -1135,6 +1148,12 @@ export function SettingsScreen() {
         <TouchableOpacity style={s.saveBtn} onPress={handleSave} activeOpacity={0.8}>
           <Text style={s.saveBtnText}>SAVE CONFIG</Text>
         </TouchableOpacity>
+
+        {savedBanner && (
+          <View style={{ backgroundColor: '#00e67620', borderWidth: 1, borderColor: '#00e67640', borderRadius: 4, padding: 10, marginBottom: 8, alignItems: 'center' }}>
+            <Text style={{ color: '#00e676', fontFamily: 'monospace', fontSize: 11, letterSpacing: 2 }}>SAVED</Text>
+          </View>
+        )}
 
         {/* On-Chain Registration */}
         <View style={s.section}>

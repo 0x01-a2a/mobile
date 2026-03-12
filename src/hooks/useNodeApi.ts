@@ -26,6 +26,10 @@ let _hostedToken: string | null = null;
 
 // Skip HTTP polls while the screen is off — saves CPU and radio wakeups.
 let _appActive = AppState.currentState === 'active';
+// Note: module-level AppState listener. The subscription returned by addEventListener
+// is intentionally not removed — this module lives for the lifetime of the app process
+// and we always want to track the active state. This is a known React Native pattern
+// at module scope where cleanup is not applicable.
 AppState.addEventListener('change', (state) => { _appActive = state === 'active'; });
 
 // ============================================================================
@@ -733,16 +737,18 @@ export interface HotKeyBalanceResult {
   tokens: TokenBalance[];
   loading: boolean;
   solanaAddress: string | null;
+  error: string | null;
 }
 /**
  * Polls the unified balances (SOL, USDC) of the node's wallet from the node API.
- * 
+ *
  * Works in both local and hosted mode (the node handles it).
  */
 export function useHotKeyBalance(): HotKeyBalanceResult {
   const [tokens, setTokens] = useState<TokenBalance[]>([]);
   const [loading, setLoading] = useState(false);
   const [solanaAddress, setSolanaAddress] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const identity = useIdentity();
 
   useEffect(() => {
@@ -761,11 +767,21 @@ export function useHotKeyBalance(): HotKeyBalanceResult {
     const poll = async () => {
       if (!_appActive || cancelled) return;
       setLoading(true);
-      const data = await apiFetch<PortfolioBalances>('/portfolio/balances');
-      if (!cancelled && data) {
-        setTokens(Array.isArray(data.tokens) ? data.tokens : []);
+      try {
+        const data = await apiFetch<PortfolioBalances>('/portfolio/balances');
+        if (!cancelled) {
+          if (data) {
+            setTokens(Array.isArray(data.tokens) ? data.tokens : []);
+            setError(null);
+          } else {
+            setError('Failed to fetch wallet balance.');
+          }
+        }
+      } catch (e: any) {
+        if (!cancelled) setError(e?.message ?? 'Balance fetch failed.');
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-      setLoading(false);
     };
 
     poll();
@@ -773,7 +789,7 @@ export function useHotKeyBalance(): HotKeyBalanceResult {
     return () => { cancelled = true; clearInterval(id); };
   }, [identity]);
 
-  return { tokens, loading, solanaAddress };
+  return { tokens, loading, solanaAddress, error };
 }
 
 
@@ -1268,4 +1284,83 @@ export function useCampaigns(includeExpired = false): Campaign[] {
   }, []);
 
   return campaigns;
+}
+
+// ============================================================================
+// Skill Manager
+// ============================================================================
+
+export interface Skill {
+  name: string;
+}
+
+export function useSkills(): { skills: Skill[]; loading: boolean; refresh: () => void } {
+  const [skills, setSkills] = useState<Skill[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    const data = await apiFetch<{ skills: string[] }>('/skill/list');
+    if (data?.skills) {
+      setSkills(data.skills.map(name => ({ name })));
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  return { skills, loading, refresh };
+}
+
+export async function skillInstallUrl(name: string, url: string): Promise<void> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (_hostedToken) headers['Authorization'] = `Bearer ${_hostedToken}`;
+  const res = await fetch(`${_apiBase}/skill/install-url`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ name, url }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
+}
+
+export async function skillRemove(name: string): Promise<void> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (_hostedToken) headers['Authorization'] = `Bearer ${_hostedToken}`;
+  const res = await fetch(`${_apiBase}/skill/remove`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ name }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
+}
+
+// ============================================================================
+// SOL price (Jupiter price API v2)
+// ============================================================================
+
+const SOL_MINT = 'So11111111111111111111111111111111111111112';
+
+export function useSolPrice(): number | null {
+  const [price, setPrice] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetch_ = async () => {
+      try {
+        const res = await fetch(
+          `https://api.jup.ag/price/v2?ids=${SOL_MINT}`,
+        );
+        const data = await res.json();
+        const p = data?.data?.[SOL_MINT]?.price;
+        if (!cancelled && p) setPrice(parseFloat(p));
+      } catch {}
+    };
+    fetch_();
+    const id = setInterval(fetch_, 60_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
+  return price;
 }

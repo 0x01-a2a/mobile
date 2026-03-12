@@ -38,8 +38,12 @@ export interface NodeConfig {
   //       NodeService.kt loads it directly from EncryptedSharedPreferences.
   /** Enable the ZeroClaw agent brain sidecar. */
   agentBrainEnabled?: boolean;
-  /** LLM provider key: 'anthropic' | 'openai' | 'gemini' | 'groq' */
+  /** LLM provider key: 'anthropic' | 'openai' | 'gemini' | 'groq' | 'custom' */
   llmProvider?: string;
+  /** Custom model name (used when llmProvider = 'custom') */
+  llmModel?: string;
+  /** Custom OpenAI-compatible base URL (used when llmProvider = 'custom') */
+  llmBaseUrl?: string;
   /** JSON array string of enabled capabilities e.g. '["summarization","qa"]' */
   capabilities?: string;
   /** Minimum task fee in USDC — reject tasks below this. */

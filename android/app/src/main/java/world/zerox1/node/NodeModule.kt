@@ -175,9 +175,11 @@ class NodeModule(private val ctx: ReactApplicationContext)
                 config.getString("agentName")?.let      { putExtra(NodeService.EXTRA_AGENT_NAME,   it) }
                 config.getString("rpcUrl")?.let         { putExtra(NodeService.EXTRA_RPC_URL,      it) }
                 // ZeroClaw agent brain config
-                config.getString("llmProvider")?.let   { putExtra(NodeService.EXTRA_LLM_PROVIDER, it) }
+                config.getString("llmProvider")?.let    { putExtra(NodeService.EXTRA_LLM_PROVIDER,  it) }
+                config.getString("llmModel")?.let       { putExtra(NodeService.EXTRA_LLM_MODEL,     it) }
+                config.getString("llmBaseUrl")?.let     { putExtra(NodeService.EXTRA_LLM_BASE_URL,  it) }
                 // CRIT-5: API key is no longer passed via intent extra
-                config.getString("capabilities")?.let  { putExtra(NodeService.EXTRA_CAPABILITIES, it) }
+                config.getString("capabilities")?.let  { putExtra(NodeService.EXTRA_CAPABILITIES,  it) }
                 if (config.hasKey("minFeeUsdc"))       putExtra(NodeService.EXTRA_MIN_FEE,        config.getDouble("minFeeUsdc"))
                 if (config.hasKey("minReputation"))    putExtra(NodeService.EXTRA_MIN_REP,        config.getInt("minReputation"))
                 if (config.hasKey("autoAccept"))       putExtra(NodeService.EXTRA_AUTO_ACCEPT,    config.getBoolean("autoAccept"))

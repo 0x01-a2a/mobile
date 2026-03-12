@@ -147,6 +147,9 @@ export function FeedScreen() {
         data={filtered}
         keyExtractor={item => String(item.id)}
         renderItem={({ item }) => <FeedRow ev={item} />}
+        maxToRenderPerBatch={10}
+        windowSize={5}
+        removeClippedSubviews={true}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}

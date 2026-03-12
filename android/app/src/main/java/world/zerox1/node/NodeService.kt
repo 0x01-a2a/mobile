@@ -44,7 +44,7 @@ class NodeService : Service() {
         const val NOTIF_ID         = 1
         const val NODE_API_PORT    = 9090
         const val BINARY_NAME      = "zerox1-node"
-        const val ASSET_VERSION    = "0.2.26"   // bump when binary changes
+        const val ASSET_VERSION    = "0.3.1"   // bump when binary changes
 
         // ZeroClaw agent brain binary
         const val AGENT_BINARY_NAME    = "zeroclaw"
@@ -71,12 +71,14 @@ class NodeService : Service() {
         const val EXTRA_BAGS_PARTNER_KEY = "bags_partner_key"
 
         // Intent extras — ZeroClaw brain
-        const val EXTRA_BRAIN_ENABLED = "brain_enabled"
-        const val EXTRA_LLM_PROVIDER  = "llm_provider"
-        const val EXTRA_CAPABILITIES  = "capabilities"       // JSON array string
-        const val EXTRA_MIN_FEE       = "min_fee_usdc"
-        const val EXTRA_MIN_REP       = "min_reputation"
-        const val EXTRA_AUTO_ACCEPT   = "auto_accept"
+        const val EXTRA_BRAIN_ENABLED  = "brain_enabled"
+        const val EXTRA_LLM_PROVIDER   = "llm_provider"
+        const val EXTRA_LLM_MODEL      = "llm_model"         // custom model override
+        const val EXTRA_LLM_BASE_URL   = "llm_base_url"     // custom base URL (OpenAI-compat)
+        const val EXTRA_CAPABILITIES   = "capabilities"      // JSON array string
+        const val EXTRA_MIN_FEE        = "min_fee_usdc"
+        const val EXTRA_MIN_REP        = "min_reputation"
+        const val EXTRA_AUTO_ACCEPT    = "auto_accept"
 
         // Broadcast action so NodeModule can observe state changes
         const val ACTION_STATUS     = "world.zerox1.node.STATUS"
@@ -546,9 +548,11 @@ name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'w
         val bagsPartnerKey = intent?.getStringExtra(EXTRA_BAGS_PARTNER_KEY)
             ?.takeIf { it.isNotBlank() }
             ?: BuildConfig.DEFAULT_BAGS_PARTNER_KEY.takeIf { it.isNotBlank() }
-        val brainEnabled = intent?.getBooleanExtra(EXTRA_BRAIN_ENABLED, false) ?: false
-        val llmProvider  = intent?.getStringExtra(EXTRA_LLM_PROVIDER) ?: "gemini"
-        val capabilities = intent?.getStringExtra(EXTRA_CAPABILITIES) ?: "[]"
+        val brainEnabled   = intent?.getBooleanExtra(EXTRA_BRAIN_ENABLED, false) ?: false
+        val llmProvider    = intent?.getStringExtra(EXTRA_LLM_PROVIDER) ?: "gemini"
+        val llmModel       = intent?.getStringExtra(EXTRA_LLM_MODEL) ?: ""
+        val llmBaseUrl     = intent?.getStringExtra(EXTRA_LLM_BASE_URL) ?: ""
+        val capabilities   = intent?.getStringExtra(EXTRA_CAPABILITIES) ?: "[]"
         val minFee       = intent?.getDoubleExtra(EXTRA_MIN_FEE, 0.01) ?: 0.01
         val minRep       = intent?.getIntExtra(EXTRA_MIN_REP, 50) ?: 50
         val autoAccept   = intent?.getBooleanExtra(EXTRA_AUTO_ACCEPT, true) ?: true
@@ -583,7 +587,7 @@ name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'w
                     // Wait for the node REST API to be ready before starting agent
                     waitForNodeApi()
                     val agentBinary = prepareAgentBinary()
-                    writeAgentConfig(llmProvider, capabilities, minFee, minRep, autoAccept)
+                    writeAgentConfig(llmProvider, llmModel, llmBaseUrl, capabilities, minFee, minRep, autoAccept)
                     writeIdentityFile(File(filesDir, "zw"), rpcUrl)
                     // Restart loop — zeroclaw is SIGTERM'd by /agent/reload to pick up new skills.
                     // After exit it must restart so the new skills are active.
@@ -816,6 +820,16 @@ name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'w
     }
 
     /**
+     * Escape a user-provided string for safe embedding inside a TOML basic string (double-quoted).
+     * Replaces backslashes, double-quotes, and newline characters.
+     */
+    private fun escapeTOMLString(s: String): String =
+        s.replace("\\", "\\\\")
+         .replace("\"", "\\\"")
+         .replace("\n", "\\n")
+         .replace("\r", "\\r")
+
+    /**
      * Write a TOML config file for ZeroClaw into filesDir, and install bundled skills.
      *
      * Skills are written to {filesDir}/zw/skills/<name>/SKILL.toml so that zeroclaw
@@ -823,6 +837,8 @@ name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'w
      */
     private fun writeAgentConfig(
         provider:     String,
+        customModel:  String,
+        customBaseUrl: String,
         capabilities: String,
         minFee:       Double,
         minRep:       Int,
@@ -834,16 +850,26 @@ name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'w
             "openai"    to "gpt-4o-mini",
             "groq"      to "llama-3.1-8b-instant",
         )
-        val model = modelMap[provider] ?: "gemini-2.5-flash"
+        val model = when {
+            provider == "custom" && customModel.isNotBlank() -> customModel
+            else -> modelMap[provider] ?: "gemini-2.5-flash"
+        }
 
         // CRIT-4: Read API key from secure storage, not from intent.
         val apiKey = getLlmApiKey() ?: ""
-        val escapedKey = apiKey.replace("\\", "\\\\").replace("\"", "\\\"")
-            .replace("\n", "\\n").replace("\r", "\\r")
+        val escapedKey = escapeTOMLString(apiKey)
+        // For "custom" provider, ZeroClaw uses "custom:<base_url>" syntax.
+        // If no base URL is provided, fall back to gemini.
+        val effectiveProvider = when {
+            provider == "custom" && customBaseUrl.isNotBlank() -> "custom:${customBaseUrl}"
+            provider == "custom" -> "gemini"
+            else -> provider
+        }
+        val escapedProvider = escapeTOMLString(effectiveProvider)
         val localApiSecret = ensureSecureToken(KEY_NODE_API_SECRET)
         val gatewayToken = ensureSecureToken(KEY_GATEWAY_TOKEN, "zc_mobile_")
-        val escapedNodeApiSecret = localApiSecret.replace("\\", "\\\\").replace("\"", "\\\"")
-        val escapedGatewayToken = gatewayToken.replace("\\", "\\\\").replace("\"", "\\\"")
+        val escapedNodeApiSecret = escapeTOMLString(localApiSecret)
+        val escapedGatewayToken = escapeTOMLString(gatewayToken)
 
         // MED-1: Validate capabilities is a proper JSON array to prevent TOML injection.
         val tomlCaps = try {
@@ -859,7 +885,7 @@ name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'w
 
         val config = """
 # Top-level provider settings (no [llm] section — these are root keys)
-default_provider    = "$provider"
+default_provider    = "$escapedProvider"
 api_key             = "$escapedKey"
 default_model       = "$model"
 default_temperature = 0.7
@@ -1129,7 +1155,8 @@ Auth: Authorization: Bearer <ZX01_TOKEN> (already available as env var ZX01_TOKE
                 // Android doesn't set HOME, so point it at filesDir so that
                 // "~/.config" and similar paths resolve inside the app's sandbox.
                 it.environment()["HOME"] = filesDir.absolutePath
-                it.environment()["ZX01_WORKSPACE"] = workspacePath
+                it.environment()["ZEROCLAW_WORKSPACE"] = workspacePath
+                it.environment()["ZX01_WORKSPACE"] = workspacePath  // used by skill shell commands
                 it.environment()["ZX01_NODE"] = "http://127.0.0.1:$NODE_API_PORT"
                 if (localApiSecret.isNotEmpty()) {
                     it.environment()["ZX01_TOKEN"] = localApiSecret
@@ -1161,11 +1188,11 @@ Auth: Authorization: Bearer <ZX01_TOKEN> (already available as env var ZX01_TOKE
             Log.w(TAG, "Could not register zeroclaw PID: $e")
         }
 
-        // HIGH-5: only pipe agent output to logcat in debug builds
+        // Pipe zeroclaw output to logcat (always, for diagnostics)
         launch {
             process.inputStream.bufferedReader().useLines { lines ->
                 lines.forEach { line ->
-                    if (BuildConfig.DEBUG) Log.d(TAG, "[zeroclaw] $line")
+                    Log.i(TAG, "[zeroclaw] $line")
                 }
             }
         }

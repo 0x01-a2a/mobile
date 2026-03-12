@@ -5,7 +5,7 @@
  *   Agents — all owned agents with status, reputation, location badge.
  *   Node   — local node controls, hosted banner, reputation detail, inbox.
  */
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { Component, useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -24,10 +24,13 @@ import {
   InboundEnvelope,
   NegotiationThread,
   PortfolioEvent,
+  Skill,
   TokenBalance,
   clearTokenFromKeychain,
   groupNegotiations,
   probeRtt,
+  skillInstallUrl,
+  skillRemove,
   sweepUsdc,
   useBridgeActivityLog,
   useHotKeyBalance,
@@ -35,6 +38,8 @@ import {
   useInbox,
   useOwnReputation,
   usePortfolioHistory,
+  useSkills,
+  useSolPrice,
 } from '../hooks/useNodeApi';
 import { useOwnedAgents, notifyLinkedAgentsUpdated, OwnedAgent } from '../hooks/useOwnedAgents';
 import { useAgentBrain } from '../hooks/useAgentBrain';
@@ -51,7 +56,33 @@ const C = {
   sub: '#555555',
 };
 
-type Subtab = 'agents' | 'node' | 'portfolio';
+// ── Error boundary ────────────────────────────────────────────────────────
+
+interface ErrorBoundaryState { hasError: boolean; message: string }
+
+class ErrorBoundary extends Component<{ children: React.ReactNode }, ErrorBoundaryState> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, message: '' };
+  }
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, message: error?.message ?? 'Unknown error' };
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32 }}>
+          <Text style={{ color: C.red, fontFamily: 'monospace', fontSize: 11, textAlign: 'center' }}>
+            {'Something went wrong.\n'}{this.state.message}
+          </Text>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+type Subtab = 'agents' | 'node' | 'portfolio' | 'skills';
 
 function shortId(id: string): string {
   return id.length > 16 ? `${id.slice(0, 8)}…${id.slice(-6)}` : id;
@@ -680,19 +711,28 @@ function InboxRow({ env }: { env: InboundEnvelope }) {
 
 // ── Portfolio Subtab ──────────────────────────────────────────────────────
 
-function TokenRow({ token }: { token: TokenBalance }) {
-  const isSol = token.mint === 'So11111111111111111111111111111111111111112';
-  const isUsdc = token.mint.startsWith('4zMMC') || token.mint === 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+const SOL_MINT = 'So11111111111111111111111111111111111111112';
+const USDC_MINTS = new Set([
+  '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
+  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+]);
+
+function TokenRow({ token, solPrice }: { token: TokenBalance; solPrice: number | null }) {
+  const isSol = token.mint === SOL_MINT;
+  const isUsdc = USDC_MINTS.has(token.mint);
   const symbol = isSol ? 'SOL' : isUsdc ? 'USDC' : shortId(token.mint);
   const color = isSol ? '#B351DF' : isUsdc ? C.amber : C.text;
+  const usdValue = isSol && solPrice ? token.amount * solPrice : isUsdc ? token.amount : null;
 
   return (
     <View style={[s.hotWalletRow, { marginTop: 8 }]}>
       <Text style={[s.hotBalance, { color, fontSize: 16 }]}>
         {symbol} {token.amount.toLocaleString(undefined, { minimumFractionDigits: isSol ? 4 : 2, maximumFractionDigits: isSol ? 4 : 2 })}
       </Text>
-      {isSol && <Text style={s.hotAddr}>HOT WALLET SOL</Text>}
-      {isUsdc && <Text style={s.hotAddr}>HOT WALLET USDC</Text>}
+      {usdValue !== null
+        ? <Text style={s.hotAddr}>${usdValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+        : (isSol || isUsdc) ? <Text style={s.hotAddr}>{isSol ? 'SOL' : 'USDC'}</Text> : null
+      }
     </View>
   );
 }
@@ -701,7 +741,14 @@ function PortfolioSubtab() {
   const { config } = useNode();
   const { tokens, loading: balLoading, solanaAddress } = useHotKeyBalance();
   const history = usePortfolioHistory();
+  const solPrice = useSolPrice();
   const isHosted = !!config?.nodeApiUrl;
+
+  const totalUsd = tokens.reduce((sum, t) => {
+    if (t.mint === SOL_MINT && solPrice) return sum + t.amount * solPrice;
+    if (USDC_MINTS.has(t.mint)) return sum + t.amount;
+    return sum;
+  }, 0);
   const [sweeping, setSweeping] = useState(false);
   const [sweepAmount, setSweepAmount] = useState('');
   const [coldWallet, setColdWallet] = useState<string | null>(null);
@@ -757,12 +804,18 @@ function PortfolioSubtab() {
           )}
         </View>
 
+        {tokens.length > 0 && totalUsd > 0 && (
+          <View style={s.totalUsdRow}>
+            <Text style={s.totalUsdLabel}>TOTAL</Text>
+            <Text style={s.totalUsdValue}>${totalUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+          </View>
+        )}
         {balLoading && tokens.length === 0 ? (
           <ActivityIndicator color={C.green} style={{ marginVertical: 20 }} />
         ) : tokens.length === 0 ? (
           <Text style={s.noData}>No tokens found</Text>
         ) : (
-          tokens.map(t => <TokenRow key={t.mint} token={t} />)
+          tokens.map(t => <TokenRow key={t.mint} token={t} solPrice={solPrice} />)
         )}
 
         {!isHosted && totalUsdc > 0 && coldWallet && (
@@ -918,6 +971,133 @@ function BridgeLogRow({ entry, isLast }: { entry: BridgeLogEntry; isLast: boolea
   );
 }
 
+// ── Skills Subtab ─────────────────────────────────────────────────────────
+
+function SkillsSubtab() {
+  const { skills, loading, refresh } = useSkills();
+  const [installing, setInstalling] = useState(false);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [urlName, setUrlName] = useState('');
+  const [urlValue, setUrlValue] = useState('');
+
+  const handleInstall = useCallback(async () => {
+    const name = urlName.trim();
+    const url = urlValue.trim();
+    if (!name || !url) return;
+    setInstalling(true);
+    try {
+      await skillInstallUrl(name, url);
+      setUrlName('');
+      setUrlValue('');
+      await refresh();
+    } catch (e: any) {
+      Alert.alert('Install Failed', e?.message ?? 'Unknown error');
+    } finally {
+      setInstalling(false);
+    }
+  }, [urlName, urlValue, refresh]);
+
+  const handleRemove = useCallback((skill: Skill) => {
+    Alert.alert('Remove Skill', `Remove "${skill.name}"?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'REMOVE',
+        style: 'destructive',
+        onPress: async () => {
+          setRemoving(skill.name);
+          try {
+            await skillRemove(skill.name);
+            await refresh();
+          } catch (e: any) {
+            Alert.alert('Error', e?.message ?? 'Failed to remove skill');
+          } finally {
+            setRemoving(null);
+          }
+        },
+      },
+    ]);
+  }, [refresh]);
+
+  const canInstall = urlName.trim().length > 0 && urlValue.trim().length > 0 && !installing;
+
+  return (
+    <ScrollView style={s.subtabRoot} contentContainerStyle={s.subtabContent}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={s.sectionLabel}>INSTALLED SKILLS</Text>
+        <TouchableOpacity onPress={refresh} disabled={loading}>
+          <Text style={{ fontSize: 9, color: C.sub, fontFamily: 'monospace', letterSpacing: 2 }}>
+            {loading ? '…' : 'REFRESH'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+      <View style={s.card}>
+        {loading && skills.length === 0 ? (
+          <ActivityIndicator color={C.green} style={{ marginVertical: 16 }} />
+        ) : skills.length === 0 ? (
+          <Text style={s.noData}>No skills installed</Text>
+        ) : (
+          skills.map((skill, i) => (
+            <View key={skill.name} style={[s.skillRow, i === skills.length - 1 && { borderBottomWidth: 0 }]}>
+              <View style={s.skillDot} />
+              <Text style={s.skillName}>{skill.name}</Text>
+              <TouchableOpacity
+                style={[s.removeBtn, removing === skill.name && { opacity: 0.4 }]}
+                onPress={() => handleRemove(skill)}
+                disabled={removing === skill.name}
+                activeOpacity={0.7}
+              >
+                <Text style={s.removeBtnText}>{removing === skill.name ? '…' : 'REMOVE'}</Text>
+              </TouchableOpacity>
+            </View>
+          ))
+        )}
+      </View>
+
+      <Text style={s.sectionLabel}>INSTALL FROM URL</Text>
+      <View style={s.card}>
+        <Text style={[s.noData, { marginBottom: 12, lineHeight: 18 }]}>
+          HTTPS only. URL must point to a raw SKILL.toml file.
+        </Text>
+        <Text style={s.fieldLabel}>SKILL NAME</Text>
+        <TextInput
+          style={s.skillInput}
+          value={urlName}
+          onChangeText={setUrlName}
+          placeholder="my_skill"
+          placeholderTextColor={C.sub}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        <Text style={[s.fieldLabel, { marginTop: 10 }]}>URL</Text>
+        <TextInput
+          style={s.skillInput}
+          value={urlValue}
+          onChangeText={setUrlValue}
+          placeholder="https://…/SKILL.toml"
+          placeholderTextColor={C.sub}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        <TouchableOpacity
+          style={[s.btn, { marginTop: 14, backgroundColor: C.green }, !canInstall && { opacity: 0.4 }]}
+          onPress={handleInstall}
+          disabled={!canInstall}
+          activeOpacity={0.8}
+        >
+          {installing
+            ? <ActivityIndicator size="small" color="#000" />
+            : <Text style={[s.btnText, { color: '#000' }]}>INSTALL</Text>
+          }
+        </TouchableOpacity>
+      </View>
+
+      <Text style={s.hint}>
+        Skills extend your agent's capabilities. Restart ZeroClaw after installing to activate.
+      </Text>
+    </ScrollView>
+  );
+}
+
 // ── Main screen ───────────────────────────────────────────────────────────
 
 export function MyScreen() {
@@ -928,7 +1108,7 @@ export function MyScreen() {
       <View style={s.header}>
         <Text style={s.title}>MY</Text>
         <View style={s.tabs}>
-          {(['agents', 'node', 'portfolio'] as Subtab[]).map(t => (
+          {(['agents', 'node', 'portfolio', 'skills'] as Subtab[]).map(t => (
             <TouchableOpacity
               key={t}
               style={[s.tab, subtab === t && s.tabActive]}
@@ -942,9 +1122,10 @@ export function MyScreen() {
           ))}
         </View>
       </View>
-      {subtab === 'agents' && <AgentsSubtab />}
-      {subtab === 'node' && <NodeSubtab />}
-      {subtab === 'portfolio' && <PortfolioSubtab />}
+      {subtab === 'agents' && <ErrorBoundary><AgentsSubtab /></ErrorBoundary>}
+      {subtab === 'node' && <ErrorBoundary><NodeSubtab /></ErrorBoundary>}
+      {subtab === 'portfolio' && <ErrorBoundary><PortfolioSubtab /></ErrorBoundary>}
+      {subtab === 'skills' && <ErrorBoundary><SkillsSubtab /></ErrorBoundary>}
     </View>
   );
 }
@@ -1041,6 +1222,18 @@ const s = StyleSheet.create({
   pickerRadioSelected: { borderColor: C.blue, backgroundColor: C.blue },
   pickerName: { fontSize: 11, color: C.text, fontFamily: 'monospace', fontWeight: '700' },
   pickerAgentId: { fontSize: 9, color: C.sub, fontFamily: 'monospace', marginTop: 2 },
+  // portfolio total
+  totalUsdRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 12, marginBottom: 4, borderBottomWidth: 1, borderBottomColor: C.border },
+  totalUsdLabel: { fontSize: 9, color: C.sub, letterSpacing: 3, fontFamily: 'monospace' },
+  totalUsdValue: { fontSize: 20, fontWeight: '700', color: C.green, fontFamily: 'monospace' },
+  // skills
+  skillRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.border, gap: 10 },
+  skillDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.green },
+  skillName: { flex: 1, fontSize: 13, color: C.text, fontFamily: 'monospace' },
+  removeBtn: { borderWidth: 1, borderColor: C.red + '60', borderRadius: 3, paddingHorizontal: 8, paddingVertical: 4 },
+  removeBtnText: { fontSize: 9, color: C.red, letterSpacing: 2, fontWeight: '700', fontFamily: 'monospace' },
+  fieldLabel: { fontSize: 9, color: C.sub, letterSpacing: 2, fontFamily: 'monospace', marginBottom: 6 },
+  skillInput: { backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 4, paddingHorizontal: 10, paddingVertical: 8, color: C.text, fontFamily: 'monospace', fontSize: 13 },
   // negotiation cards
   negCard: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border },
   negHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },

@@ -253,6 +253,9 @@ export function AgentsScreen() {
             onPress={() => setSelected(item.agent_id)}
           />
         )}
+        maxToRenderPerBatch={10}
+        windowSize={5}
+        removeClippedSubviews={true}
         ListEmptyComponent={
           <View style={s.empty}>
             <Text style={s.emptyText}>no agents found</Text>

@@ -127,7 +127,7 @@ export function useAgentBrain() {
   useEffect(() => {
     AsyncStorage.getItem(BRAIN_STORAGE_KEY)
       .then(v => { if (v) setConfig(JSON.parse(v)); })
-      .catch(() => { })
+      .catch(() => { /* AsyncStorage read failed — using defaults */ })
       .finally(() => setLoading(false));
   }, []);
 

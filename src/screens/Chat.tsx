@@ -125,6 +125,55 @@ function AgentSelector({
   );
 }
 
+// ── Launch result detection ───────────────────────────────────────────────
+
+interface LaunchResult {
+  token_mint: string;
+  txid?: string;
+  name?: string;
+  symbol?: string;
+}
+
+function tryParseLaunchResult(text: string): LaunchResult | null {
+  const match = text.match(/\{[^{}]*"token_mint"[^{}]*\}/);
+  if (!match) return null;
+  try {
+    const obj = JSON.parse(match[0]);
+    if (typeof obj.token_mint !== 'string' || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(obj.token_mint)) return null;
+    return obj as LaunchResult;
+  } catch {}
+  return null;
+}
+
+// ── Launch result card ────────────────────────────────────────────────────
+
+function LaunchResultCard({ result }: { result: LaunchResult }) {
+  const shortMint = result.token_mint.length > 20
+    ? `${result.token_mint.slice(0, 8)}…${result.token_mint.slice(-6)}`
+    : result.token_mint;
+  const shortTxid = result.txid && result.txid.length > 20
+    ? `${result.txid.slice(0, 8)}…${result.txid.slice(-6)}`
+    : result.txid;
+  return (
+    <View style={s.launchCard}>
+      <Text style={s.launchCardLabel}>TOKEN LAUNCHED</Text>
+      {(result.name || result.symbol) && (
+        <Text style={s.launchCardName}>
+          {result.name ?? ''}{result.symbol ? ` (${result.symbol})` : ''}
+        </Text>
+      )}
+      <Text style={s.launchCardField}>MINT</Text>
+      <Text style={s.launchCardValue} selectable>{shortMint}</Text>
+      {shortTxid && (
+        <>
+          <Text style={s.launchCardField}>TX</Text>
+          <Text style={s.launchCardValue} selectable>{shortTxid}</Text>
+        </>
+      )}
+    </View>
+  );
+}
+
 // ── Message bubble ────────────────────────────────────────────────────────
 
 function Bubble({ msg }: { msg: ChatMessage }) {
@@ -138,13 +187,21 @@ function Bubble({ msg }: { msg: ChatMessage }) {
   }
 
   const isUser = msg.role === 'user';
+  const launchResult = !isUser ? tryParseLaunchResult(msg.text) : null;
+  const displayText = launchResult
+    ? msg.text.replace(/\{[^{}]*"token_mint"[^{}]*\}/, '').trim()
+    : msg.text;
+
   return (
     <View style={[s.bubbleRow, isUser ? s.rowRight : s.rowLeft]}>
       {!isUser && <Text style={s.roleLabel}>[ZC]</Text>}
       <View style={[s.bubble, isUser ? s.bubbleUser : s.bubbleAgent]}>
-        <Text style={[s.bubbleText, isUser ? s.bubbleTextUser : undefined]}>
-          {msg.text}
-        </Text>
+        {displayText ? (
+          <Text style={[s.bubbleText, isUser ? s.bubbleTextUser : undefined]}>
+            {displayText}
+          </Text>
+        ) : null}
+        {launchResult ? <LaunchResultCard result={launchResult} /> : null}
       </View>
       {isUser && <Text style={s.roleLabel}>[YOU]</Text>}
     </View>
@@ -522,6 +579,12 @@ const s = StyleSheet.create({
   sendBtn: { backgroundColor: C.green, width: 44, height: 44, borderRadius: 4, alignItems: 'center', justifyContent: 'center' },
   sendBtnDisabled: { backgroundColor: C.border },
   sendBtnText: { color: '#000000', fontFamily: 'monospace', fontSize: 18, fontWeight: '700' },
+  // launch result card
+  launchCard: { marginTop: 8, backgroundColor: '#0a1a0a', borderWidth: 1, borderColor: C.green + '60', borderRadius: 4, padding: 10 },
+  launchCardLabel: { fontSize: 9, color: C.green, letterSpacing: 3, fontWeight: '700', fontFamily: 'monospace', marginBottom: 6 },
+  launchCardName: { fontSize: 13, color: C.text, fontFamily: 'monospace', fontWeight: '700', marginBottom: 6 },
+  launchCardField: { fontSize: 9, color: C.sub, letterSpacing: 2, fontFamily: 'monospace', marginTop: 4 },
+  launchCardValue: { fontSize: 11, color: C.green, fontFamily: 'monospace', marginTop: 2 },
   // bags rate-limit modal
   modalOverlay: { flex: 1, backgroundColor: '#000000cc', justifyContent: 'center', alignItems: 'center', padding: 24 },
   modalCard: { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 6, padding: 20, width: '100%' },

@@ -5,7 +5,7 @@
  * cards. User picks which agent handles the task, ACCEPT is sent, then
  * the app routes to Chat with the task loaded as context.
  */
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -69,6 +69,18 @@ interface Bounty {
   receivedAt: number;
 }
 
+// ── Leaderboard types ─────────────────────────────────────────────────────
+
+interface LeaderboardToken {
+  mint: string;
+  name: string;
+  symbol: string;
+  priceUsd: number;
+  volume24h: number;
+  priceChange24h: number;
+  marketCap: number;
+}
+
 // ── Token whitelist (mirrors node SWAP_WHITELIST) ─────────────────────────
 
 const SWAP_TOKENS = [
@@ -85,6 +97,7 @@ const SWAP_TOKENS = [
 
 function decodeTerms(payloadB64: string): ProposalTerms | null {
   try {
+    if (payloadB64.length > 65536) return null; // ~48KB decoded max
     const json = JSON.parse(atob(payloadB64));
     return json?.terms ?? json ?? null;
   } catch {
@@ -248,7 +261,7 @@ export function EarnScreen() {
   const [bounties, setBounties] = useState<Bounty[]>([]);
   const [pickerTarget, setPickerTarget] = useState<Bounty | null>(null);
   const [registered, setRegistered] = useState<boolean | null>(null);
-  const [activeTab, setActiveTab] = useState<'bounty' | 'trade'>('bounty');
+  const [activeTab, setActiveTab] = useState<'bounty' | 'trade' | 'leaderboard'>('bounty');
   const [bagsExpanded, setBagsExpanded] = useState(false);
 
   const { injectSystemMessage } = useZeroclawChat(agents[0]?.id);
@@ -275,6 +288,56 @@ export function EarnScreen() {
   const [launchTelegram, setLaunchTelegram] = useState('');
   const [launchInitialBuy, setLaunchInitialBuy] = useState('');
   const bagsApiConfigured = bagsConfig !== null;
+
+  // ── Leaderboard ────────────────────────────────────────────────────────────
+  const [leaderboardData, setLeaderboardData] = useState<LeaderboardToken[]>([]);
+  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
+  const [leaderboardSort, setLeaderboardSort] = useState<'volume' | 'change'>('volume');
+  const [leaderboardError, setLeaderboardError] = useState<string | null>(null);
+
+  const fetchLeaderboard = useCallback(async () => {
+    if (bagsPositions.length === 0) {
+      setLeaderboardData([]);
+      return;
+    }
+    setLeaderboardLoading(true);
+    setLeaderboardError(null);
+    try {
+      const mints = bagsPositions.map(t => t.token_mint).join(',');
+      const res = await fetch(`https://api.dexscreener.com/tokens/v1/solana/${mints}`);
+      const data = await res.json();
+      if (!Array.isArray(data)) { setLeaderboardData([]); return; }
+      const byMint = new Map<string, LeaderboardToken>();
+      for (const pair of data) {
+        const mint: string = pair.baseToken?.address ?? '';
+        if (!mint) continue;
+        const entry: LeaderboardToken = {
+          mint,
+          name: pair.baseToken?.name ?? '',
+          symbol: pair.baseToken?.symbol ?? '',
+          priceUsd: parseFloat(pair.priceUsd ?? '0') || 0,
+          volume24h: pair.volume?.h24 ?? 0,
+          priceChange24h: pair.priceChange?.h24 ?? 0,
+          marketCap: pair.marketCap ?? 0,
+        };
+        const existing = byMint.get(mint);
+        if (!existing || entry.volume24h > existing.volume24h) byMint.set(mint, entry);
+      }
+      setLeaderboardData([...byMint.values()]);
+    } catch (e: any) {
+      setLeaderboardError(e?.message ?? 'Failed to load leaderboard data.');
+      setLeaderboardData([]);
+    }
+    setLeaderboardLoading(false);
+  }, [bagsPositions]);
+
+  useEffect(() => {
+    if (activeTab === 'leaderboard') fetchLeaderboard();
+  }, [activeTab, fetchLeaderboard]);
+
+  const sortedLeaderboard = [...leaderboardData].sort((a, b) =>
+    leaderboardSort === 'volume' ? b.volume24h - a.volume24h : b.priceChange24h - a.priceChange24h,
+  );
 
   const handlePickImage = useCallback(() => {
     launchImageLibrary(
@@ -511,6 +574,12 @@ export function EarnScreen() {
           >
             <Text style={[s.tabText, activeTab === 'trade' && s.tabTextActive]}>TRADE</Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            style={[s.tabBtn, activeTab === 'leaderboard' && s.tabActive]}
+            onPress={() => setActiveTab('leaderboard')}
+          >
+            <Text style={[s.tabText, activeTab === 'leaderboard' && s.tabTextActive]}>TOP</Text>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -724,6 +793,91 @@ export function EarnScreen() {
         </ScrollView>
       )}
 
+      {/* Leaderboard Tab */}
+      {activeTab === 'leaderboard' && (
+        <ScrollView style={s.tradeRoot} contentContainerStyle={s.tradeContent}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <Text style={s.sectionLabel}>BAGS TOKEN RANKINGS</Text>
+            <TouchableOpacity onPress={fetchLeaderboard} disabled={leaderboardLoading}>
+              <Text style={{ fontSize: 9, color: C.sub, fontFamily: 'monospace', letterSpacing: 2 }}>
+                {leaderboardLoading ? '…' : 'REFRESH'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Sort toggles */}
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+            {(['volume', 'change'] as const).map(mode => (
+              <TouchableOpacity
+                key={mode}
+                style={[s.sortBtn, leaderboardSort === mode && s.sortBtnActive]}
+                onPress={() => setLeaderboardSort(mode)}
+                activeOpacity={0.7}
+              >
+                <Text style={[s.sortBtnText, leaderboardSort === mode && s.sortBtnTextActive]}>
+                  {mode === 'volume' ? '24H VOL' : '24H CHANGE'}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {leaderboardError ? (
+            <View style={{ backgroundColor: '#1a0505', borderWidth: 1, borderColor: C.red, borderRadius: 4, padding: 12, marginBottom: 12 }}>
+              <Text style={{ color: C.red, fontFamily: 'monospace', fontSize: 11 }}>{leaderboardError}</Text>
+            </View>
+          ) : null}
+
+          {leaderboardLoading && leaderboardData.length === 0 ? (
+            <ActivityIndicator color={C.green} style={{ marginTop: 40 }} />
+          ) : sortedLeaderboard.length === 0 ? (
+            <View style={s.empty}>
+              <Text style={s.emptyText}>
+                {bagsPositions.length === 0
+                  ? 'No Bags tokens found.\n\nLaunch a token in the TRADE tab first.'
+                  : 'No market data available yet.\n\nTry again once your token has trading activity.'}
+              </Text>
+            </View>
+          ) : (
+            sortedLeaderboard.map((token, i) => {
+              const changePos = token.priceChange24h >= 0;
+              const changeColor = changePos ? C.green : C.red;
+              return (
+                <View key={token.mint} style={[s.card, { marginBottom: 10 }]}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <Text style={s.rankNum}>#{i + 1}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.agentName}>{token.name || token.symbol}</Text>
+                      <Text style={s.agentId}>{token.symbol} · {shortId(token.mint)}</Text>
+                    </View>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={[s.lbPrice, !token.priceUsd && { color: C.sub }]}>
+                        {token.priceUsd ? `$${token.priceUsd < 0.01 ? token.priceUsd.toExponential(2) : token.priceUsd.toFixed(4)}` : '—'}
+                      </Text>
+                      <Text style={[s.lbChange, { color: changeColor }]}>
+                        {token.priceChange24h !== 0 ? `${changePos ? '+' : ''}${token.priceChange24h.toFixed(2)}%` : '—'}
+                      </Text>
+                    </View>
+                  </View>
+                  {token.volume24h > 0 && (
+                    <View style={s.lbMetaRow}>
+                      <Text style={s.lbMetaLabel}>VOL 24H</Text>
+                      <Text style={s.lbMetaVal}>${token.volume24h >= 1000 ? `${(token.volume24h / 1000).toFixed(1)}K` : token.volume24h.toFixed(0)}</Text>
+                      {token.marketCap > 0 && (
+                        <>
+                          <Text style={s.lbMetaDot}> · </Text>
+                          <Text style={s.lbMetaLabel}>MCAP</Text>
+                          <Text style={s.lbMetaVal}>${token.marketCap >= 1e6 ? `${(token.marketCap / 1e6).toFixed(1)}M` : token.marketCap >= 1000 ? `${(token.marketCap / 1000).toFixed(1)}K` : token.marketCap.toFixed(0)}</Text>
+                        </>
+                      )}
+                    </View>
+                  )}
+                </View>
+              );
+            })
+          )}
+        </ScrollView>
+      )}
+
       {/* Token picker modal */}
       {pickerFor && (
         <Modal transparent animationType="slide" onRequestClose={() => setPickerFor(null)}>
@@ -815,6 +969,18 @@ const s = StyleSheet.create({
   impactRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12, paddingHorizontal: 4 },
   impactLabel: { fontSize: 10, color: C.sub, fontFamily: 'monospace' },
   impactVal: { fontSize: 10, fontWeight: '700', fontFamily: 'monospace' },
+  // Leaderboard
+  rankNum: { fontSize: 16, color: C.sub, fontFamily: 'monospace', fontWeight: '700', width: 28 },
+  lbPrice: { fontSize: 13, color: C.text, fontFamily: 'monospace', fontWeight: '700' },
+  lbChange: { fontSize: 11, fontFamily: 'monospace', fontWeight: '700', marginTop: 2 },
+  lbMetaRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10, paddingTop: 8, borderTopWidth: 1, borderTopColor: C.border },
+  lbMetaLabel: { fontSize: 9, color: C.sub, letterSpacing: 2, fontFamily: 'monospace' },
+  lbMetaVal: { fontSize: 11, color: C.text, fontFamily: 'monospace', marginLeft: 4 },
+  lbMetaDot: { fontSize: 11, color: C.dim, marginHorizontal: 4 },
+  sortBtn: { paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: C.border, borderRadius: 3 },
+  sortBtnActive: { borderColor: C.green, backgroundColor: '#00e67615' },
+  sortBtnText: { fontSize: 9, color: C.sub, letterSpacing: 2, fontFamily: 'monospace', fontWeight: '700' },
+  sortBtnTextActive: { color: C.green },
   // Bags collapsible
   sectionToggle: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 24, marginBottom: 4 },
   toggleChevron: { fontSize: 10, color: C.sub, fontFamily: 'monospace' },

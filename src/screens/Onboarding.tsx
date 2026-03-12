@@ -43,7 +43,11 @@ import {
 export const ONBOARDING_KEY = 'zerox1:onboarding_done';
 
 export async function markOnboardingDone(): Promise<void> {
-  await AsyncStorage.setItem(ONBOARDING_KEY, 'true');
+  try {
+    await AsyncStorage.setItem(ONBOARDING_KEY, 'true');
+  } catch (e) {
+    console.warn('markOnboardingDone: failed to persist onboarding flag', e);
+  }
 }
 
 export async function checkOnboardingDone(): Promise<boolean> {
@@ -727,6 +731,8 @@ function OnchainRegistrationStep({
               ...nodeConfig,
               agentBrainEnabled: true,
               llmProvider: brain.provider ?? 'gemini',
+              llmModel: brain.customModel ?? '',
+              llmBaseUrl: brain.customBaseUrl ?? '',
               capabilities: JSON.stringify(brain.capabilities ?? []),
               minFeeUsdc: brain.minFeeUsdc ?? 0.01,
               minReputation: brain.minReputation ?? 50,
