@@ -219,6 +219,8 @@ class NodeModule(private val ctx: ReactApplicationContext)
             config.getString("rpcUrl")?.let     { prefs.putString("rpc_url",     it) }
             if (config.hasKey("agentBrainEnabled")) prefs.putBoolean("brain_enabled", config.getBoolean("agentBrainEnabled"))
             config.getString("llmProvider")?.let    { prefs.putString("llm_provider",  it) }
+            config.getString("llmModel")?.let       { prefs.putString("llm_model",     it) }
+            config.getString("llmBaseUrl")?.let     { prefs.putString("llm_base_url",  it) }
             config.getString("capabilities")?.let   { prefs.putString("capabilities",   it) }
             if (config.hasKey("bagsFeesBps"))        prefs.putInt("bags_fee_bps",       config.getInt("bagsFeesBps"))
             config.getString("bagsWallet")?.let     { prefs.putString("bags_wallet",    it) }

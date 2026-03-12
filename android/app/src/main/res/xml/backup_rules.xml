@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ backup rules (dataExtractionRules).
+  Backs up zeroclaw memory (chat history, agent persona) to Google Drive.
+  Excludes private keys, logs, and regenerated files.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <!-- ZeroClaw agent memory and chat history -->
+        <include domain="file" path="zw/workspace/memory/brain.db" />
+        <include domain="file" path="zw/workspace/memory/brain.db-wal" />
+        <include domain="file" path="zw/workspace/memory/brain.db-shm" />
+        <include domain="file" path="zw/workspace/state/memory_hygiene_state.json" />
+        <include domain="file" path="zw/IDENTITY.md" />
+        <!-- Node config (agent name, rpc url, etc — not the secret token) -->
+        <include domain="sharedpref" path="zerox1" />
+        <!-- Exclude private key — must never leave device unencrypted -->
+        <exclude domain="file" path="zerox1-identity.key" />
+        <!-- Exclude logs and caches -->
+        <exclude domain="file" path="logs" />
+        <exclude domain="file" path="zw/skills" />
+    </cloud-backup>
+    <device-transfer>
+        <include domain="file" path="zw/workspace/memory/brain.db" />
+        <include domain="file" path="zw/workspace/memory/brain.db-wal" />
+        <include domain="file" path="zw/workspace/memory/brain.db-shm" />
+        <include domain="file" path="zw/workspace/state/memory_hygiene_state.json" />
+        <include domain="file" path="zw/IDENTITY.md" />
+        <include domain="sharedpref" path="zerox1" />
+        <exclude domain="file" path="zerox1-identity.key" />
+        <exclude domain="file" path="logs" />
+        <exclude domain="file" path="zw/skills" />
+    </device-transfer>
+</data-extraction-rules>

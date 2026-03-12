@@ -25,6 +25,8 @@ class BootReceiver : BroadcastReceiver() {
             // Agent brain config
             putExtra(NodeService.EXTRA_BRAIN_ENABLED, prefs.getBoolean("brain_enabled", false))
             prefs.getString("llm_provider",  null)?.let { putExtra(NodeService.EXTRA_LLM_PROVIDER, it) }
+            prefs.getString("llm_model",     null)?.let { putExtra(NodeService.EXTRA_LLM_MODEL,    it) }
+            prefs.getString("llm_base_url",  null)?.let { putExtra(NodeService.EXTRA_LLM_BASE_URL, it) }
             prefs.getString("capabilities",  null)?.let { putExtra(NodeService.EXTRA_CAPABILITIES, it) }
             // Bags fee-sharing config
             val bagsFeeBps = prefs.getInt("bags_fee_bps", 0)
