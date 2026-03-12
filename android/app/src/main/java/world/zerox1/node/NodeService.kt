@@ -552,6 +552,7 @@ name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'w
         val llmProvider    = intent?.getStringExtra(EXTRA_LLM_PROVIDER) ?: "gemini"
         val llmModel       = intent?.getStringExtra(EXTRA_LLM_MODEL) ?: ""
         val llmBaseUrl     = intent?.getStringExtra(EXTRA_LLM_BASE_URL) ?: ""
+        Log.i(TAG, "Brain config: enabled=$brainEnabled provider=$llmProvider model=$llmModel baseUrl=${if (llmBaseUrl.isNotBlank()) "[set]" else "[empty]"}")
         val capabilities   = intent?.getStringExtra(EXTRA_CAPABILITIES) ?: "[]"
         val minFee       = intent?.getDoubleExtra(EXTRA_MIN_FEE, 0.01) ?: 0.01
         val minRep       = intent?.getIntExtra(EXTRA_MIN_REP, 50) ?: 50
@@ -579,7 +580,13 @@ name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'w
             }
         }
 
-        if (brainEnabled) {
+        // Validate: "custom" provider requires a base URL — skip brain launch if missing.
+        val brainReady = brainEnabled && (llmProvider != "custom" || llmBaseUrl.isNotBlank())
+        if (!brainReady && brainEnabled) {
+            Log.w(TAG, "Agent brain skipped: provider=custom but no llm_base_url configured")
+        }
+
+        if (brainReady) {
             phoneBridge = PhoneBridgeServer(applicationContext, bridgeSecret)
             phoneBridge?.start()
             serviceScope.launch {
@@ -859,10 +866,16 @@ name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'w
         val apiKey = getLlmApiKey() ?: ""
         val escapedKey = escapeTOMLString(apiKey)
         // For "custom" provider, ZeroClaw uses "custom:<base_url>" syntax.
-        // If no base URL is provided, fall back to gemini.
+        // If the base URL is missing, preserve any existing "custom:..." provider
+        // from config.toml rather than silently downgrading to another provider.
+        val existingProvider: String? = try {
+            File(filesDir, "config.toml").readLines()
+                .firstOrNull { it.trimStart().startsWith("default_provider") }
+                ?.substringAfter("=")?.trim()?.trim('"')
+        } catch (_: Exception) { null }
         val effectiveProvider = when {
             provider == "custom" && customBaseUrl.isNotBlank() -> "custom:${customBaseUrl}"
-            provider == "custom" -> "gemini"
+            provider == "custom" && existingProvider?.startsWith("custom:") == true -> existingProvider
             else -> provider
         }
         val escapedProvider = escapeTOMLString(effectiveProvider)

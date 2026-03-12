@@ -177,7 +177,9 @@ class NodeModule(private val ctx: ReactApplicationContext)
                 // ZeroClaw agent brain config
                 config.getString("llmProvider")?.let    { putExtra(NodeService.EXTRA_LLM_PROVIDER,  it) }
                 config.getString("llmModel")?.let       { putExtra(NodeService.EXTRA_LLM_MODEL,     it) }
-                config.getString("llmBaseUrl")?.let     { putExtra(NodeService.EXTRA_LLM_BASE_URL,  it) }
+                val llmBaseUrl = config.getString("llmBaseUrl")
+                android.util.Log.i("NodeModule", "startNode: llmBaseUrl hasKey=${config.hasKey("llmBaseUrl")} value=${llmBaseUrl?.let { "'$it'" } ?: "null"}")
+                llmBaseUrl?.let { putExtra(NodeService.EXTRA_LLM_BASE_URL, it) }
                 // CRIT-5: API key is no longer passed via intent extra
                 config.getString("capabilities")?.let  { putExtra(NodeService.EXTRA_CAPABILITIES,  it) }
                 if (config.hasKey("minFeeUsdc"))       putExtra(NodeService.EXTRA_MIN_FEE,        config.getDouble("minFeeUsdc"))
