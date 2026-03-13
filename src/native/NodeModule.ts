@@ -157,6 +157,26 @@ export const NodeModule = {
    */
   getBridgeActivityLog: (limit: number = 50): Promise<string> =>
     ZeroxNodeModule.getBridgeActivityLog(limit),
+
+  /** Prevent screenshots and screen recording on the Activity window. Call with true before showing sensitive UI, false after. */
+  setWindowSecure: (enabled: boolean): Promise<void> =>
+    ZeroxNodeModule.setWindowSecure(enabled),
+
+  /**
+   * Export the agent's Ed25519 identity key as a base58-encoded 64-byte string
+   * (Phantom-compatible format: seed || pubkey).
+   * Only works in local node mode (key is stored on device).
+   */
+  exportIdentityKey: (): Promise<string> =>
+    ZeroxNodeModule.exportIdentityKey(),
+
+  /**
+   * Import a Phantom/Solana CLI private key (base58, 64 bytes).
+   * Replaces the current agent identity — takes effect on next node start.
+   * WARNING: the old identity cannot be recovered after this call.
+   */
+  importIdentityKey: (base58Key: string): Promise<void> =>
+    ZeroxNodeModule.importIdentityKey(base58Key),
 };
 
 // ============================================================================

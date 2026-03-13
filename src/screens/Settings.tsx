@@ -5,6 +5,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
+  Clipboard,
   KeyboardAvoidingView,
   Modal,
   Linking,
@@ -886,6 +887,187 @@ const bfs = StyleSheet.create({
   miniBtnText: { fontSize: 9, fontWeight: '700', color: C.text, letterSpacing: 1, fontFamily: 'monospace' },
 });
 
+// ── Wallet section ────────────────────────────────────────────────────────────
+
+function WalletSection() {
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [exportedKey, setExportedKey] = useState('');
+  const [importKey, setImportKey] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const clipboardClearTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const closeExportModal = () => {
+    // Re-enable screenshots, clear clipboard, wipe key from state
+    NodeModule.setWindowSecure(false).catch(() => {});
+    Clipboard.setString('');
+    if (clipboardClearTimer.current) clearTimeout(clipboardClearTimer.current);
+    setShowExportModal(false);
+    setExportedKey('');
+    setCopied(false);
+  };
+
+  const handleExport = async () => {
+    Alert.alert(
+      'Show Private Key?',
+      'Your private key grants full control of your agent and wallet. Make sure no one can see your screen.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Show Key',
+          style: 'destructive',
+          onPress: async () => {
+            setLoading(true);
+            try {
+              await NodeModule.setWindowSecure(true); // block screenshots
+              const key = await NodeModule.exportIdentityKey();
+              setExportedKey(key);
+              setShowExportModal(true);
+            } catch (e: any) {
+              NodeModule.setWindowSecure(false).catch(() => {});
+              Alert.alert('Export Failed', e.message ?? 'Could not read identity key. Start the node first.');
+            } finally {
+              setLoading(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const handleCopy = () => {
+    Clipboard.setString(exportedKey);
+    setCopied(true);
+    // Clear clipboard after 60 seconds
+    if (clipboardClearTimer.current) clearTimeout(clipboardClearTimer.current);
+    clipboardClearTimer.current = setTimeout(() => {
+      Clipboard.setString('');
+      setCopied(false);
+    }, 60_000);
+  };
+
+  const handleImport = async () => {
+    const key = importKey.trim();
+    if (!key) return;
+    Alert.alert(
+      'Replace Identity?',
+      'This will stop the node and permanently replace your current agent identity. Your old identity cannot be recovered. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Replace',
+          style: 'destructive',
+          onPress: async () => {
+            setLoading(true);
+            try {
+              await NodeModule.importIdentityKey(key);
+              setShowImportModal(false);
+              setImportKey('');
+              Alert.alert('Imported', 'Identity key replaced. Start the node to apply.');
+            } catch (e: any) {
+              Alert.alert('Import Failed', e.message ?? 'Invalid key format.');
+            } finally {
+              setLoading(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  return (
+    <View style={s.section}>
+      <Text style={[s.sectionTitle, { color: C.amber }]}>WALLET</Text>
+      <Text style={[s.toggleSub, { paddingHorizontal: 16, paddingBottom: 12 }]}>
+        Your agent identity key. Export to back up or import to a new device.
+      </Text>
+
+      <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingBottom: 16 }}>
+        <TouchableOpacity
+          style={[s.miniBtn, { flex: 1 }]}
+          onPress={handleExport}
+          disabled={loading}
+          activeOpacity={0.8}
+        >
+          <Text style={s.miniBtnText}>EXPORT KEY</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[s.miniBtn, { flex: 1 }]}
+          onPress={() => setShowImportModal(true)}
+          disabled={loading}
+          activeOpacity={0.8}
+        >
+          <Text style={s.miniBtnText}>IMPORT KEY</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Export modal */}
+      <Modal visible={showExportModal} transparent animationType="fade">
+        <View style={wS.overlay}>
+          <View style={wS.modal}>
+            <Text style={wS.title}>PRIVATE KEY</Text>
+            <Text style={wS.warning}>
+              ⚠ Never share this key. Anyone with it controls your agent and wallet.
+            </Text>
+            <View style={wS.keyBox}>
+              <Text style={wS.keyText}>{exportedKey ? '••••••••••••••••••••••••••••••••••••••' : ''}</Text>
+            </View>
+            <TouchableOpacity style={wS.copyBtn} onPress={handleCopy} activeOpacity={0.8}>
+              <Text style={wS.copyBtnText}>{copied ? 'COPIED ✓ (clears in 60s)' : 'COPY TO CLIPBOARD'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={wS.closeBtn} onPress={closeExportModal} activeOpacity={0.8}>
+              <Text style={wS.closeBtnText}>CLOSE & CLEAR CLIPBOARD</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Import modal */}
+      <Modal visible={showImportModal} transparent animationType="fade">
+        <View style={wS.overlay}>
+          <View style={wS.modal}>
+            <Text style={wS.title}>IMPORT WALLET</Text>
+            <Text style={wS.warning}>
+              Paste your Phantom private key (base58). Your current identity will be replaced and the node stopped.
+            </Text>
+            <TextInput
+              style={wS.importInput}
+              value={importKey}
+              onChangeText={setImportKey}
+              placeholder="base58 private key..."
+              placeholderTextColor={C.sub}
+              autoCapitalize="none"
+              autoCorrect={false}
+              secureTextEntry={true}
+            />
+            <TouchableOpacity style={[wS.copyBtn, { backgroundColor: C.red + '22', borderColor: C.red + '60' }]} onPress={handleImport} disabled={loading || !importKey.trim()} activeOpacity={0.8}>
+              <Text style={[wS.copyBtnText, { color: C.red }]}>IMPORT & REPLACE</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={wS.closeBtn} onPress={() => { setShowImportModal(false); setImportKey(''); }} activeOpacity={0.8}>
+              <Text style={wS.closeBtnText}>CANCEL</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </View>
+  );
+}
+
+const wS = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: '#000000cc', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  modal:   { backgroundColor: '#0f0f0f', borderWidth: 1, borderColor: '#2a2a2a', borderRadius: 4, padding: 20, width: '100%' },
+  title:   { fontSize: 11, color: '#ffc107', letterSpacing: 3, fontWeight: '700', fontFamily: 'monospace', marginBottom: 12 },
+  warning: { fontSize: 10, color: '#ff1744', fontFamily: 'monospace', lineHeight: 15, marginBottom: 16 },
+  keyBox:  { backgroundColor: '#050505', borderWidth: 1, borderColor: '#2a2a2a', borderRadius: 3, padding: 12, marginBottom: 12 },
+  keyText: { fontSize: 10, color: '#ffffff', fontFamily: 'monospace', lineHeight: 16 },
+  copyBtn: { backgroundColor: '#00e67620', borderWidth: 1, borderColor: '#00e67640', borderRadius: 3, padding: 12, alignItems: 'center', marginBottom: 8 },
+  copyBtnText: { fontSize: 11, color: '#00e676', fontFamily: 'monospace', letterSpacing: 2, fontWeight: '700' },
+  closeBtn: { padding: 12, alignItems: 'center' },
+  closeBtnText: { fontSize: 11, color: '#555555', fontFamily: 'monospace', letterSpacing: 2 },
+  importInput: { backgroundColor: '#050505', borderWidth: 1, borderColor: '#2a2a2a', borderRadius: 3, padding: 12, color: '#ffffff', fontFamily: 'monospace', fontSize: 10, minHeight: 80, marginBottom: 12, textAlignVertical: 'top' },
+});
+
 // ── Main screen ───────────────────────────────────────────────────────────────
 
 export function SettingsScreen() {
@@ -946,7 +1128,7 @@ export function SettingsScreen() {
     setAgentName(config.agentName ?? '');
     setAgentAvatar(config.agentAvatar ?? '');
     setRelayAddr(config.relayAddr ?? '');
-    setMeshNetwork(rpcToNetwork(config.rpcUrl ?? 'https://api.devnet.solana.com'));
+    setMeshNetwork(rpcToNetwork(config.rpcUrl ?? 'https://api.mainnet-beta.solana.com'));
     setNodeApiUrl(config.nodeApiUrl ?? '');
   }, [config]);
 
@@ -998,6 +1180,11 @@ export function SettingsScreen() {
   };
 
   const handleSave = async () => {
+    const trimmedName = agentName.trim();
+    if (trimmedName && trimmedName.length < 2) {
+      Alert.alert('Invalid Name', 'Agent name must be at least 2 characters.');
+      return;
+    }
     const trimmedNodeApiUrl = nodeApiUrl.trim() || undefined;
     if (trimmedNodeApiUrl) {
       try {
@@ -1116,6 +1303,12 @@ export function SettingsScreen() {
               ))}
             </View>
           </View>
+          {/* Devnet warning */}
+          {meshNetwork === 'devnet' && (
+            <Text style={s.devnetWarn}>
+              Devnet is for testing only. Agent registration (8004 registry) requires mainnet — your node will not appear on the live mesh.
+            </Text>
+          )}
           {/* Trading always on mainnet — informational badge */}
           <View style={s.tradingBadge}>
             <Text style={s.tradingBadgeText}>TRADING · MAINNET · Jupiter · Bags</Text>
@@ -1154,6 +1347,9 @@ export function SettingsScreen() {
             <Text style={{ color: '#00e676', fontFamily: 'monospace', fontSize: 11, letterSpacing: 2 }}>SAVED</Text>
           </View>
         )}
+
+        {/* Wallet key management */}
+        <WalletSection />
 
         {/* On-Chain Registration */}
         <View style={s.section}>
@@ -1272,6 +1468,7 @@ const s = StyleSheet.create({
   netBtnActive: { borderColor: C.green, backgroundColor: C.green + '18' },
   netBtnText: { fontSize: 11, color: C.sub, letterSpacing: 2, fontWeight: '700', fontFamily: 'monospace' },
   netBtnTextActive: { color: C.green },
+  devnetWarn: { marginHorizontal: 16, marginBottom: 8, fontSize: 11, color: '#ff8800', fontFamily: 'monospace', lineHeight: 16 },
   tradingBadge: { marginHorizontal: 16, marginBottom: 12, borderWidth: 1, borderColor: '#ffc10730', borderRadius: 3, paddingVertical: 6, alignItems: 'center' },
   tradingBadgeText: { fontSize: 9, color: C.amber, letterSpacing: 2, fontFamily: 'monospace' },
   hostFieldRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -1357,6 +1554,9 @@ const s = StyleSheet.create({
   barsRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 2 },
   bar: { width: 4, borderRadius: 1 },
   signalNull: { fontSize: 14, color: C.sub },
+  miniBtn: { backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#333', borderRadius: 3, paddingHorizontal: 10, paddingVertical: 5, alignItems: 'center' },
+  miniBtnText: { fontSize: 9, fontWeight: '700', color: C.text, letterSpacing: 1, fontFamily: 'monospace' },
+  sectionTitle: { fontSize: 11, fontWeight: '700', letterSpacing: 3, fontFamily: 'monospace', padding: 16, paddingBottom: 4 },
 });
 
 // Phone Capabilities stylesheet

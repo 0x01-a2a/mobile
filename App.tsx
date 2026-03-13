@@ -12,7 +12,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppNavigator } from './src/navigation/AppNavigator';
 import { OnboardingScreen, checkOnboardingDone } from './src/screens/Onboarding';
 import { AgentBrainConfig, useAgentBrain } from './src/hooks/useAgentBrain';
-import { useNode } from './src/hooks/useNode';
+import { NodeProvider } from './src/hooks/useNode';
 
 // ── Error boundary ────────────────────────────────────────────────────────────
 // Catches uncaught render errors so the app shows a recovery screen instead
@@ -46,14 +46,6 @@ class ErrorBoundary extends Component<{ children: ReactNode }, EBState> {
   }
 }
 
-// ── Node auto-starter ─────────────────────────────────────────────────────────
-// Mounts useNode at the root level so the node (and ZeroClaw) starts
-// automatically even when the user opens Chat before visiting My tab.
-
-function NodeAutoStarter() {
-  useNode();
-  return null;
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -91,8 +83,9 @@ export default function App() {
       <SafeAreaProvider>
         <StatusBar barStyle="light-content" backgroundColor="#050505" />
         <NavigationContainer>
-          <NodeAutoStarter />
-          <AppNavigator />
+          <NodeProvider>
+            <AppNavigator />
+          </NodeProvider>
         </NavigationContainer>
       </SafeAreaProvider>
     </ErrorBoundary>

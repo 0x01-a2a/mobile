@@ -55,6 +55,8 @@ class NodeModule(private val ctx: ReactApplicationContext)
         private const val KEY_LLM_API_KEY = "llm_api_key"
         private const val KEY_NODE_API_SECRET = "local_node_api_secret"
         private const val KEY_GATEWAY_TOKEN = "local_gateway_token"
+        private const val KEY_BAGS_API_KEY = "bags_api_key"
+        private const val KEY_BAGS_PARTNER_KEY = "bags_partner_key"
     }
 
     private var isNodeRunning = false
@@ -224,8 +226,11 @@ class NodeModule(private val ctx: ReactApplicationContext)
             config.getString("capabilities")?.let   { prefs.putString("capabilities",   it) }
             if (config.hasKey("bagsFeesBps"))        prefs.putInt("bags_fee_bps",       config.getInt("bagsFeesBps"))
             config.getString("bagsWallet")?.let     { prefs.putString("bags_wallet",    it) }
-            config.getString("bagsApiKey")?.let     { prefs.putString("bags_api_key",   it) }
-            config.getString("bagsPartnerKey")?.let { prefs.putString("bags_partner_key", it) }
+            // bags API keys stored in EncryptedSharedPreferences (not plaintext)
+            val ep = securePrefs().edit()
+            config.getString("bagsApiKey")?.let     { ep.putString(KEY_BAGS_API_KEY,     it) }
+            config.getString("bagsPartnerKey")?.let { ep.putString(KEY_BAGS_PARTNER_KEY, it) }
+            ep.apply()
             prefs.apply()
             promise.resolve(null)
         } catch (e: Exception) {
@@ -351,6 +356,129 @@ class NodeModule(private val ctx: ReactApplicationContext)
             } catch (e: Exception) {
                 Log.e(TAG, "uploadBlob failed: $e")
                 promise.reject("UPLOAD_ERROR", e.message ?: "unknown error", e)
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Screen security — FLAG_SECURE prevents screenshots/screen recording
+    // -------------------------------------------------------------------------
+
+    @ReactMethod
+    fun setWindowSecure(enabled: Boolean, promise: Promise) {
+        val activity = ctx.currentActivity
+        if (activity == null) {
+            promise.reject("NO_ACTIVITY", "No foreground activity")
+            return
+        }
+        activity.runOnUiThread {
+            if (enabled) {
+                activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+            } else {
+                activity.window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+            }
+            promise.resolve(null)
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Base58 helpers — used for identity key export/import
+    // -------------------------------------------------------------------------
+
+    private val B58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+    private fun bs58encode(data: ByteArray): String {
+        var n = java.math.BigInteger(1, data)
+        val zero = java.math.BigInteger.ZERO
+        val base = java.math.BigInteger.valueOf(58)
+        val sb = StringBuilder()
+        while (n > zero) {
+            val (quotient, remainder) = n.divideAndRemainder(base)
+            sb.append(B58_ALPHABET[remainder.toInt()])
+            n = quotient
+        }
+        for (b in data) {
+            if (b.toInt() != 0) break
+            sb.append(B58_ALPHABET[0])
+        }
+        return sb.reverse().toString()
+    }
+
+    private fun bs58decode(s: String): ByteArray {
+        if (s.length > 100) throw IllegalArgumentException("Input too long for base58 key (${s.length} chars)")
+        var n = java.math.BigInteger.ZERO
+        val base = java.math.BigInteger.valueOf(58)
+        for (c in s) {
+            val idx = B58_ALPHABET.indexOf(c)
+            if (idx < 0) throw IllegalArgumentException("Invalid base58 character: $c")
+            n = n.multiply(base).add(java.math.BigInteger.valueOf(idx.toLong()))
+        }
+        val bytes = n.toByteArray()
+        val stripped = if (bytes.isNotEmpty() && bytes[0] == 0.toByte()) bytes.drop(1).toByteArray() else bytes
+        val leadingZeros = s.takeWhile { it == '1' }.length
+        return ByteArray(leadingZeros) + stripped
+    }
+
+    // -------------------------------------------------------------------------
+    // Identity key export / import
+    // -------------------------------------------------------------------------
+
+    /**
+     * Export the agent's Ed25519 identity as a base58-encoded 64-byte keypair
+     * (32-byte seed || 32-byte pubkey), compatible with Phantom / Solana CLI.
+     */
+    @ReactMethod
+    fun exportIdentityKey(promise: Promise) {
+        moduleScope.launch {
+            try {
+                val keyFile = File(ctx.filesDir, "zerox1-identity.key")
+                if (!keyFile.exists()) {
+                    promise.reject("NO_KEYPAIR", "Identity key not found — start the node first.")
+                    return@launch
+                }
+                val seed = keyFile.readBytes()
+                if (seed.size != 32) {
+                    promise.reject("BAD_KEY", "Expected 32-byte seed, got ${seed.size} bytes.")
+                    return@launch
+                }
+                val spec     = EdDSANamedCurveTable.getByName("Ed25519")
+                val privSpec = EdDSAPrivateKeySpec(seed, spec)
+                val pubKey   = EdDSAPublicKey(EdDSAPublicKeySpec(privSpec.a, spec))
+                val fullKeypair = seed + pubKey.abyte   // 64 bytes: seed || pubkey
+                promise.resolve(bs58encode(fullKeypair))
+            } catch (e: Exception) {
+                Log.e(TAG, "exportIdentityKey failed: $e")
+                promise.reject("EXPORT_ERROR", e.message, e)
+            }
+        }
+    }
+
+    /**
+     * Import a Phantom/Solana CLI base58 private key (64 bytes: seed || pubkey).
+     * Writes the 32-byte seed to zerox1-identity.key — takes effect on next node start.
+     */
+    @ReactMethod
+    fun importIdentityKey(base58Key: String, promise: Promise) {
+        moduleScope.launch {
+            try {
+                val raw = bs58decode(base58Key.trim())
+                if (raw.size != 64) {
+                    promise.reject("BAD_KEY", "Expected 64-byte keypair (got ${raw.size}). Export from Phantom → Show Secret Key.")
+                    return@launch
+                }
+                val seed = raw.copyOfRange(0, 32)
+                // Stop the node so the key file is not in use during write.
+                ctx.stopService(Intent(ctx, NodeService::class.java))
+                isNodeRunning = false
+                // Atomic write: write to temp file then rename to avoid torn reads.
+                val keyFile = File(ctx.filesDir, "zerox1-identity.key")
+                val tmpFile = File(ctx.filesDir, "zerox1-identity.key.tmp")
+                tmpFile.writeBytes(seed)
+                tmpFile.renameTo(keyFile)
+                promise.resolve(null)
+            } catch (e: Exception) {
+                Log.e(TAG, "importIdentityKey failed: $e")
+                promise.reject("IMPORT_ERROR", e.message, e)
             }
         }
     }

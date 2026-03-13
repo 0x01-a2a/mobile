@@ -4,7 +4,7 @@
  * On mount: reads saved config and starts node if auto_start is enabled.
  * Exposes start/stop and the current running state.
  */
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useContext, createContext, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NodeModule, NodeConfig, NodeStatus, onNodeStatus } from '../native/NodeModule';
 import { configureNodeApi, loadTokenFromKeychain, loadBagsApiKey } from './useNodeApi';
@@ -82,7 +82,26 @@ async function withBrainConfig(base: NodeConfig): Promise<NodeConfig> {
   }
 }
 
-export function useNode() {
+// ── Shared context ─────────────────────────────────────────────────────────────
+// Allows all screens to share one useNode instance so config changes
+// (e.g. agent name saved in Settings) propagate everywhere immediately.
+
+type NodeContextValue = ReturnType<typeof useNodeInternal>;
+const NodeContext = createContext<NodeContextValue | null>(null);
+
+export function NodeProvider({ children }: { children: ReactNode }) {
+  const value = useNodeInternal();
+  return <NodeContext.Provider value={value}>{children}</NodeContext.Provider>;
+}
+
+export function useNode(): NodeContextValue {
+  const ctx = useContext(NodeContext);
+  if (ctx) return ctx;
+  // Fallback: called outside provider (e.g. tests) — create a local instance.
+  return useNodeInternal(); // eslint-disable-line react-hooks/rules-of-hooks
+}
+
+function useNodeInternal() {
   const [status, setStatus] = useState<NodeStatus>('stopped');
   const [config, setConfigState] = useState<NodeConfig>({});
   const [autoStart, setAutoStart] = useState(false);

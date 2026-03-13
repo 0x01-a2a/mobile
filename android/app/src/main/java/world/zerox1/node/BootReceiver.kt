@@ -3,6 +3,8 @@ package world.zerox1.node
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 
 /**
  * BootReceiver — restarts the node service after device reboot.
@@ -34,8 +36,22 @@ class BootReceiver : BroadcastReceiver() {
                 putExtra(NodeService.EXTRA_BAGS_FEE_BPS, bagsFeeBps)
                 prefs.getString("bags_wallet", null)?.let { putExtra(NodeService.EXTRA_BAGS_WALLET, it) }
             }
-            prefs.getString("bags_api_key", null)?.let { putExtra(NodeService.EXTRA_BAGS_API_KEY, it) }
-            prefs.getString("bags_partner_key", null)?.let { putExtra(NodeService.EXTRA_BAGS_PARTNER_KEY, it) }
+            // bags API keys are stored in EncryptedSharedPreferences
+            try {
+                val masterKey = MasterKey.Builder(context)
+                    .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                    .setRequestStrongBoxBacked(false)
+                    .build()
+                val securePrefs = EncryptedSharedPreferences.create(
+                    context, "zerox1_secure", masterKey,
+                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+                )
+                securePrefs.getString("bags_api_key",     null)?.let { putExtra(NodeService.EXTRA_BAGS_API_KEY,     it) }
+                securePrefs.getString("bags_partner_key", null)?.let { putExtra(NodeService.EXTRA_BAGS_PARTNER_KEY, it) }
+            } catch (e: Exception) {
+                android.util.Log.e("BootReceiver", "Failed to load secure prefs for bags keys: $e")
+            }
         }
 
         context.startForegroundService(serviceIntent)

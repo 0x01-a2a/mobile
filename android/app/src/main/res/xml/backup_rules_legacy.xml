@@ -9,7 +9,8 @@
     <include domain="file" path="zw/workspace/memory/brain.db-shm" />
     <include domain="file" path="zw/workspace/state/memory_hygiene_state.json" />
     <include domain="file" path="zw/IDENTITY.md" />
-    <include domain="sharedpref" path="zerox1" />
+    <exclude domain="sharedpref" path="zerox1" />
+    <exclude domain="sharedpref" path="zerox1_secure" />
     <exclude domain="file" path="zerox1-identity.key" />
     <exclude domain="file" path="logs" />
     <exclude domain="file" path="zw/skills" />

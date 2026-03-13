@@ -774,10 +774,10 @@ name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'w
 
         // Redact sensitive flags before logging.
         val safeCmd = cmd.toMutableList().also { list ->
-            val idx = list.indexOf("--bags-api-key")
-            if (idx >= 0 && idx + 1 < list.size) list[idx + 1] = "[REDACTED]"
-            val partnerIdx = list.indexOf("--bags-partner-key")
-            if (partnerIdx >= 0 && partnerIdx + 1 < list.size) list[partnerIdx + 1] = "[REDACTED]"
+            for (flag in listOf("--bags-api-key", "--bags-partner-key", "--api-secret", "--fcm-token")) {
+                val idx = list.indexOf(flag)
+                if (idx >= 0 && idx + 1 < list.size) list[idx + 1] = "[REDACTED]"
+            }
         }
         Log.i(TAG, "Launching node: ${safeCmd.joinToString(" ")}")
 
@@ -1039,6 +1039,15 @@ timeout_secs = 10
                 Log.w(TAG, "Could not fetch /portfolio/balances for IDENTITY.md: $e")
             }
 
+            // ── Read bridge capability toggles ───────────────────────────────
+            val bridgePrefs = applicationContext.getSharedPreferences("zerox1_bridge", android.content.Context.MODE_PRIVATE)
+            val allBridgeCaps = listOf("messaging","contacts","location","camera","microphone","screen","calls","calendar","media")
+            val capLines = allBridgeCaps.joinToString("\n") { cap ->
+                val enabled = bridgePrefs.getBoolean("bridge_cap_$cap", true)
+                val status  = if (enabled) "enabled" else "disabled (user toggled off)"
+                "- $cap: $status"
+            }
+
             // ── Write IDENTITY.md ────────────────────────────────────────────
             val networkLabel = if (isMainnet) "Solana MAINNET" else "Solana devnet"
             val walletBlock = if (agentIdHex != null && solanaAddress != null) {
@@ -1099,6 +1108,94 @@ In a shell tool:
 ## Node API
 Your local zerox1 node API: http://127.0.0.1:$NODE_API_PORT
 Auth: Authorization: Bearer <ZX01_TOKEN> (already available as env var ZX01_TOKEN).
+
+## Android Environment
+You are running on an Android device as a background foreground service.
+- No apt, brew, pip, or package managers are available.
+- No Solana CLI (`solana`, `spl-token`) — use the Node API instead (see above).
+- Available shell tools: curl, jq, sh, bash.
+- File system: read/write access to the app's filesDir only.
+
+## Phone Bridge (Android capabilities)
+Your config file contains a [phone] section with bridge_url and secret.
+The phone bridge is a local HTTP server on 127.0.0.1:$AGENT_BRIDGE_PORT that gives you
+access to Android device APIs. Auth: `Authorization: Bearer <secret from config>`.
+
+Capability status (user-controlled toggles):
+$capLines
+
+Available endpoints (all return {"ok":bool,"data":...} or {"ok":false,"error":"..."}):
+
+### Contacts
+- GET  /phone/contacts[?query=name]      — search/list contacts
+- POST /phone/contacts                   — create contact {name,phone?,email?}
+- PUT  /phone/contacts/:id               — update contact
+
+### Messaging
+- GET  /phone/sms[?box=inbox&limit=50&contact=X] — read SMS
+- POST /phone/sms/send                   — send SMS {to, body}
+
+### Location
+- GET  /phone/location                   — GPS coordinates {lat,lng,accuracy,provider}
+
+### Calendar
+- GET  /phone/calendar[?days=7]          — upcoming events
+- POST /phone/calendar                   — create event {title,start_ms,end_ms,description?}
+- PUT  /phone/calendar/:id               — update event
+
+### Camera
+- POST /phone/camera/capture             — take photo {facing:"back"|"front"} → base64 JPEG
+
+### Microphone / Audio
+- POST /phone/audio/record               — record audio {duration_ms} → base64 WAV
+- GET  /phone/audio/profile              — volume levels + DND mode
+- POST /phone/audio/profile              — set volume/DND {stream?,volume?,dnd?}
+
+### Notifications
+- GET  /phone/notifications              — current active notifications
+- GET  /phone/notifications/history      — recent notification history
+- POST /phone/notifications/reply        — reply to a notification {key,reply}
+- POST /phone/notifications/dismiss      — dismiss a notification {key}
+- POST /phone/notify                     — post a system notification {title,body,channel?}
+
+### Calls
+- GET  /phone/call_log[?limit=50]        — call history
+- GET  /phone/calls/pending              — incoming calls awaiting screening decision
+- GET  /phone/calls/history             — recent screened calls
+- POST /phone/calls/respond              — respond to screened call {id,action:"allow"|"reject"|"silence"}
+
+### Screen / Accessibility
+- GET  /phone/a11y/status               — accessibility service enabled?
+- GET  /phone/a11y/tree                  — UI element tree of foreground app
+- POST /phone/a11y/action               — perform action on element {nodeId,action}
+- POST /phone/a11y/click                 — tap at coordinates {x,y}
+- POST /phone/a11y/global               — global action {action:"back"|"home"|"recents"|"notifications"}
+- GET  /phone/a11y/screenshot           — screenshot → base64 PNG
+- POST /phone/a11y/vision               — screenshot + LLM vision analysis {prompt}
+
+### Device / System
+- GET  /phone/device      — device model, OS version, language, screen size
+- GET  /phone/battery     — battery level, charging status
+- GET  /phone/network     — connectivity type (wifi/cellular/none)
+- GET  /phone/wifi        — SSID, signal strength, IP
+- GET  /phone/carrier     — carrier name, MCC/MNC
+- GET  /phone/bluetooth   — paired/nearby Bluetooth devices
+- GET  /phone/timezone    — timezone + UTC offset
+- GET  /phone/activity    — step count (today)
+- GET  /phone/imu[?duration_ms=500]         — accelerometer/gyroscope snapshot
+- POST /phone/imu/record  {duration_ms}      — record IMU stream
+- POST /phone/vibrate     {pattern?}         — vibrate device
+- POST /phone/clipboard   {text}             — write to clipboard
+- POST /phone/alarm       {hour,minute,message?} — set alarm
+- GET  /phone/app_usage[?days=7]             — per-app screen time
+- GET  /phone/documents   — list files in Downloads/Documents
+- GET  /phone/media/images[?limit=20]        — list recent photos (path+timestamp)
+- GET  /phone/permissions — runtime permission grant status
+- GET  /phone/activity_log[?limit=50]        — bridge audit log (recent calls)
+
+IMPORTANT: If a capability is disabled (see status above), the endpoint returns
+{"ok":false,"error":"CAPABILITY_DISABLED"}. Do not retry — ask the user to enable
+the capability in the app Settings > Phone Bridge section instead.
 """.trimStart()
 
             File(workspaceDir, "IDENTITY.md").writeText(content)

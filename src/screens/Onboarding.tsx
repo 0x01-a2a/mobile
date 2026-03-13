@@ -246,9 +246,16 @@ function NameStep({
           maxLength={32}
         />
       </View>
+      {agentName.trim().length === 1 && (
+        <Text style={[s.keyHint, { color: '#ff8800' }]}>Name must be at least 2 characters.</Text>
+      )}
       <Text style={s.keyHint}>Max 32 characters. Leave blank to use your agent ID prefix.</Text>
 
-      <PrimaryBtn label="CONTINUE →" onPress={onNext} />
+      <PrimaryBtn
+        label="CONTINUE →"
+        onPress={onNext}
+        disabled={agentName.trim().length === 1}
+      />
       <GhostBtn label="skip" onPress={onSkip} />
     </StepShell>
   );
@@ -936,6 +943,9 @@ function OnchainRegistrationStep({
         )}
         <Text style={s.walletHint}>
           The agent's own key signs everything. Good for fully autonomous operation.
+        </Text>
+        <Text style={[s.walletHint, { color: '#ff8800', marginTop: 8 }]}>
+          Back up your key after setup: Settings → Wallet → EXPORT KEY. Reinstalling without a backup permanently loses your agent identity, reputation, and any staked funds.
         </Text>
         <PrimaryBtn
           label={registering ? 'REGISTERING…' : 'REGISTER WITH HOT WALLET →'}
