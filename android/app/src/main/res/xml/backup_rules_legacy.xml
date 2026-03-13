@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   Android 6–11 backup rules (fullBackupContent).
-  Same policy as backup_rules.xml but in the older format.
+  Only the explicitly listed paths are backed up — everything else (including
+  the identity key, SharedPreferences, logs, and skills cache) is excluded
+  by default when <include> elements are present.
 -->
 <full-backup-content>
     <include domain="file" path="zw/workspace/memory/brain.db" />
@@ -9,9 +11,4 @@
     <include domain="file" path="zw/workspace/memory/brain.db-shm" />
     <include domain="file" path="zw/workspace/state/memory_hygiene_state.json" />
     <include domain="file" path="zw/IDENTITY.md" />
-    <exclude domain="sharedpref" path="zerox1" />
-    <exclude domain="sharedpref" path="zerox1_secure" />
-    <exclude domain="file" path="zerox1-identity.key" />
-    <exclude domain="file" path="logs" />
-    <exclude domain="file" path="zw/skills" />
 </full-backup-content>
