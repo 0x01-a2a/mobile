@@ -651,6 +651,42 @@ class NodeModule(private val ctx: ReactApplicationContext)
         }
     }
 
+    /**
+     * Show a local notification when ZeroClaw replies while the app is in the background.
+     * Tapping the notification reopens the app to the Chat screen.
+     */
+    @ReactMethod
+    fun showChatNotification(body: String, promise: Promise) {
+        try {
+            val channelId = "zerox1_chat"
+            val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE)
+                as android.app.NotificationManager
+            val channel = android.app.NotificationChannel(
+                channelId,
+                "01 Pilot Chat",
+                android.app.NotificationManager.IMPORTANCE_DEFAULT,
+            ).apply { description = "Messages from your agent brain" }
+            nm.createNotificationChannel(channel)
+
+            val launchIntent = ctx.packageManager.getLaunchIntentForPackage(ctx.packageName)
+            val pi = android.app.PendingIntent.getActivity(
+                ctx, 0, launchIntent,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE,
+            )
+            val notif = androidx.core.app.NotificationCompat.Builder(ctx, channelId)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle("01 Pilot")
+                .setContentText(body)
+                .setContentIntent(pi)
+                .setAutoCancel(true)
+                .build()
+            nm.notify(0x5A02, notif)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("NOTIF_ERROR", e.message ?: "Failed to show notification")
+        }
+    }
+
     // Required for addListener / removeListeners (RN event emitter contract)
     @ReactMethod fun addListener(eventName: String) {}
     @ReactMethod fun removeListeners(count: Int) {}

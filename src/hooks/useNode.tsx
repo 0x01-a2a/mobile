@@ -4,7 +4,8 @@
  * On mount: reads saved config and starts node if auto_start is enabled.
  * Exposes start/stop and the current running state.
  */
-import { useState, useEffect, useCallback, useContext, createContext, ReactNode } from 'react';
+import { useState, useEffect, useCallback, useRef, useContext, createContext, ReactNode } from 'react';
+import { AppState, AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NodeModule, NodeConfig, NodeStatus, onNodeStatus } from '../native/NodeModule';
 import { configureNodeApi, loadTokenFromKeychain, loadBagsApiKey } from './useNodeApi';
@@ -14,7 +15,11 @@ const STORAGE_KEYS = {
   CONFIG: 'zerox1:node_config',
   AUTO_START: 'zerox1:auto_start',
   BRAIN: 'zerox1:agent_brain',
+  BACKGROUND_NODE: 'zerox1:background_node',
 };
+
+// How long the app must be in background before the node is idle-stopped (ms).
+const IDLE_STOP_DELAY_MS = 60_000;
 
 const LOCAL_NODE_API_BASE = 'http://127.0.0.1:9090';
 const LOCAL_NODE_WS_BASE = 'ws://127.0.0.1:9090';
@@ -105,7 +110,14 @@ function useNodeInternal() {
   const [status, setStatus] = useState<NodeStatus>('stopped');
   const [config, setConfigState] = useState<NodeConfig>({});
   const [autoStart, setAutoStart] = useState(false);
+  const [backgroundNode, setBackgroundNodeState] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  // Refs used by the AppState handler (avoid stale closure issues).
+  const backgroundNodeRef = useRef(false);
+  const configRef = useRef<NodeConfig>({});
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const idleStoppedRef = useRef(false); // true if we stopped the node on idle
 
   // Subscribe to native status events
   useEffect(() => {
@@ -116,12 +128,17 @@ function useNodeInternal() {
   useEffect(() => {
     (async () => {
       try {
-        const [savedConfig, savedAutoStart] = await Promise.all([
+        const [savedConfig, savedAutoStart, savedBgNode] = await Promise.all([
           AsyncStorage.getItem(STORAGE_KEYS.CONFIG),
           AsyncStorage.getItem(STORAGE_KEYS.AUTO_START),
+          AsyncStorage.getItem(STORAGE_KEYS.BACKGROUND_NODE),
         ]);
+        const bgNode = savedBgNode === 'true';
+        backgroundNodeRef.current = bgNode;
+        setBackgroundNodeState(bgNode);
         const cfg: NodeConfig = savedConfig ? JSON.parse(savedConfig) : {};
         setConfigState(cfg);
+        configRef.current = cfg;
         const auto = savedAutoStart === 'true';
         setAutoStart(auto);
         if (auto) {
@@ -178,6 +195,61 @@ function useNodeInternal() {
     })();
   }, []);
 
+  // AppState idle detection: stop node after IDLE_STOP_DELAY_MS in background
+  // (unless backgroundNode is enabled). Restart when app returns to foreground.
+  useEffect(() => {
+    const handleAppStateChange = (nextState: AppStateStatus) => {
+      if (nextState === 'background' || nextState === 'inactive') {
+        if (!backgroundNodeRef.current && !idleTimerRef.current) {
+          idleTimerRef.current = setTimeout(async () => {
+            idleTimerRef.current = null;
+            try {
+              const running = await NodeModule.isRunning();
+              if (running) {
+                await NodeModule.stopNode();
+                idleStoppedRef.current = true;
+              }
+            } catch { /* ignore */ }
+          }, IDLE_STOP_DELAY_MS);
+        }
+      } else if (nextState === 'active') {
+        // Clear any pending idle timer.
+        if (idleTimerRef.current) {
+          clearTimeout(idleTimerRef.current);
+          idleTimerRef.current = null;
+        }
+        // Restart node if we idle-stopped it.
+        if (idleStoppedRef.current) {
+          idleStoppedRef.current = false;
+          const cfg = configRef.current;
+          if (!cfg.nodeApiUrl) {
+            (async () => {
+              try {
+                if (!_startLock) {
+                  _startLock = (async () => {
+                    try {
+                      await NodeModule.startNode(await withBagsConfig(await withBrainConfig(cfg)));
+                      await configureLocalNodeApi();
+                    } finally {
+                      _startLock = null;
+                    }
+                  })();
+                }
+                await _startLock;
+              } catch { /* ignore */ }
+            })();
+          }
+        }
+      }
+    };
+
+    const sub = AppState.addEventListener('change', handleAppStateChange);
+    return () => {
+      sub.remove();
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const start = useCallback(async (cfg?: NodeConfig) => {
     const effective = cfg ?? config;
 
@@ -209,6 +281,7 @@ function useNodeInternal() {
       setStatus('running');
     }
 
+    configRef.current = effective;
     await AsyncStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(effective));
   }, [config]);
 
@@ -219,6 +292,7 @@ function useNodeInternal() {
 
   const saveConfig = useCallback(async (cfg: NodeConfig) => {
     setConfigState(cfg);
+    configRef.current = cfg;
     await AsyncStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(cfg));
   }, []);
 
@@ -229,14 +303,22 @@ function useNodeInternal() {
     // so BootReceiver can read the config on reboot.
   }, []);
 
+  const setBackgroundNodePersisted = useCallback(async (value: boolean) => {
+    backgroundNodeRef.current = value;
+    setBackgroundNodeState(value);
+    await AsyncStorage.setItem(STORAGE_KEYS.BACKGROUND_NODE, String(value));
+  }, []);
+
   return {
     status,
     config,
     autoStart,
+    backgroundNode,
     loading,
     start,
     stop,
     saveConfig,
     setAutoStart: setAutoStartPersisted,
+    setBackgroundNode: setBackgroundNodePersisted,
   };
 }

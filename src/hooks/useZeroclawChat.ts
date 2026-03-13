@@ -8,6 +8,7 @@
  * ZeroClaw conversation. Call resetSession() to manually clear within one agent.
  */
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NodeModule } from '../native/NodeModule';
 
@@ -20,13 +21,15 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   text: string;
   ts: number;
+  imageUri?: string;  // local file URI for display thumbnail
+  imageCid?: string;  // blob store CID (hex)
 }
 
 export interface UseZeroclawChatResult {
   messages: ChatMessage[];
   loading: boolean;
   error: string | null;
-  send: (text: string) => Promise<void>;
+  send: (text: string, image?: { uri: string; cid: string; mime: string }) => Promise<void>;
   resetSession: () => Promise<void>;
   injectSystemMessage: (text: string) => void;
 }
@@ -142,15 +145,26 @@ export function useZeroclawChat(agentId?: string): UseZeroclawChatResult {
     return id;
   }, []);
 
-  const send = useCallback(async (text: string) => {
+  const send = useCallback(async (
+    text: string,
+    image?: { uri: string; cid: string; mime: string },
+  ) => {
     const trimmed = text.trim();
-    if (!trimmed || loading) return;
+    if (!trimmed && !image || loading) return;
+
+    // Build the message text sent to zeroclaw. If an image is attached, include
+    // the CID so the agent can reference it (e.g. for bags_launch image_url).
+    const messageText = image
+      ? `${trimmed ? trimmed + '\n' : ''}[User attached image — CID: ${image.cid}, mime: ${image.mime}. Accessible at https://api.0x01.world/blobs/${image.cid}]`
+      : trimmed;
 
     const userMsg: ChatMessage = {
       id: genId(),
       role: 'user',
       text: trimmed,
       ts: Date.now(),
+      imageUri: image?.uri,
+      imageCid: image?.cid,
     };
     setMessages(prev => [...prev, userMsg]);
     setLoading(true);
@@ -176,7 +190,7 @@ export function useZeroclawChat(agentId?: string): UseZeroclawChatResult {
           Authorization: `Bearer ${gatewayTokenRef.current}`,
         },
         body: JSON.stringify({
-          message: trimmed,
+          message: messageText,
           session_id: sessionId,
           context: systemContextRef.current,
         }),
@@ -205,6 +219,12 @@ export function useZeroclawChat(agentId?: string): UseZeroclawChatResult {
         ts: Date.now(),
       };
       setMessages(prev => [...prev, assistantMsg]);
+
+      // Notify user if app is in the background
+      if (AppState.currentState !== 'active') {
+        const preview = data.reply.replace(/\s+/g, ' ').slice(0, 120);
+        NodeModule.showChatNotification(preview).catch(() => {});
+      }
     } catch (err: unknown) {
       const msg =
         err instanceof Error

@@ -44,7 +44,7 @@ class NodeService : Service() {
         const val NOTIF_ID         = 1
         const val NODE_API_PORT    = 9090
         const val BINARY_NAME      = "zerox1-node"
-        const val ASSET_VERSION    = "0.3.1"   // bump when binary changes
+        const val ASSET_VERSION    = "0.3.2"   // bump when binary changes
 
         // ZeroClaw agent brain binary
         const val AGENT_BINARY_NAME    = "zeroclaw"
@@ -116,6 +116,7 @@ You can launch, trade, and manage Solana tokens on Bags.fm directly from this ag
 
 - Only launch tokens with honest names and descriptions — no impersonation or fraud.
 - Confirm with the user before executing any trade or spending SOL.
+- If the user attaches an image (message contains "CID: <hex>"), extract the hex CID and pass it as image_cid in bags_launch — this uploads the file directly to Bags.fm. Do not use image_url in this case.
 - The initial_buy_lamports field is optional. Use 0 or omit for no initial purchase.
 - After claiming, tell the user how many transactions were submitted.
 - For bags_swap_execute, report the txid and the quote details so the user can verify.
@@ -130,13 +131,14 @@ ${'$'}TOML_TQ]
 name        = "bags_launch"
 description = "Launch a new Solana token on Bags.fm. You receive 100% of all future pool trading fees. Requires ~0.05 SOL in hot wallet."
 kind        = "shell"
-command     = ${'$'}TOML_TQjq -nc --arg n {name} --arg s {symbol} --arg d {description} --arg img {image_url} --argjson buy {initial_buy_lamports} '{"name":${'$'}n,"symbol":${'$'}s,"description":${'$'}d,"image_url":(${'$'}img|if . == "" then null else . end),"initial_buy_lamports":(${'$'}buy|if . == 0 then null else . end)}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/launch" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${'$'}TOML_TQjq -nc --arg n {name} --arg s {symbol} --arg d {description} --arg img {image_url} --arg cid {image_cid} --argjson buy {initial_buy_lamports} '{"name":${'$'}n,"symbol":${'$'}s,"description":${'$'}d,"image_url":(${'$'}img|if . == "" then null else . end),"image_cid":(${'$'}cid|if . == "" then null else . end),"initial_buy_lamports":(${'$'}buy|if . == 0 then null else . end)}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/launch" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
 
 [tools.args]
 name                 = "Token name (e.g. 'My Agent Token')"
 symbol               = "Ticker symbol, 2-8 chars (e.g. 'MAT')"
 description          = "Short description of the token (1-3 sentences)"
-image_url            = "URL of the token image (optional — leave empty string to skip)"
+image_cid            = "Keccak-256 hex CID of a user-attached image (preferred when user uploads a file). Leave empty string if not available."
+image_url            = "Public HTTPS URL of the token image. Use only when no image_cid is available. Leave empty string to skip."
 initial_buy_lamports = "Lamports to spend on initial token buy (0 = no initial buy; 100000000 = 0.1 SOL)"
 
 [[tools]]

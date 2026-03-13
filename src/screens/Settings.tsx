@@ -1071,7 +1071,7 @@ const wS = StyleSheet.create({
 // ── Main screen ───────────────────────────────────────────────────────────────
 
 export function SettingsScreen() {
-  const { config, autoStart, saveConfig, setAutoStart, status, start, stop } = useNode();
+  const { config, autoStart, backgroundNode, saveConfig, setAutoStart, setBackgroundNode, status, start, stop } = useNode();
 
   const [agentName, setAgentName] = useState(config.agentName ?? '');
   const [agentAvatar, setAgentAvatar] = useState(config.agentAvatar ?? '');
@@ -1398,6 +1398,18 @@ export function SettingsScreen() {
               onValueChange={setAutoStart}
               trackColor={{ false: C.border, true: C.green + '66' }}
               thumbColor={autoStart ? C.green : '#333'}
+            />
+          </View>
+          <View style={s.toggleRow}>
+            <View style={{ flex: 1, paddingRight: 12 }}>
+              <Text style={s.toggleLabel}>KEEP NODE RUNNING IN BACKGROUND</Text>
+              <Text style={s.toggleSub}>Off: node stops after 60s when app is in background (battery saving). ZeroClaw restarts when you reopen the app.</Text>
+            </View>
+            <Switch
+              value={backgroundNode}
+              onValueChange={setBackgroundNode}
+              trackColor={{ false: C.border, true: C.green + '66' }}
+              thumbColor={backgroundNode ? C.green : '#333'}
             />
           </View>
         </View>

@@ -177,6 +177,13 @@ export const NodeModule = {
    */
   importIdentityKey: (base58Key: string): Promise<void> =>
     ZeroxNodeModule.importIdentityKey(base58Key),
+
+  /**
+   * Show a local notification — used when ZeroClaw replies while the app is
+   * in the background. Tapping the notification reopens the app.
+   */
+  showChatNotification: (body: string): Promise<void> =>
+    ZeroxNodeModule.showChatNotification(body),
 };
 
 // ============================================================================

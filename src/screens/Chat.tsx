@@ -196,6 +196,13 @@ function Bubble({ msg }: { msg: ChatMessage }) {
     <View style={[s.bubbleRow, isUser ? s.rowRight : s.rowLeft]}>
       {!isUser && <Text style={s.roleLabel}>[ZC]</Text>}
       <View style={[s.bubble, isUser ? s.bubbleUser : s.bubbleAgent]}>
+        {msg.imageUri ? (
+          <Image
+            source={{ uri: msg.imageUri }}
+            style={s.bubbleThumb}
+            resizeMode="cover"
+          />
+        ) : null}
         {displayText ? (
           <Text style={[s.bubbleText, isUser ? s.bubbleTextUser : undefined]}>
             {displayText}
@@ -234,6 +241,10 @@ export function ChatScreen() {
   const { upload, uploading, error: uploadError } = useBlobs();
   const [draft, setDraft] = useState('');
   const listRef = useRef<FlatList>(null);
+
+  // Pending image attachment (picked but not yet sent)
+  const [pendingImage, setPendingImage] = useState<{ uri: string; base64: string; mime: string } | null>(null);
+  const [imagePreviewVisible, setImagePreviewVisible] = useState(false);
 
   // Bags rate-limit modal state
   const [bagsKeyModalVisible, setBagsKeyModalVisible] = useState(false);
@@ -275,12 +286,52 @@ export function ChatScreen() {
     }
   }, [messages]);
 
+  // Pick an image to attach to the next chat message.
+  const pickChatImage = useCallback(async () => {
+    const result = await launchImageLibrary({
+      mediaType: 'photo',
+      includeBase64: true,
+      maxWidth: 1024,
+      maxHeight: 1024,
+      quality: 0.8,
+    });
+    if (result.didCancel || !result.assets?.[0]) return;
+    const asset = result.assets[0];
+    if (!asset.base64) { Alert.alert('Error', 'Could not read image data.'); return; }
+    setPendingImage({ uri: asset.uri!, base64: asset.base64, mime: asset.type ?? 'image/jpeg' });
+    setImagePreviewVisible(true);
+  }, []);
+
+  // Discard the pending image (called from preview modal cancel).
+  const discardPendingImage = useCallback(() => {
+    setImagePreviewVisible(false);
+    setPendingImage(null);
+  }, []);
+
+  // Confirm image selection from the preview modal — close modal, keep attachment.
+  const confirmPendingImage = useCallback(() => {
+    setImagePreviewVisible(false);
+  }, []);
+
   const handleSend = useCallback(async () => {
     const text = draft.trim();
-    if (!text || loading) return;
+    if ((!text && !pendingImage) || loading) return;
     setDraft('');
-    await send(text);
-  }, [draft, loading, send]);
+    const img = pendingImage;
+    setPendingImage(null);
+    if (img) {
+      // Upload to blob store first, then send.
+      try {
+        const cid = await upload(img.base64, img.mime);
+        if (!cid) return; // upload error surfaced via useBlobs
+        await send(text, { uri: img.uri, cid, mime: img.mime });
+      } catch {
+        // upload() already sets uploadError
+      }
+    } else {
+      await send(text);
+    }
+  }, [draft, pendingImage, loading, send, upload]);
 
   // Hosted mode: inline image data directly in the DELIVER payload (no blob upload).
   // Limit to 150 KB decoded to stay within the node's MAX_MESSAGE_SIZE guard.
@@ -502,27 +553,91 @@ export function ChatScreen() {
         </View>
       </Modal>
 
+      {/* Image preview modal */}
+      <Modal
+        visible={imagePreviewVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={discardPendingImage}
+      >
+        <View style={s.modalOverlay}>
+          <View style={s.imgPreviewCard}>
+            <Text style={s.imgPreviewTitle}>ATTACH IMAGE</Text>
+            {pendingImage && (
+              <Image
+                source={{ uri: pendingImage.uri }}
+                style={s.imgPreviewSquare}
+                resizeMode="cover"
+              />
+            )}
+            <Text style={s.imgPreviewHint}>
+              Add a caption below, then tap SEND — or tap CANCEL to discard.
+            </Text>
+            <TextInput
+              style={s.modalInput}
+              value={draft}
+              onChangeText={setDraft}
+              placeholder="Optional caption..."
+              placeholderTextColor={C.sub}
+              multiline
+              maxLength={500}
+            />
+            <View style={s.modalActions}>
+              <TouchableOpacity style={s.modalCancel} onPress={discardPendingImage}>
+                <Text style={s.modalCancelText}>CANCEL</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.modalSave, (uploading || loading) && s.sendBtnDisabled]}
+                disabled={uploading || loading}
+                onPress={() => { confirmPendingImage(); handleSend(); }}
+              >
+                <Text style={s.modalSaveText}>{uploading ? '...' : 'SEND'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Input row */}
-      <View style={s.inputRow}>
-        <TextInput
-          style={s.input}
-          value={draft}
-          onChangeText={setDraft}
-          placeholder="Message 01 Pilot..."
-          placeholderTextColor={C.sub}
-          multiline
-          maxLength={4000}
-          onSubmitEditing={handleSend}
-          blurOnSubmit={false}
-          editable={!loading}
-        />
-        <TouchableOpacity
-          style={[s.sendBtn, (!draft.trim() || loading) && s.sendBtnDisabled]}
-          onPress={handleSend}
-          disabled={!draft.trim() || loading}
-        >
-          <Text style={s.sendBtnText}>{loading ? '…' : '>'}</Text>
-        </TouchableOpacity>
+      <View style={s.inputWrap}>
+        {/* Pending image indicator strip */}
+        {pendingImage && !imagePreviewVisible && (
+          <View style={s.pendingImageStrip}>
+            <Image source={{ uri: pendingImage.uri }} style={s.pendingThumb} resizeMode="cover" />
+            <Text style={s.pendingImageLabel}>Image attached</Text>
+            <TouchableOpacity onPress={discardPendingImage} style={s.pendingRemoveBtn}>
+              <Text style={s.pendingRemoveText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        <View style={s.inputRow}>
+          <TouchableOpacity
+            style={[s.attachBtn, loading && s.sendBtnDisabled]}
+            onPress={pickChatImage}
+            disabled={loading}
+          >
+            <Text style={s.attachBtnText}>📎</Text>
+          </TouchableOpacity>
+          <TextInput
+            style={s.input}
+            value={draft}
+            onChangeText={setDraft}
+            placeholder="Message 01 Pilot..."
+            placeholderTextColor={C.sub}
+            multiline
+            maxLength={4000}
+            onSubmitEditing={handleSend}
+            blurOnSubmit={false}
+            editable={!loading}
+          />
+          <TouchableOpacity
+            style={[s.sendBtn, ((!draft.trim() && !pendingImage) || loading) && s.sendBtnDisabled]}
+            onPress={handleSend}
+            disabled={(!draft.trim() && !pendingImage) || loading}
+          >
+            <Text style={s.sendBtnText}>{loading ? '…' : '>'}</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </KeyboardAvoidingView>
   );
@@ -574,11 +689,27 @@ const s = StyleSheet.create({
   errorBanner: { backgroundColor: '#1a0505', borderTopWidth: 1, borderTopColor: C.red, padding: 12 },
   errorText: { color: C.red, fontFamily: 'monospace', fontSize: 11, marginBottom: 2 },
   errorHint: { color: C.sub, fontFamily: 'monospace', fontSize: 10 },
-  inputRow: { flexDirection: 'row', alignItems: 'flex-end', padding: 12, borderTopWidth: 1, borderTopColor: C.border, gap: 8 },
+  inputWrap: { borderTopWidth: 1, borderTopColor: C.border },
+  inputRow: { flexDirection: 'row', alignItems: 'flex-end', padding: 12, gap: 8 },
   input: { flex: 1, backgroundColor: C.input, borderWidth: 1, borderColor: C.border, borderRadius: 4, paddingHorizontal: 12, paddingVertical: 10, color: C.text, fontFamily: 'monospace', fontSize: 13, maxHeight: 120 },
+  attachBtn: { width: 44, height: 44, borderRadius: 4, alignItems: 'center', justifyContent: 'center', backgroundColor: C.card, borderWidth: 1, borderColor: C.border },
+  attachBtnText: { fontSize: 20 },
   sendBtn: { backgroundColor: C.green, width: 44, height: 44, borderRadius: 4, alignItems: 'center', justifyContent: 'center' },
   sendBtnDisabled: { backgroundColor: C.border },
   sendBtnText: { color: '#000000', fontFamily: 'monospace', fontSize: 18, fontWeight: '700' },
+  // pending image strip
+  pendingImageStrip: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingTop: 8, gap: 8 },
+  pendingThumb: { width: 40, height: 40, borderRadius: 4, borderWidth: 1, borderColor: C.green },
+  pendingImageLabel: { flex: 1, color: C.green, fontFamily: 'monospace', fontSize: 11 },
+  pendingRemoveBtn: { padding: 6 },
+  pendingRemoveText: { color: C.sub, fontFamily: 'monospace', fontSize: 14 },
+  // bubble image thumbnail
+  bubbleThumb: { width: 180, height: 180, borderRadius: 4, marginBottom: 6, borderWidth: 1, borderColor: C.border },
+  // image preview modal
+  imgPreviewCard: { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 6, padding: 20, width: '100%' },
+  imgPreviewTitle: { color: C.green, fontFamily: 'monospace', fontSize: 11, fontWeight: '700', letterSpacing: 2, marginBottom: 12 },
+  imgPreviewSquare: { width: '100%', aspectRatio: 1, borderRadius: 4, borderWidth: 1, borderColor: C.border, marginBottom: 12 },
+  imgPreviewHint: { color: C.sub, fontFamily: 'monospace', fontSize: 11, lineHeight: 16, marginBottom: 10 },
   // launch result card
   launchCard: { marginTop: 8, backgroundColor: '#0a1a0a', borderWidth: 1, borderColor: C.green + '60', borderRadius: 4, padding: 10 },
   launchCardLabel: { fontSize: 9, color: C.green, letterSpacing: 3, fontWeight: '700', fontFamily: 'monospace', marginBottom: 6 },
