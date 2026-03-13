@@ -9,10 +9,22 @@ import React, { useEffect, useState, Component, ErrorInfo, ReactNode } from 'rea
 import { StatusBar, View, Text, StyleSheet } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import * as Sentry from '@sentry/react-native';
 import { AppNavigator } from './src/navigation/AppNavigator';
 import { OnboardingScreen, checkOnboardingDone } from './src/screens/Onboarding';
 import { AgentBrainConfig, useAgentBrain } from './src/hooks/useAgentBrain';
 import { NodeProvider } from './src/hooks/useNode';
+
+// Set SENTRY_DSN to your project's DSN from sentry.io to enable crash reporting.
+// Leave empty to disable (safe for dev builds).
+const SENTRY_DSN = '';
+if (SENTRY_DSN) {
+  Sentry.init({
+    dsn: SENTRY_DSN,
+    tracesSampleRate: 0.2,
+    environment: __DEV__ ? 'development' : 'production',
+  });
+}
 
 // ── Error boundary ────────────────────────────────────────────────────────────
 // Catches uncaught render errors so the app shows a recovery screen instead
@@ -28,8 +40,8 @@ class ErrorBoundary extends Component<{ children: ReactNode }, EBState> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    // Log to console so logcat / Metro picks it up
     console.error('[ErrorBoundary]', error, info.componentStack);
+    if (SENTRY_DSN) Sentry.captureException(error, { extra: { componentStack: info.componentStack } });
   }
 
   render() {

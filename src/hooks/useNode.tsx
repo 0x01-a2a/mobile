@@ -9,7 +9,6 @@ import { AppState, AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NodeModule, NodeConfig, NodeStatus, onNodeStatus } from '../native/NodeModule';
 import { configureNodeApi, loadTokenFromKeychain, loadBagsApiKey } from './useNodeApi';
-import { loadLlmApiKey } from './useAgentBrain';
 
 const STORAGE_KEYS = {
   CONFIG: 'zerox1:node_config',
@@ -187,7 +186,7 @@ function useNodeInternal() {
             setStatus(running ? 'running' : 'stopped');
           }
         }
-      } catch (e) {
+      } catch {
         // Silently absorb init errors — node can be started manually
       } finally {
         setLoading(false);

@@ -29,33 +29,45 @@ const ICONS: Record<string, string> = {
   Settings: '[=]',
 };
 
-function TabIcon({ name, focused }: { name: string; focused: boolean }) {
-  return (
-    <Text style={[styles.icon, { color: focused ? C.active : C.inactive }]}>
-      {ICONS[name]}
-    </Text>
-  );
+// Stable per-tab icon renderers defined at module scope to avoid
+// re-creating inline components on every render (react/no-unstable-nested-components).
+function makeTabIcon(name: string) {
+  return function TabIconRenderer({ focused }: { focused: boolean }) {
+    return (
+      <Text style={[styles.icon, { color: focused ? C.active : C.inactive }]}>
+        {ICONS[name]}
+      </Text>
+    );
+  };
 }
+
+const EarnIcon     = makeTabIcon('Earn');
+const ChatIcon     = makeTabIcon('Chat');
+const MyIcon       = makeTabIcon('My');
+const SettingsIcon = makeTabIcon('Settings');
+
+const SCREEN_OPTIONS = {
+  headerShown: false,
+} as const;
 
 export function AppNavigator() {
   const insets = useSafeAreaInsets();
+  const tabBarStyle = [styles.tabBar, { paddingBottom: insets.bottom || 8 }];
+
   return (
     <Tab.Navigator
-      screenOptions={({ route }) => ({
-        headerShown: false,
-        tabBarStyle: [styles.tabBar, { paddingBottom: insets.bottom || 8 }],
+      screenOptions={{
+        ...SCREEN_OPTIONS,
+        tabBarStyle,
         tabBarActiveTintColor:   C.active,
         tabBarInactiveTintColor: C.inactive,
         tabBarLabelStyle: styles.label,
-        tabBarIcon: ({ focused }) => (
-          <TabIcon name={route.name} focused={focused} />
-        ),
-      })}
+      }}
     >
-      <Tab.Screen name="Earn"     component={EarnScreen}     />
-      <Tab.Screen name="Chat"     component={ChatScreen}     />
-      <Tab.Screen name="My"       component={MyScreen}       />
-      <Tab.Screen name="Settings" component={SettingsScreen} />
+      <Tab.Screen name="Earn"     component={EarnScreen}     options={{ tabBarIcon: EarnIcon }}     />
+      <Tab.Screen name="Chat"     component={ChatScreen}     options={{ tabBarIcon: ChatIcon }}     />
+      <Tab.Screen name="My"       component={MyScreen}       options={{ tabBarIcon: MyIcon }}       />
+      <Tab.Screen name="Settings" component={SettingsScreen} options={{ tabBarIcon: SettingsIcon }} />
     </Tab.Navigator>
   );
 }

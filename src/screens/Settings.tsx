@@ -26,7 +26,6 @@ import {
   BridgeCapabilityKey,
   HostingNode,
   assertValidHostUrl,
-  probeRtt,
   registerAsHosted,
   useBridgeCapabilities,
   useHostingNodes,
@@ -1183,6 +1182,15 @@ export function SettingsScreen() {
     const trimmedName = agentName.trim();
     if (trimmedName && trimmedName.length < 2) {
       Alert.alert('Invalid Name', 'Agent name must be at least 2 characters.');
+      return;
+    }
+    if (trimmedName && trimmedName.length > 32) {
+      Alert.alert('Invalid Name', 'Agent name must be 32 characters or less.');
+      return;
+    }
+    const trimmedRelay = relayAddr.trim();
+    if (trimmedRelay && !trimmedRelay.startsWith('/')) {
+      Alert.alert('Invalid Relay Address', 'Relay address must be a multiaddr starting with / (e.g. /dns4/relay.example.com/tcp/443/wss/p2p/…).');
       return;
     }
     const trimmedNodeApiUrl = nodeApiUrl.trim() || undefined;

@@ -295,6 +295,40 @@ async function apiFetch<T>(path: string): Promise<T | null> {
 // Hooks
 // ============================================================================
 
+/** Polls GET /identity every `intervalMs` ms to check if the node API is reachable.
+ *  - `reachable`: true when the API responds successfully
+ *  - `offline`: true when the fetch threw a network error (no internet / unreachable host)
+ */
+export function useNodeHealth(intervalMs = 10_000): { reachable: boolean; offline: boolean } {
+  const [reachable, setReachable] = useState(false);
+  const [offline, setOffline] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      if (!_appActive) return;
+      try {
+        const headers: Record<string, string> = {};
+        if (_hostedToken) headers['Authorization'] = `Bearer ${_hostedToken}`;
+        const res = await fetch(`${_apiBase}/identity`, { headers });
+        if (cancelled) return;
+        setOffline(false);
+        setReachable(res.ok);
+      } catch {
+        if (cancelled) return;
+        // fetch() throws on network errors (no connectivity, DNS failure, etc.)
+        setOffline(true);
+        setReachable(false);
+      }
+    };
+    check();
+    const id = setInterval(check, intervalMs);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [intervalMs]);
+
+  return { reachable, offline };
+}
+
 /** Polls GET /peers every `intervalMs` ms. */
 export function usePeers(intervalMs = 15_000) {
   const [peers, setPeers] = useState<PeerSnapshot[]>([]);
@@ -731,8 +765,6 @@ export async function registerLocal8004(agentUri: string = ''): Promise<{ signat
 // Hot wallet balance + sweep
 // ============================================================================
 
-const USDC_MINT_DEVNET = '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU';
-
 export interface HotKeyBalanceResult {
   tokens: TokenBalance[];
   loading: boolean;
@@ -897,7 +929,7 @@ export interface BridgeLogEntry {
   outcome: 'ok' | 'denied' | 'disabled' | 'rate_limited' | 'error';
 }
 
-const CAPABILITY_KEYS = [
+export const CAPABILITY_KEYS = [
   'messaging', 'contacts', 'location', 'camera',
   'microphone', 'screen', 'calls', 'calendar', 'media', 'motion',
 ] as const;

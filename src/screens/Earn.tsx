@@ -12,6 +12,7 @@ import {
   FlatList,
   Modal,
   Pressable,
+  RefreshControl,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -30,6 +31,7 @@ import {
 import { useOwnedAgents, OwnedAgent } from '../hooks/useOwnedAgents';
 import { useNode } from '../hooks/useNode';
 import { useZeroclawChat } from '../hooks/useZeroclawChat';
+import { NodeStatusBanner } from '../components/NodeStatusBanner';
 
 const C = {
   bg: '#050505',
@@ -294,6 +296,7 @@ export function EarnScreen() {
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
   const [leaderboardSort, setLeaderboardSort] = useState<'volume' | 'change'>('volume');
   const [leaderboardError, setLeaderboardError] = useState<string | null>(null);
+  const [bountyRefreshing, setBountyRefreshing] = useState(false);
 
   const fetchLeaderboard = useCallback(async () => {
     if (bagsPositions.length === 0) {
@@ -466,7 +469,14 @@ export function EarnScreen() {
         },
       ],
     );
-  }, [swapAmount, quote, inputIdx, outputIdx, injectSystemMessage, navigation]);
+  }, [swapAmount, quote, inputToken, outputToken, injectSystemMessage, navigation]);
+
+  const refreshBountyTab = useCallback(async () => {
+    setBountyRefreshing(true);
+    const val = await AsyncStorage.getItem('zerox1:8004_registered');
+    setRegistered(val === 'true');
+    setBountyRefreshing(false);
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -559,6 +569,7 @@ export function EarnScreen() {
 
   return (
     <View style={s.root}>
+      <NodeStatusBanner />
       {/* Tab Header */}
       <View style={s.header}>
         <View style={s.tabRow}>
@@ -615,6 +626,14 @@ export function EarnScreen() {
                 />
               )}
               contentContainerStyle={s.list}
+              refreshControl={
+                <RefreshControl
+                  refreshing={bountyRefreshing}
+                  onRefresh={refreshBountyTab}
+                  tintColor={C.green}
+                  colors={[C.green]}
+                />
+              }
             />
           )}
           {pickerTarget && (
@@ -795,7 +814,18 @@ export function EarnScreen() {
 
       {/* Leaderboard Tab */}
       {activeTab === 'leaderboard' && (
-        <ScrollView style={s.tradeRoot} contentContainerStyle={s.tradeContent}>
+        <ScrollView
+          style={s.tradeRoot}
+          contentContainerStyle={s.tradeContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={leaderboardLoading}
+              onRefresh={fetchLeaderboard}
+              tintColor={C.green}
+              colors={[C.green]}
+            />
+          }
+        >
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <Text style={s.sectionLabel}>BAGS TOKEN RANKINGS</Text>
             <TouchableOpacity onPress={fetchLeaderboard} disabled={leaderboardLoading}>

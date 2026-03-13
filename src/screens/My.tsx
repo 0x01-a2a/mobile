@@ -9,6 +9,7 @@ import React, { Component, useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  RefreshControl,
   ScrollView,
   Share,
   StyleSheet,
@@ -42,7 +43,7 @@ import {
   useSolPrice,
 } from '../hooks/useNodeApi';
 import { useOwnedAgents, notifyLinkedAgentsUpdated, OwnedAgent } from '../hooks/useOwnedAgents';
-import { useAgentBrain } from '../hooks/useAgentBrain';
+import { NodeStatusBanner } from '../components/NodeStatusBanner';
 
 const C = {
   bg: '#050505',
@@ -411,9 +412,23 @@ function LinkAgentSection() {
 
 function AgentsSubtab() {
   const agents = useOwnedAgents();
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    notifyLinkedAgentsUpdated();
+    await new Promise<void>(resolve => setTimeout(() => resolve(), 800));
+    setRefreshing(false);
+  }, []);
 
   return (
-    <ScrollView style={s.subtabRoot} contentContainerStyle={s.subtabContent}>
+    <ScrollView
+      style={s.subtabRoot}
+      contentContainerStyle={s.subtabContent}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#00e676" colors={['#00e676']} />
+      }
+    >
       <Text style={s.sectionLabel}>YOUR AGENTS</Text>
       {agents.map(a => (
         <AgentCard key={a.id || a.mode} agent={a} />
@@ -530,6 +545,13 @@ function NodeSubtab() {
     );
   }, [config, saveConfig, stop]);
 
+  const [nodeRefreshing, setNodeRefreshing] = useState(false);
+  const onNodeRefresh = useCallback(async () => {
+    setNodeRefreshing(true);
+    await new Promise<void>(resolve => setTimeout(() => resolve(), 800));
+    setNodeRefreshing(false);
+  }, []);
+
   const running = status === 'running';
   const isError = status === 'error';
   const dotColor = running ? C.green : isError ? C.amber : C.red;
@@ -548,7 +570,13 @@ function NodeSubtab() {
   }
 
   return (
-    <ScrollView style={s.subtabRoot} contentContainerStyle={s.subtabContent}>
+    <ScrollView
+      style={s.subtabRoot}
+      contentContainerStyle={s.subtabContent}
+      refreshControl={
+        <RefreshControl refreshing={nodeRefreshing} onRefresh={onNodeRefresh} tintColor="#00e676" colors={['#00e676']} />
+      }
+    >
       {isHosted && (
         <HostedHeader hostUrl={config.nodeApiUrl!} onDisconnect={handleDisconnect} />
       )}
@@ -1105,6 +1133,7 @@ export function MyScreen() {
 
   return (
     <View style={s.root}>
+      <NodeStatusBanner />
       <View style={s.header}>
         <Text style={s.title}>MY</Text>
         <View style={s.tabs}>

@@ -54,7 +54,6 @@ interface ChatRouteParams {
 
 function TaskBanner({
   task,
-  conversationId,
   uploading,
   onDeliver,
 }: {
@@ -217,6 +216,9 @@ function Bubble({ msg }: { msg: ChatMessage }) {
 
 // ── Main screen ───────────────────────────────────────────────────────────
 
+// Hosted mode: limit inline image data to 150 KB to stay within MAX_MESSAGE_SIZE.
+const MAX_INLINE_BYTES = 150 * 1024;
+
 export function ChatScreen() {
   const route = useRoute();
   const params = (route.params ?? {}) as ChatRouteParams;
@@ -234,7 +236,7 @@ export function ChatScreen() {
     } else if (!selectedAgentId && agents.length > 0) {
       setSelectedAgentId(agents[0].id);
     }
-  }, [params.agentId, agents]);
+  }, [params.agentId, agents, selectedAgentId]);
 
   // Pass agentId so the hook scopes its session per agent and auto-resets on switch.
   const { messages, loading, error, send, resetSession } = useZeroclawChat(selectedAgentId);
@@ -278,7 +280,7 @@ export function ChatScreen() {
         `Let me know when you are ready to deliver.`,
       );
     }
-  }, [params.task, taskInjected, messages.length]);
+  }, [params.task, taskInjected, messages.length, send]);
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -332,10 +334,6 @@ export function ChatScreen() {
       await send(text);
     }
   }, [draft, pendingImage, loading, send, upload]);
-
-  // Hosted mode: inline image data directly in the DELIVER payload (no blob upload).
-  // Limit to 150 KB decoded to stay within the node's MAX_MESSAGE_SIZE guard.
-  const MAX_INLINE_BYTES = 150 * 1024;
 
   const pickAndDeliver = useCallback(async (source: 'camera' | 'gallery') => {
     const isHosted = Boolean(config.nodeApiUrl);
@@ -416,8 +414,6 @@ export function ChatScreen() {
       ],
     );
   }, [params.conversationId, pickAndDeliver]);
-
-  const isEmpty = messages.length === 0 && !loading && !error;
 
   return (
     <KeyboardAvoidingView
