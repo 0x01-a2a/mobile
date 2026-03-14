@@ -52,7 +52,8 @@ const SCREEN_OPTIONS = {
 
 export function AppNavigator() {
   const insets = useSafeAreaInsets();
-  const tabBarStyle = [styles.tabBar, { paddingBottom: insets.bottom || 8 }];
+  const bottomPad = insets.bottom || 8;
+  const tabBarStyle = [styles.tabBar, { paddingBottom: bottomPad, height: 72 + (insets.bottom || 0) }];
 
   return (
     <Tab.Navigator

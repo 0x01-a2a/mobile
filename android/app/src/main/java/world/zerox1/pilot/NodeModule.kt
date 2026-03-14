@@ -57,6 +57,9 @@ class NodeModule(private val ctx: ReactApplicationContext)
         private const val KEY_GATEWAY_TOKEN = "local_gateway_token"
         private const val KEY_BAGS_API_KEY = "bags_api_key"
         private const val KEY_BAGS_PARTNER_KEY = "bags_partner_key"
+        /** GitHub releases API URL — returns latest release metadata + APK asset URL. */
+        private const val RELEASES_API_URL =
+            "https://api.github.com/repos/0x01-a2a/mobile/releases/latest"
     }
 
     private var isNodeRunning = false
@@ -684,6 +687,156 @@ class NodeModule(private val ctx: ReactApplicationContext)
             promise.resolve(null)
         } catch (e: Exception) {
             promise.reject("NOTIF_ERROR", e.message ?: "Failed to show notification")
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // OTA update — check GitHub releases + download + install APK
+    // -------------------------------------------------------------------------
+
+    /**
+     * Check GitHub releases for a newer version of the app.
+     *
+     * Resolves with a JS map:
+     *   hasUpdate        Boolean
+     *   currentVersion   String  (BuildConfig.VERSION_NAME)
+     *   latestVersion    String  (tag without leading "v")
+     *   downloadUrl      String  (direct APK asset URL, or "" if none found)
+     *   releaseNotes     String
+     */
+    @ReactMethod
+    fun checkForUpdate(promise: Promise) {
+        moduleScope.launch {
+            try {
+                val conn = URL(RELEASES_API_URL).openConnection() as HttpURLConnection
+                conn.setRequestProperty("Accept", "application/vnd.github+json")
+                conn.setRequestProperty("User-Agent", "zerox1-mobile")
+                conn.connectTimeout = 10_000
+                conn.readTimeout   = 10_000
+                val status = conn.responseCode
+                if (status != 200) {
+                    conn.disconnect()
+                    promise.reject("CHECK_UPDATE_ERROR", "GitHub returned $status — no release found")
+                    return@launch
+                }
+                val body = conn.inputStream.bufferedReader().readText()
+                conn.disconnect()
+
+                val json = org.json.JSONObject(body)
+                val rawTag = json.getString("tag_name")          // e.g. "v0.3.4"
+                val latestVersion = rawTag.trimStart('v')
+                val releaseNotes  = json.optString("body", "")
+                val publishedAt   = json.optString("published_at", "") // ISO-8601 UTC e.g. "2025-03-14T18:00:00Z"
+
+                // Find the .apk asset
+                val assets = json.optJSONArray("assets")
+                var downloadUrl = ""
+                if (assets != null) {
+                    for (i in 0 until assets.length()) {
+                        val asset = assets.getJSONObject(i)
+                        val name  = asset.optString("name", "")
+                        if (name.endsWith(".apk")) {
+                            downloadUrl = asset.getString("browser_download_url")
+                            break
+                        }
+                    }
+                }
+
+                val currentVersion = BuildConfig.VERSION_NAME
+                val hasUpdate = isNewerVersion(latestVersion, currentVersion)
+
+                val result = Arguments.createMap().apply {
+                    putBoolean("hasUpdate",       hasUpdate)
+                    putString("currentVersion",   currentVersion)
+                    putString("latestVersion",    latestVersion)
+                    putString("downloadUrl",      downloadUrl)
+                    putString("releaseNotes",     releaseNotes)
+                    putString("publishedAt",      publishedAt)
+                }
+                promise.resolve(result)
+            } catch (e: Exception) {
+                promise.reject("CHECK_UPDATE_ERROR", e.message ?: "Failed to check for updates")
+            }
+        }
+    }
+
+    /**
+     * Returns true if [candidate] is strictly newer than [current].
+     * Compares major.minor.patch numerically.
+     */
+    private fun isNewerVersion(candidate: String, current: String): Boolean {
+        fun parts(v: String) = v.split(".").map { it.trimEnd { c -> !c.isDigit() }.toIntOrNull() ?: 0 }
+        val c = parts(candidate)
+        val u = parts(current)
+        for (i in 0 until maxOf(c.size, u.size)) {
+            val cv = c.getOrElse(i) { 0 }
+            val uv = u.getOrElse(i) { 0 }
+            if (cv > uv) return true
+            if (cv < uv) return false
+        }
+        return false
+    }
+
+    /**
+     * Download the APK at [downloadUrl] and launch the system package installer.
+     *
+     * Progress is emitted as 'updateProgress' events: { progress: 0–100 }.
+     * On success resolves null. The user will see the Android install dialog.
+     */
+    @ReactMethod
+    fun downloadAndInstall(downloadUrl: String, promise: Promise) {
+        moduleScope.launch {
+            try {
+                val updatesDir = java.io.File(ctx.filesDir, "updates").also { it.mkdirs() }
+                val apkFile    = java.io.File(updatesDir, "update.apk")
+
+                // Download with progress
+                val conn = URL(downloadUrl).openConnection() as HttpURLConnection
+                conn.connectTimeout = 15_000
+                conn.readTimeout    = 60_000
+                conn.connect()
+
+                val totalBytes = conn.contentLengthLong
+                var downloaded = 0L
+                var lastPct    = -1
+
+                conn.inputStream.use { input ->
+                    apkFile.outputStream().use { output ->
+                        val buf = ByteArray(64 * 1024)
+                        var read: Int
+                        while (input.read(buf).also { read = it } != -1) {
+                            output.write(buf, 0, read)
+                            downloaded += read
+                            if (totalBytes > 0) {
+                                val pct = ((downloaded * 100) / totalBytes).toInt()
+                                if (pct != lastPct) {
+                                    lastPct = pct
+                                    val ev = Arguments.createMap().apply { putInt("progress", pct) }
+                                    ctx.getJSModule(com.facebook.react.modules.core.DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                                        .emit("updateProgress", ev)
+                                }
+                            }
+                        }
+                    }
+                }
+                conn.disconnect()
+
+                // Launch package installer via FileProvider
+                val uri = androidx.core.content.FileProvider.getUriForFile(
+                    ctx,
+                    "${ctx.packageName}.provider",
+                    apkFile
+                )
+                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, "application/vnd.android.package-archive")
+                    addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                ctx.startActivity(intent)
+                promise.resolve(null)
+            } catch (e: Exception) {
+                promise.reject("DOWNLOAD_ERROR", e.message ?: "Download failed")
+            }
         }
     }
 

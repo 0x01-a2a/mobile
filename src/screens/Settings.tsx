@@ -21,7 +21,7 @@ import {
 } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { useNode } from '../hooks/useNode';
-import { NodeModule } from '../native/NodeModule';
+import { NodeModule, UpdateInfo, onUpdateProgress } from '../native/NodeModule';
 import {
   BridgeCapabilityKey,
   HostingNode,
@@ -1069,6 +1069,132 @@ const wS = StyleSheet.create({
 
 // ── Main screen ───────────────────────────────────────────────────────────────
 
+// ============================================================================
+// Update section
+// ============================================================================
+
+function UpdateSection() {
+  const [checking, setChecking]     = useState(false);
+  const [info, setInfo]             = useState<UpdateInfo | null>(null);
+  const [error, setError]           = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [progress, setProgress]     = useState(0);
+
+  useEffect(() => {
+    if (!downloading) return;
+    const unsub = onUpdateProgress(ev => setProgress(ev.progress));
+    return unsub;
+  }, [downloading]);
+
+  const check = async () => {
+    setChecking(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const result = await NodeModule.checkForUpdate();
+      setInfo(result);
+    } catch (e: any) {
+      setError(e?.message ?? 'Failed to check for updates');
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const install = async () => {
+    if (!info?.downloadUrl) return;
+    setDownloading(true);
+    setProgress(0);
+    try {
+      await NodeModule.downloadAndInstall(info.downloadUrl);
+      // Install dialog launched — reset state
+      setDownloading(false);
+      setProgress(0);
+    } catch (e: any) {
+      setError(e?.message ?? 'Download failed');
+      setDownloading(false);
+    }
+  };
+
+  return (
+    <View style={us.section}>
+      <View style={us.header}>
+        <Text style={us.title}>APP UPDATE</Text>
+        {info && (
+          <Text style={us.sub}>
+            current: {info.currentVersion}
+            {info.hasUpdate ? `  →  latest: ${info.latestVersion}` : '  (up to date)'}
+            {info.publishedAt ? `\nreleased: ${info.publishedAt.slice(0, 10)}` : ''}
+          </Text>
+        )}
+      </View>
+
+      {error && (
+        <Text style={us.error}>{error}</Text>
+      )}
+
+      {downloading ? (
+        <View style={us.progressWrap}>
+          <View style={us.progressTrack}>
+            <View style={[us.progressBar, { width: `${progress}%` as any }]} />
+          </View>
+          <Text style={us.progressLabel}>{progress}%  DOWNLOADING…</Text>
+        </View>
+      ) : (
+        <View style={us.actions}>
+          <TouchableOpacity
+            style={us.btn}
+            onPress={check}
+            disabled={checking}
+            activeOpacity={0.7}
+          >
+            <Text style={us.btnText}>{checking ? 'CHECKING…' : 'CHECK FOR UPDATE'}</Text>
+          </TouchableOpacity>
+
+          {info?.hasUpdate && info.downloadUrl ? (
+            <TouchableOpacity
+              style={[us.btn, us.btnGreen]}
+              onPress={install}
+              activeOpacity={0.7}
+            >
+              <Text style={[us.btnText, { color: C.green }]}>
+                DOWNLOAD {info.latestVersion}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      )}
+
+      {info?.hasUpdate && info.releaseNotes ? (
+        <ScrollView style={us.notes} nestedScrollEnabled>
+          <Text style={us.notesText}>{info.releaseNotes}</Text>
+        </ScrollView>
+      ) : null}
+    </View>
+  );
+}
+
+const us = StyleSheet.create({
+  section:       { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, marginBottom: 16, overflow: 'hidden' },
+  header:        { padding: 16, borderBottomWidth: 1, borderBottomColor: C.border },
+  title:         { fontSize: 11, color: C.text, letterSpacing: 3, fontWeight: '700', fontFamily: 'monospace' },
+  sub:           { fontSize: 10, color: C.sub, fontFamily: 'monospace', marginTop: 4, letterSpacing: 1 },
+  error:         { fontSize: 10, color: C.red, fontFamily: 'monospace', margin: 14, letterSpacing: 1 },
+  actions:       { flexDirection: 'row', gap: 8, padding: 14, flexWrap: 'wrap' },
+  btn:           { borderWidth: 1, borderColor: C.border, borderRadius: 3, paddingHorizontal: 12, paddingVertical: 7 },
+  btnGreen:      { borderColor: C.green + '60' },
+  btnText:       { fontSize: 10, color: C.sub, fontFamily: 'monospace', fontWeight: '700', letterSpacing: 1 },
+  progressWrap:  { padding: 14 },
+  progressTrack: { height: 3, backgroundColor: C.border, borderRadius: 2, overflow: 'hidden' },
+  progressBar:   { height: 3, backgroundColor: C.green, borderRadius: 2 },
+  progressLabel: { fontSize: 10, color: C.sub, fontFamily: 'monospace', marginTop: 8, letterSpacing: 1 },
+  notes:         { maxHeight: 120, borderTopWidth: 1, borderTopColor: C.border },
+  notesText:     { fontSize: 10, color: C.sub, fontFamily: 'monospace', padding: 12, lineHeight: 16 },
+});
+
+// ============================================================================
+// Main Settings screen
+// ============================================================================
+
 export function SettingsScreen() {
   const { config, autoStart, backgroundNode, saveConfig, setAutoStart, setBackgroundNode, status, start, stop } = useNode();
 
@@ -1434,6 +1560,10 @@ export function SettingsScreen() {
             </Text>
           </TouchableOpacity>
         </View>
+
+        {/* OTA update */}
+        <UpdateSection />
+
       </ScrollView>
 
       <HostBrowserSheet

@@ -3,4 +3,6 @@
     <!-- Camera capture temp files -->
     <external-cache-path name="camera_output" path="." />
     <cache-path name="camera_output_internal" path="." />
+    <!-- OTA APK downloads -->
+    <files-path name="apk_downloads" path="updates/" />
 </paths>

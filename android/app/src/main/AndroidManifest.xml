@@ -13,6 +13,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Auto-restart node service on device boot -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- OTA APK install — user is prompted by Android's package installer -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- Phone bridge capabilities -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
@@ -44,8 +46,10 @@
     <!-- App usage / screen time — Special Access permission (not runtime; user grants in Settings) -->
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
-    <!-- Alarm scheduling via AlarmClock intent -->
+    <!-- Alarm scheduling via AlarmClock intent (android.permission.SET_ALARM for API,
+         com.android.alarm.permission.SET_ALARM for Google Clock / AOSP DeskClock) -->
     <uses-permission android:name="android.permission.SET_ALARM" />
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
     <!-- Volume control -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <!-- DND / interruption filter control -->

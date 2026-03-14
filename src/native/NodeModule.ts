@@ -64,6 +64,16 @@ export interface NodeConfig {
   bagsPartnerKey?: string;
 }
 
+export interface UpdateInfo {
+  hasUpdate: boolean;
+  currentVersion: string;
+  latestVersion: string;
+  downloadUrl: string;
+  releaseNotes: string;
+  /** ISO-8601 UTC timestamp of the latest release, e.g. "2025-03-14T18:00:00Z" */
+  publishedAt: string;
+}
+
 export type NodeStatus = 'running' | 'stopped' | 'error';
 
 export interface NodeStatusEvent {
@@ -184,6 +194,27 @@ export const NodeModule = {
    */
   showChatNotification: (body: string): Promise<void> =>
     ZeroxNodeModule.showChatNotification(body),
+
+  /**
+   * Check GitHub releases for a newer version of the app.
+   *
+   * Returns:
+   *   hasUpdate        — true if a newer version is available
+   *   currentVersion   — installed app version (BuildConfig.VERSION_NAME)
+   *   latestVersion    — latest release tag (without "v" prefix)
+   *   downloadUrl      — direct APK download URL, or "" if not found
+   *   releaseNotes     — markdown release notes from the GitHub release body
+   */
+  checkForUpdate: (): Promise<UpdateInfo> =>
+    ZeroxNodeModule.checkForUpdate(),
+
+  /**
+   * Download the APK at `downloadUrl` and launch the Android package installer.
+   * Progress is emitted as 'updateProgress' events: { progress: 0–100 }.
+   * Resolves when the install dialog has been launched.
+   */
+  downloadAndInstall: (downloadUrl: string): Promise<void> =>
+    ZeroxNodeModule.downloadAndInstall(downloadUrl),
 };
 
 // ============================================================================
@@ -197,5 +228,13 @@ export function onNodeStatus(
   handler: (event: NodeStatusEvent) => void,
 ): () => void {
   const sub = emitter.addListener('nodeStatus', handler);
+  return () => sub.remove();
+}
+
+/** Subscribe to APK download progress (0–100). Returns an unsubscribe function. */
+export function onUpdateProgress(
+  handler: (event: { progress: number }) => void,
+): () => void {
+  const sub = emitter.addListener('updateProgress', handler);
   return () => sub.remove();
 }

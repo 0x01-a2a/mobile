@@ -559,7 +559,7 @@ function NodeSubtab() {
   const displayId = isHosted ? hostedAgentId : identity?.agent_id ?? null;
   const displayName = isHosted
     ? (hostedAgentId ? `hosted:${hostedAgentId.slice(0, 8)}` : 'hosted agent')
-    : (identity?.name || 'unnamed agent');
+    : (identity?.name || config?.agentName || 'unnamed agent');
 
   if (loading) {
     return (
