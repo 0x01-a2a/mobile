@@ -1,4 +1,4 @@
-package world.zerox1.01pilot
+package world.zerox1.pilot
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate

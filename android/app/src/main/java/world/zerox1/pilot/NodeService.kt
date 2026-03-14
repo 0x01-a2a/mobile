@@ -1,4 +1,4 @@
-package world.zerox1.01pilot
+package world.zerox1.pilot
 
 import android.app.Notification
 import android.app.NotificationChannel

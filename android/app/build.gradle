@@ -76,9 +76,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace "world.zerox1.01pilot"
+    namespace "world.zerox1.pilot"
     defaultConfig {
-        applicationId "world.zerox1.01pilot"
+        applicationId "world.zerox1.pilot"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode Integer.parseInt(System.getenv("VERSION_CODE") ?: "1")
