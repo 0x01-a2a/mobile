@@ -1,5 +1,33 @@
 name: Android Release Build
 
+# Produces three distribution variants from a single codebase:
+#
+#   full          — Direct download from website (0x01.world/download)
+#                   All permissions enabled: SMS, call log, camera, microphone,
+#                   notifications, accessibility, activity recognition, Bluetooth.
+#                   Full phone bridge capabilities (messaging/contacts/location/
+#                   camera/microphone/calls/screen/calendar/media).
+#                   Distributed as APK — no store policy restrictions apply.
+#
+#   dappstore     — Solana ecosystem app stores (e.g. Solana dApp Store)
+#                   Drops call screening + screen capture (store policy).
+#                   Keeps camera, microphone, notifications, accessibility.
+#                   Distributed as APK.
+#
+#   googleplay    — Google Play Store
+#                   Removes all sensitive/background permissions that Play Store
+#                   rejects without being default SMS/dialer/system app:
+#                   SMS, call log, camera, microphone, activity recognition,
+#                   Bluetooth, package usage stats, accessibility service,
+#                   notification listener, call screening.
+#                   Distributed as AAB (required by Play Store).
+#
+# Capability gating is enforced at two levels:
+#   1. AndroidManifest overlay (tools:node="remove") strips permissions/services
+#      at build time per flavor (src/<flavor>/AndroidManifest.xml).
+#   2. NodeService.kt applyDistributionCapabilityDefaults() sets SharedPreferences
+#      bridge_cap_* flags at runtime so ZeroClaw tools respect the same limits.
+
 on:
   push:
     tags:
@@ -7,7 +35,7 @@ on:
   workflow_dispatch:
     inputs:
       node_tag:
-        description: 'Node release tag to bundle (e.g. v0.2.14). Defaults to current tag on tag push.'
+        description: 'Node release tag to bundle (e.g. v0.3.3). Defaults to current tag on tag push.'
         required: false
         default: ''
 
@@ -66,6 +94,8 @@ jobs:
         run: chmod +x gradlew
         working-directory: android
 
+      # ── Full APK ─────────────────────────────────────────────────────────────
+      # All permissions + full phone bridge. Direct download, no store review.
       - name: Build Full APK
         run: ./gradlew assembleFullRelease --stacktrace
         working-directory: android
@@ -73,6 +103,9 @@ jobs:
           VERSION_CODE: ${{ steps.version.outputs.code }}
           VERSION_NAME: ${{ steps.version.outputs.name }}
 
+      # ── Solana dApp Store APK ─────────────────────────────────────────────────
+      # Camera/mic/notifications kept. Call screening + screen capture removed
+      # to satisfy dApp Store policy. APK format (not AAB).
       - name: Build dApp Store APK
         run: ./gradlew assembleDappstoreRelease --stacktrace
         working-directory: android
@@ -80,6 +113,10 @@ jobs:
           VERSION_CODE: ${{ steps.version.outputs.code }}
           VERSION_NAME: ${{ steps.version.outputs.name }}
 
+      # ── Google Play AAB ───────────────────────────────────────────────────────
+      # Sensitive background permissions removed (Play Store rejects autonomous
+      # SMS/camera/mic/notification/accessibility use without system app status).
+      # AAB format required by Play Store for new apps.
       - name: Build Google Play AAB
         run: ./gradlew bundleGoogleplayRelease --stacktrace
         working-directory: android
@@ -87,6 +124,7 @@ jobs:
           VERSION_CODE: ${{ steps.version.outputs.code }}
           VERSION_NAME: ${{ steps.version.outputs.name }}
 
+      # ── Artifacts ─────────────────────────────────────────────────────────────
       - name: Upload Full APK artifact
         uses: actions/upload-artifact@v4
         with:
@@ -105,6 +143,8 @@ jobs:
           name: app-googleplay-release
           path: android/app/build/outputs/bundle/googleplayRelease/app-googleplay-release.aab
 
+      # ── GitHub Release ────────────────────────────────────────────────────────
+      # Attaches all three variants so users can pick their distribution channel.
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
