@@ -75,9 +75,16 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
+        <!-- Mobile Wallet Adapter callback URI for Phantom -->
+        <intent-filter>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="solana-wallet" />
+        </intent-filter>
       </activity>
 
-      <!-- Node foreground service — keeps zerox1-node running in background -->
+      <!-- Node foreground service — keeps world.zerox1.01pilot running in background -->
       <service
         android:name=".NodeService"
         android:foregroundServiceType="dataSync|camera|microphone"
@@ -138,4 +145,18 @@
       </service>
 
     </application>
+
+    <!-- Allow app to query if wallet apps are installed (Android 11+) -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="solana-wallet" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="solana" />
+        </intent>
+        <package android:name="app.phantom" />
+        <package android:name="com.phantom" />
+    </queries>
 </manifest>

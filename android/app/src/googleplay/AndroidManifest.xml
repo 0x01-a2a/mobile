@@ -1,36 +1,56 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
           xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Strip SMS — requires being default SMS app -->
+    <!-- ── Permissions removed for Google Play compliance ── -->
+
+    <!-- SMS — requires being default SMS app; Play Store rejects without it -->
     <uses-permission android:name="android.permission.READ_SMS" tools:node="remove" />
     <uses-permission android:name="android.permission.SEND_SMS" tools:node="remove" />
 
-    <!-- Strip call log — requires carrier privilege or default dialer -->
+    <!-- Call log — requires carrier privilege or default dialer -->
     <uses-permission android:name="android.permission.READ_CALL_LOG" tools:node="remove" />
 
-    <!-- Strip activity recognition — not justifiable without system app status -->
+    <!-- Camera — autonomous background camera use is rejected by Play Store policy -->
+    <uses-permission android:name="android.permission.CAMERA" tools:node="remove" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" tools:node="remove" />
+
+    <!-- Microphone — autonomous background recording is rejected by Play Store policy -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" tools:node="remove" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" tools:node="remove" />
+
+    <!-- Activity recognition — not justifiable without system app status -->
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" tools:node="remove" />
 
-    <!-- Strip Bluetooth — Play Store requires prominent disclosure and narrow use case -->
+    <!-- Bluetooth — Play Store requires prominent disclosure and narrow use case -->
     <uses-permission android:name="android.permission.BLUETOOTH" tools:node="remove" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" tools:node="remove" />
 
-    <!-- Strip package usage stats — requires Special Access; Play Store disallows it -->
+    <!-- Package usage stats — Special Access; Play Store disallows for non-system apps -->
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:node="remove" />
 
-    <!-- Strip write permissions — only read-only access is justifiable on Play Store -->
+    <!-- Write permissions — only read-only access is justifiable on Play Store -->
     <uses-permission android:name="android.permission.WRITE_CONTACTS" tools:node="remove" />
     <uses-permission android:name="android.permission.WRITE_CALENDAR" tools:node="remove" />
 
-    <!-- Strip phone state — not justifiable without carrier integration on Play Store -->
+    <!-- Phone state — not justifiable without carrier integration -->
     <uses-permission android:name="android.permission.READ_PHONE_STATE" tools:node="remove" />
 
-    <!-- Remove call screening service — requires being default phone app -->
     <application>
+        <!-- Remove call screening — requires being default phone app -->
         <service android:name=".AgentCallScreeningService" tools:node="remove" />
 
         <!-- Remove accessibility service — Play Store policy prohibits non-accessibility uses -->
         <service android:name=".AgentAccessibilityService" tools:node="remove" />
+
+        <!-- Remove notification listener — Play Store rejects autonomous notification interception -->
+        <service android:name=".AgentNotificationListener" tools:node="remove" />
+
+        <!-- Override foreground service type: drop camera|microphone, keep only dataSync -->
+        <service
+            android:name=".NodeService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge"
+            tools:replace="android:foregroundServiceType" />
     </application>
 
 </manifest>

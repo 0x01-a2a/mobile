@@ -16,4 +16,4 @@
     android:canTakeScreenshot="true"
     android:description="@string/a11y_service_description"
     android:notificationTimeout="100"
-    android:settingsActivity="world.zerox1.node.MainActivity" />
+    android:settingsActivity="world.zerox1.01pilot.MainActivity" />

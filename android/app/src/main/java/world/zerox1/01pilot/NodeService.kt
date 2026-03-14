@@ -1,4 +1,4 @@
-package world.zerox1.node
+package world.zerox1.01pilot
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -81,7 +81,7 @@ class NodeService : Service() {
         const val EXTRA_AUTO_ACCEPT    = "auto_accept"
 
         // Broadcast action so NodeModule can observe state changes
-        const val ACTION_STATUS     = "world.zerox1.node.STATUS"
+        const val ACTION_STATUS     = "world.zerox1.01pilot.STATUS"
         const val STATUS_RUNNING    = "running"
         const val STATUS_STOPPED    = "stopped"
         const val STATUS_ERROR      = "error"
@@ -565,6 +565,11 @@ name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'w
             bridgeSecret = java.util.UUID.randomUUID().toString().replace("-", "").take(16)
             Log.i(TAG, "Phone Bridge Secret generated.")
         }
+
+        // Apply flavor-appropriate capability defaults on first launch.
+        // User can override these in Settings; we only write if not already initialized
+        // for this distribution variant (re-initializes if distribution changes).
+        applyDistributionCapabilityDefaults()
 
         // CRIT-4: Read API key from Keystore later, not from intent
         // For now, removing it from intent extraction to satisfy audit, 
@@ -1359,5 +1364,59 @@ the capability in the app Settings > Phone Bridge section instead.
             putExtra("status", status)
             putExtra("detail", detail)
         })
+    }
+
+    // -------------------------------------------------------------------------
+    // Distribution-aware capability defaults
+    // -------------------------------------------------------------------------
+
+    /**
+     * Set capability defaults in SharedPreferences based on the build flavor.
+     *
+     * This runs on every start but only writes if the stored distribution tag
+     * doesn't match the current one — so switching APKs (e.g. from dappstore
+     * to full) re-applies the correct defaults.  Users can still override
+     * individual caps in Settings after defaults are applied.
+     *
+     * Capability matrix:
+     *
+     * | Capability  | full | dappstore | googleplay |
+     * |-------------|------|-----------|------------|
+     * | messaging   |  on  |    on     |    on      |
+     * | contacts    |  on  |    on     |    on      |
+     * | location    |  on  |    on     |    on      |
+     * | calendar    |  on  |    on     |    on      |
+     * | media       |  on  |    on     |    on      |
+     * | camera      |  on  |    on     |    OFF     |
+     * | microphone  |  on  |    on     |    OFF     |
+     * | calls       |  on  |    OFF    |    OFF     |
+     * | screen      |  on  |    OFF    |    OFF     |
+     */
+    private fun applyDistributionCapabilityDefaults() {
+        val prefs = applicationContext.getSharedPreferences("zerox1_bridge", android.content.Context.MODE_PRIVATE)
+        val dist  = BuildConfig.DISTRIBUTION
+        if (prefs.getString("bridge_dist_initialized", "") == dist) return
+
+        val editor = prefs.edit()
+        when (dist) {
+            "googleplay" -> {
+                editor.putBoolean("bridge_cap_camera",      false)
+                editor.putBoolean("bridge_cap_microphone",  false)
+                editor.putBoolean("bridge_cap_calls",       false)
+                editor.putBoolean("bridge_cap_screen",      false)
+                // messaging/contacts/location/calendar/media: leave at default (true)
+            }
+            "dappstore" -> {
+                editor.putBoolean("bridge_cap_calls",       false)
+                editor.putBoolean("bridge_cap_screen",      false)
+                // camera/microphone/messaging/contacts/location/calendar/media: leave at default (true)
+            }
+            else -> {
+                // "full" — all capabilities on by default; no overrides needed
+            }
+        }
+        editor.putString("bridge_dist_initialized", dist)
+        editor.apply()
+        Log.i(TAG, "Phone bridge capability defaults applied for distribution=$dist")
     }
 }

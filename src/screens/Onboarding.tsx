@@ -41,6 +41,38 @@ import {
 } from '../hooks/useAgentBrain';
 
 export const ONBOARDING_KEY = 'zerox1:onboarding_done';
+const ONBOARDING_STATE_KEY = 'zerox1:onboarding_partial_state';
+
+/**
+ * Decodes a base64 string to Uint8Array without relying on global atob()
+ * which can be missing or flaky in some React Native environments.
+ */
+function decodeBase64(base64: string): Uint8Array {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  const lookup = new Uint8Array(256);
+  for (let i = 0; i < chars.length; i++) lookup[chars.charCodeAt(i)] = i;
+
+  const len = base64.length;
+  let bufferLength = len * 0.75;
+  if (base64[len - 1] === '=') {
+    bufferLength--;
+    if (base64[len - 2] === '=') bufferLength--;
+  }
+
+  const bytes = new Uint8Array(bufferLength);
+  let p = 0;
+  for (let i = 0; i < len; i += 4) {
+    const encoded1 = lookup[base64.charCodeAt(i)];
+    const encoded2 = lookup[base64.charCodeAt(i + 1)];
+    const encoded3 = lookup[base64.charCodeAt(i + 2)];
+    const encoded4 = lookup[base64.charCodeAt(i + 3)];
+
+    bytes[p++] = (encoded1 << 2) | (encoded2 >> 4);
+    if (p < bufferLength) bytes[p++] = ((encoded2 & 15) << 4) | (encoded3 >> 2);
+    if (p < bufferLength) bytes[p++] = ((encoded3 & 3) << 6) | (encoded4 & 63);
+  }
+  return bytes;
+}
 
 export async function markOnboardingDone(): Promise<void> {
   try {
@@ -83,14 +115,14 @@ function StepShell({
       style={s.root}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={s.content}
+        keyboardShouldPersistTaps="handled"
+      >
         {step > 0 && (
           <View style={s.progressRow}>
             {Array.from({ length: total }, (_, i) => (
-              <View
-                key={i}
-                style={[s.pip, i < step && s.pipDone]}
-              />
+              <View key={i} style={[s.pip, i < step && s.pipDone]} />
             ))}
           </View>
         )}
@@ -163,10 +195,10 @@ function WelcomeStep({
       <Text style={s.logo}>[*]</Text>
       <Heading label="AGENT BRAIN" />
       <Sub>
-        Your 01 Pilot agent can make decisions on its own — accept tasks, earn USDC, build
-        reputation — while your phone is locked.{'\n\n'}
-        It needs an LLM provider to reason with. You bring your own API key; it never
-        leaves this device.
+        Your 01 Pilot agent can make decisions on its own — accept tasks, earn
+        USDC, build reputation — while your phone is locked.{'\n\n'}
+        It needs an LLM provider to reason with. You bring your own API key; it
+        never leaves this device.
       </Sub>
 
       <View style={s.featureList}>
@@ -212,20 +244,37 @@ function NameStep({
     <StepShell step={1}>
       <Heading label="NAME & AVATAR" />
       <Sub>
-        This is how your agent appears on the mesh — in the discovery feed, reputation
-        leaderboard, and task threads. You can change it anytime in Settings.
+        This is how your agent appears on the mesh — in the discovery feed,
+        reputation leaderboard, and task threads. You can change it anytime in
+        Settings.
       </Sub>
 
       <View style={{ alignItems: 'center', marginBottom: 24 }}>
         <TouchableOpacity
           onPress={async () => {
-            const res = await launchImageLibrary({ mediaType: 'photo', selectionLimit: 1 });
+            const res = await launchImageLibrary({
+              mediaType: 'photo',
+              selectionLimit: 1,
+            });
             if (res?.assets?.[0]?.uri) onChangeAvatar(res.assets[0].uri);
           }}
-          style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: C.card, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}
+          style={{
+            width: 80,
+            height: 80,
+            borderRadius: 40,
+            backgroundColor: C.card,
+            borderWidth: 1,
+            borderColor: C.border,
+            alignItems: 'center',
+            justifyContent: 'center',
+            overflow: 'hidden',
+          }}
         >
           {agentAvatar ? (
-            <Image source={{ uri: agentAvatar }} style={{ width: 80, height: 80 }} />
+            <Image
+              source={{ uri: agentAvatar }}
+              style={{ width: 80, height: 80 }}
+            />
           ) : (
             <Text style={{ color: C.sub, fontSize: 24 }}>+</Text>
           )}
@@ -247,9 +296,13 @@ function NameStep({
         />
       </View>
       {agentName.trim().length === 1 && (
-        <Text style={[s.keyHint, { color: '#ff8800' }]}>Name must be at least 2 characters.</Text>
+        <Text style={[s.keyHint, { color: '#ff8800' }]}>
+          Name must be at least 2 characters.
+        </Text>
       )}
-      <Text style={s.keyHint}>Max 32 characters. Leave blank to use your agent ID prefix.</Text>
+      <Text style={s.keyHint}>
+        Max 32 characters. Leave blank to use your agent ID prefix.
+      </Text>
 
       <PrimaryBtn
         label="CONTINUE →"
@@ -276,8 +329,9 @@ function ProviderStep({
     <StepShell step={2}>
       <Heading label="CHOOSE LLM PROVIDER" />
       <Sub>
-        Your agent uses a fast, low-cost model for decisions. All inference calls go
-        directly from your device to the provider — not through 0x01 servers.
+        Your agent uses a fast, low-cost model for decisions. All inference
+        calls go directly from your device to the provider — not through 0x01
+        servers.
       </Sub>
 
       <View style={s.providerGrid}>
@@ -288,7 +342,12 @@ function ProviderStep({
             onPress={() => onSelect(p.key)}
             activeOpacity={0.8}
           >
-            <Text style={[s.providerLabel, provider === p.key && s.providerLabelActive]}>
+            <Text
+              style={[
+                s.providerLabel,
+                provider === p.key && s.providerLabelActive,
+              ]}
+            >
               {p.label}
             </Text>
             <Text style={s.providerModel}>{p.model}</Text>
@@ -330,7 +389,10 @@ function KeyStep({
 
   const handleNext = () => {
     if (!apiKey.trim()) {
-      Alert.alert('Key required', `Paste your ${providerInfo.label} API key to continue.`);
+      Alert.alert(
+        'Key required',
+        `Paste your ${providerInfo.label} API key to continue.`,
+      );
       return;
     }
     onNext();
@@ -341,8 +403,8 @@ function KeyStep({
       <BackBtn onPress={onBack} />
       <Heading label={`${providerInfo.label.toUpperCase()} API KEY`} />
       <Sub>
-        Stored in your device keychain — hardware-protected on supported devices.
-        Never uploaded to 0x01 servers.
+        Stored in your device keychain — hardware-protected on supported
+        devices. Never uploaded to 0x01 servers.
       </Sub>
 
       <View style={s.keyCard}>
@@ -391,11 +453,13 @@ function KeyStep({
         </>
       )}
 
-      <Text style={s.keyHint}>
-        Get yours at {providerInfo.hint}
-      </Text>
+      <Text style={s.keyHint}>Get yours at {providerInfo.hint}</Text>
 
-      <PrimaryBtn label="CONTINUE →" onPress={handleNext} disabled={!apiKey.trim()} />
+      <PrimaryBtn
+        label="CONTINUE →"
+        onPress={handleNext}
+        disabled={!apiKey.trim()}
+      />
     </StepShell>
   );
 }
@@ -420,8 +484,8 @@ function CapabilitiesStep({
       <BackBtn onPress={onBack} />
       <Heading label="CAPABILITIES" />
       <Sub>
-        Enabled capabilities are advertised to the mesh. Other agents will send tasks
-        that match what you offer.
+        Enabled capabilities are advertised to the mesh. Other agents will send
+        tasks that match what you offer.
       </Sub>
 
       <View style={s.capList}>
@@ -484,8 +548,8 @@ function RulesStep({
       <BackBtn onPress={onBack} />
       <Heading label="AUTO-ACCEPT RULES" />
       <Sub>
-        Your agent uses these rules to decide whether to take a task without asking you.
-        You can change them anytime in Settings.
+        Your agent uses these rules to decide whether to take a task without
+        asking you. You can change them anytime in Settings.
       </Sub>
 
       <View style={s.ruleCard}>
@@ -507,7 +571,9 @@ function RulesStep({
         <View style={[s.ruleRow, { borderBottomWidth: 0 }]}>
           <View style={s.ruleLeft}>
             <Text style={s.ruleLabel}>MIN REPUTATION</Text>
-            <Text style={s.ruleSub}>Only work with agents above this score</Text>
+            <Text style={s.ruleSub}>
+              Only work with agents above this score
+            </Text>
           </View>
           <TextInput
             style={s.ruleInput}
@@ -552,7 +618,11 @@ function RulesStep({
 
 const NODE_CONFIG_KEY = 'zerox1:node_config';
 
-export function OnboardingScreen({ onDone }: { onDone: (config: AgentBrainConfig | null) => void }) {
+export function OnboardingScreen({
+  onDone,
+}: {
+  onDone: (config: AgentBrainConfig | null) => void;
+}) {
   const [step, setStep] = useState(0);
   const [agentName, setAgentName] = useState('');
   const [agentAvatar, setAgentAvatar] = useState('');
@@ -560,20 +630,60 @@ export function OnboardingScreen({ onDone }: { onDone: (config: AgentBrainConfig
   const [apiKey, setApiKey] = useState('');
   const [customBaseUrl, setCustomBaseUrl] = useState('');
   const [customModel, setCustomModel] = useState('');
-  const [capabilities, setCapabilities] = useState<Capability[]>(['summarization', 'qa']);
+  const [capabilities, setCapabilities] = useState<Capability[]>([
+    'summarization',
+    'qa',
+  ]);
   const [minFeeUsdc, setMinFeeUsdc] = useState('0.01');
   const [minRep, setMinRep] = useState('50');
   const [autoAccept, setAutoAccept] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedConfig, setSavedConfig] = useState<AgentBrainConfig | null>(null);
 
+  // Load partial onboarding state on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(ONBOARDING_STATE_KEY);
+        if (raw) {
+          const s = JSON.parse(raw);
+          if (typeof s.step === 'number') setStep(s.step);
+          if (s.agentName) setAgentName(s.agentName);
+          if (s.agentAvatar) setAgentAvatar(s.agentAvatar);
+          if (s.provider) setProvider(s.provider);
+          if (s.apiKey) setApiKey(s.apiKey);
+          if (s.customBaseUrl) setCustomBaseUrl(s.customBaseUrl);
+          if (s.customModel) setCustomModel(s.customModel);
+          if (s.capabilities) setCapabilities(s.capabilities);
+          if (s.minFeeUsdc) setMinFeeUsdc(s.minFeeUsdc);
+          if (s.minRep) setMinRep(s.minRep);
+          if (s.autoAccept !== undefined) setAutoAccept(s.autoAccept);
+        }
+      } catch (e) {
+        console.warn('Failed to load onboarding state:', e);
+      }
+    })();
+  }, []);
+
+  // Persist partial state on every change
+  useEffect(() => {
+    const state = {
+      step, agentName, agentAvatar, provider, apiKey,
+      customBaseUrl, customModel, capabilities, minFeeUsdc,
+      minRep, autoAccept
+    };
+    AsyncStorage.setItem(ONBOARDING_STATE_KEY, JSON.stringify(state))
+      .catch(e => console.warn('Failed to save onboarding state:', e));
+  }, [step, agentName, agentAvatar, provider, apiKey, customBaseUrl, customModel, capabilities, minFeeUsdc, minRep, autoAccept]);
+
   const toggleCapability = (cap: Capability) => {
     setCapabilities(prev =>
-      prev.includes(cap) ? prev.filter(c => c !== cap) : [...prev, cap]
+      prev.includes(cap) ? prev.filter(c => c !== cap) : [...prev, cap],
     );
   };
 
   const handleSkip = async () => {
+    await AsyncStorage.removeItem(ONBOARDING_STATE_KEY);
     await markOnboardingDone();
     onDone(null);
   };
@@ -585,13 +695,17 @@ export function OnboardingScreen({ onDone }: { onDone: (config: AgentBrainConfig
       if (agentName.trim() || agentAvatar) {
         const raw = await AsyncStorage.getItem(NODE_CONFIG_KEY);
         let existing: Record<string, unknown> = {};
-        try { existing = raw ? JSON.parse(raw) : {}; } catch { /* corrupted — start fresh */ }
+        try {
+          existing = raw ? JSON.parse(raw) : {};
+        } catch {
+          /* corrupted — start fresh */
+        }
         await AsyncStorage.setItem(
           NODE_CONFIG_KEY,
           JSON.stringify({
             ...existing,
             ...(agentName.trim() ? { agentName: agentName.trim() } : {}),
-            ...(agentAvatar ? { agentAvatar } : {})
+            ...(agentAvatar ? { agentAvatar } : {}),
           }),
         );
       }
@@ -641,7 +755,10 @@ export function OnboardingScreen({ onDone }: { onDone: (config: AgentBrainConfig
       return (
         <ProviderStep
           provider={provider}
-          onSelect={p => { setProvider(p); setStep(3); }}
+          onSelect={p => {
+            setProvider(p);
+            setStep(3);
+          }}
         />
       );
     case 3:
@@ -746,7 +863,9 @@ function OnchainRegistrationStep({
               autoAccept: brain.autoAccept ?? true,
             };
           }
-        } catch { /* proceed without brain if read fails */ }
+        } catch {
+          /* proceed without brain if read fails */
+        }
 
         await NodeModule.startNode(fullConfig);
         if (cancelled) return;
@@ -760,16 +879,25 @@ function OnchainRegistrationStep({
               const data: { agent_id: string } = await res.json();
               const { PublicKey } = require('@solana/web3.js');
               const bytes = Uint8Array.from(
-                (data.agent_id.match(/.{1,2}/g) ?? []).map((b: string) => parseInt(b, 16)),
+                (data.agent_id.match(/.{1,2}/g) ?? []).map((b: string) =>
+                  parseInt(b, 16),
+                ),
               );
-              if (!cancelled) setHotWalletAddress(new PublicKey(bytes).toBase58());
+              if (!cancelled)
+                setHotWalletAddress(new PublicKey(bytes).toBase58());
               break;
             }
-          } catch { /* node not ready yet */ }
+          } catch {
+            /* node not ready yet */
+          }
         }
-      } catch { /* node may already be running */ }
+      } catch {
+        /* node may already be running */
+      }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Connect Phantom via Mobile Wallet Adapter.
@@ -777,23 +905,35 @@ function OnchainRegistrationStep({
     setPhantomConnecting(true);
     setError(null);
     try {
-      const { transact } = require('@solana-mobile/mobile-wallet-adapter-protocol-web3js');
+      const {
+        transact,
+      } = require('@solana-mobile/mobile-wallet-adapter-protocol-web3js');
       const address: string = await transact(async (wallet: any) => {
         const { accounts } = await wallet.authorize({
           cluster: 'devnet',
-          identity: { name: '01 Pilot', uri: 'https://0x01.world' },
+          identity: {
+            name: '01 Pilot',
+            uri: 'https://0x01.world',
+            icon: 'favicon.ico',
+          },
         });
         // accounts[0].address is a base64-encoded 32-byte pubkey (raw MWA protocol).
         // Convert to base58 Solana address via @solana/web3.js.
         const { PublicKey } = require('@solana/web3.js');
-        const addrBytes = Uint8Array.from(atob(accounts[0].address), c => c.charCodeAt(0));
+        const addrBytes = decodeBase64(accounts[0].address);
         return new PublicKey(addrBytes).toBase58();
       });
       setPhantomAddress(address);
     } catch (e: any) {
       const msg: string = e?.message ?? '';
-      if (msg.includes('No wallet') || msg.includes('not found') || msg.includes('SolanaMobileWalletAdapterWalletNotInstalledError')) {
-        setError('Phantom not installed. Get it from the Play Store, or register with the embedded wallet below.');
+      if (
+        msg.includes('No wallet') ||
+        msg.includes('not found') ||
+        msg.includes('SolanaMobileWalletAdapterWalletNotInstalledError')
+      ) {
+        setError(
+          'Phantom not installed. Get it from the Play Store, or register with the embedded wallet below.',
+        );
       } else {
         setError(msg || 'Phantom connection failed.');
       }
@@ -811,31 +951,50 @@ function OnchainRegistrationStep({
       const { NodeModule } = require('../native/NodeModule');
       const auth = await NodeModule.getLocalAuthConfig();
       const token: string = auth?.nodeApiToken ?? '';
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
       if (token) headers.Authorization = `Bearer ${token}`;
 
-      const prepareRes = await fetch('http://127.0.0.1:9090/registry/8004/register-prepare', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ owner_pubkey: phantomAddress, agent_uri: agentName.trim() }),
-      });
+      const prepareRes = await fetch(
+        'http://127.0.0.1:9090/registry/8004/register-prepare',
+        {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            owner_pubkey: phantomAddress,
+            agent_uri: agentName.trim(),
+          }),
+        },
+      );
       if (!prepareRes.ok) {
         const err = await prepareRes.json().catch(() => ({}));
-        throw new Error((err as any).error || `prepare failed: ${prepareRes.status}`);
+        throw new Error(
+          (err as any).error || `prepare failed: ${prepareRes.status}`,
+        );
       }
-      const prepared: { transaction_b64: string; asset_pubkey: string } = await prepareRes.json();
+      const prepared: { transaction_b64: string; asset_pubkey: string } =
+        await prepareRes.json();
 
       // Phantom signs the partially-signed tx and broadcasts it directly.
       // The tx_b64 from the node is a legacy bincode-serialized Transaction.
       // Deserialize to a web3.js Transaction so the MWA wrapper can call .serialize() on it.
       const { Transaction } = require('@solana/web3.js');
-      const txBytes = Uint8Array.from(atob(prepared.transaction_b64), c => c.charCodeAt(0));
+      const txBytes = Uint8Array.from(atob(prepared.transaction_b64), c =>
+        c.charCodeAt(0),
+      );
       const legacyTx = Transaction.from(txBytes);
-      const { transact } = require('@solana-mobile/mobile-wallet-adapter-protocol-web3js');
+      const {
+        transact,
+      } = require('@solana-mobile/mobile-wallet-adapter-protocol-web3js');
       await transact(async (wallet: any) => {
         await wallet.authorize({
           cluster: 'devnet',
-          identity: { name: '01 Pilot', uri: 'https://0x01.world' },
+          identity: {
+            name: '01 Pilot',
+            uri: 'https://0x01.world',
+            icon: 'favicon.ico',
+          },
         });
         await wallet.signAndSendTransactions({
           transactions: [legacyTx],
@@ -846,6 +1005,7 @@ function OnchainRegistrationStep({
         ['zerox1:8004_registered', 'true'],
         ['zerox1:linked_wallet', phantomAddress],
       ]);
+      await AsyncStorage.removeItem(ONBOARDING_STATE_KEY);
       await markOnboardingDone();
       onFinish(config);
     } catch (e: any) {
@@ -863,6 +1023,7 @@ function OnchainRegistrationStep({
       const { registerLocal8004 } = require('../hooks/useNodeApi');
       await registerLocal8004(agentName.trim());
       await AsyncStorage.setItem('zerox1:8004_registered', 'true');
+      await AsyncStorage.removeItem(ONBOARDING_STATE_KEY);
       await markOnboardingDone();
       onFinish(config);
     } catch (e: any) {
@@ -873,6 +1034,7 @@ function OnchainRegistrationStep({
   };
 
   const handleSkip = async () => {
+    await AsyncStorage.removeItem(ONBOARDING_STATE_KEY);
     await markOnboardingDone();
     onFinish(config);
   };
@@ -881,8 +1043,8 @@ function OnchainRegistrationStep({
     <StepShell step={6} total={6}>
       <Heading label="ON-CHAIN REGISTRATION" />
       <Sub>
-        Register your agent on Solana to start earning and launching tokens.
-        Use Phantom as your owner wallet, or register with the embedded hot wallet.
+        Register your agent on Solana to start earning and launching tokens. Use
+        Phantom as your owner wallet, or register with the embedded hot wallet.
       </Sub>
 
       {/* Phantom option */}
@@ -890,25 +1052,37 @@ function OnchainRegistrationStep({
         <Text style={s.walletLabel}>OPTION 1 — PHANTOM WALLET</Text>
         {phantomAddress ? (
           <>
-            <Text style={s.walletAddress} selectable>{phantomAddress}</Text>
+            <Text style={s.walletAddress} selectable>
+              {phantomAddress}
+            </Text>
             <Text style={[s.walletHint, { color: C.green, marginBottom: 0 }]}>
               Connected. Phantom will be the on-chain owner of your agent.
             </Text>
           </>
         ) : (
           <Text style={s.walletHint}>
-            Phantom becomes the owner of your on-chain agent identity.
-            Your signing key stays separate — the agent operates autonomously using the embedded wallet.
+            Phantom becomes the owner of your on-chain agent identity. Your
+            signing key stays separate — the agent operates autonomously using
+            the embedded wallet.
           </Text>
         )}
         {!phantomAddress && (
           <TouchableOpacity
-            style={[s.primaryBtn, { marginTop: 12, marginBottom: 0 }, phantomConnecting && s.primaryBtnDisabled]}
+            style={[
+              s.primaryBtn,
+              { marginTop: 12, marginBottom: 0 },
+              phantomConnecting && s.primaryBtnDisabled,
+            ]}
             onPress={handleConnectPhantom}
             activeOpacity={0.8}
             disabled={phantomConnecting || registering}
           >
-            <Text style={[s.primaryBtnText, phantomConnecting && s.primaryBtnTextDisabled]}>
+            <Text
+              style={[
+                s.primaryBtnText,
+                phantomConnecting && s.primaryBtnTextDisabled,
+              ]}
+            >
               {phantomConnecting ? 'CONNECTING…' : 'CONNECT PHANTOM'}
             </Text>
           </TouchableOpacity>
@@ -927,7 +1101,9 @@ function OnchainRegistrationStep({
         <Text style={s.walletLabel}>OPTION 2 — EMBEDDED WALLET</Text>
         {hotWalletAddress ? (
           <>
-            <Text style={s.walletAddress} selectable>{hotWalletAddress}</Text>
+            <Text style={s.walletAddress} selectable>
+              {hotWalletAddress}
+            </Text>
             <TouchableOpacity
               style={s.walletCopyBtn}
               onPress={() => Share.share({ message: hotWalletAddress })}
@@ -942,10 +1118,13 @@ function OnchainRegistrationStep({
           </Text>
         )}
         <Text style={s.walletHint}>
-          The agent's own key signs everything. Good for fully autonomous operation.
+          The agent's own key signs everything. Good for fully autonomous
+          operation.
         </Text>
         <Text style={[s.walletHint, { color: '#ff8800', marginTop: 8 }]}>
-          Back up your key after setup: Settings → Wallet → EXPORT KEY. Reinstalling without a backup permanently loses your agent identity, reputation, and any staked funds.
+          Back up your key after setup: Settings → Wallet → EXPORT KEY.
+          Reinstalling without a backup permanently loses your agent identity,
+          reputation, and any staked funds.
         </Text>
         <PrimaryBtn
           label={registering ? 'REGISTERING…' : 'REGISTER WITH HOT WALLET →'}
@@ -955,7 +1134,15 @@ function OnchainRegistrationStep({
       </View>
 
       {error && (
-        <Text style={{ color: '#ff4444', marginBottom: 16, fontSize: 12, fontFamily: 'monospace', marginTop: 8 }}>
+        <Text
+          style={{
+            color: '#ff4444',
+            marginBottom: 16,
+            fontSize: 12,
+            fontFamily: 'monospace',
+            marginTop: 8,
+          }}
+        >
           {error}
         </Text>
       )}
@@ -975,57 +1162,203 @@ const s = StyleSheet.create({
   progressRow: { flexDirection: 'row', gap: 6, marginBottom: 36 },
   pip: { height: 3, flex: 1, backgroundColor: C.border, borderRadius: 2 },
   pipDone: { backgroundColor: C.green },
-  logo: { fontSize: 32, color: C.green, fontFamily: 'monospace', fontWeight: '700', marginBottom: 20 },
-  heading: { fontSize: 18, fontWeight: '700', color: C.text, letterSpacing: 3, fontFamily: 'monospace', marginBottom: 16 },
+  logo: {
+    fontSize: 32,
+    color: C.green,
+    fontFamily: 'monospace',
+    fontWeight: '700',
+    marginBottom: 20,
+  },
+  heading: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: C.text,
+    letterSpacing: 3,
+    fontFamily: 'monospace',
+    marginBottom: 16,
+  },
   sub: { fontSize: 13, color: C.sub, lineHeight: 20, marginBottom: 28 },
   featureList: { marginBottom: 32 },
-  featureRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10 },
+  featureRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 10,
+  },
   featureDot: { color: C.green, fontSize: 16, marginRight: 10, lineHeight: 20 },
   featureText: { color: C.text, fontSize: 13, lineHeight: 20, flex: 1 },
-  primaryBtn: { backgroundColor: C.green, borderRadius: 4, paddingVertical: 16, alignItems: 'center', marginBottom: 12 },
+  primaryBtn: {
+    backgroundColor: C.green,
+    borderRadius: 4,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
   primaryBtnDisabled: { backgroundColor: C.border },
-  primaryBtnText: { fontSize: 13, fontWeight: '700', letterSpacing: 3, color: '#000' },
+  primaryBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 3,
+    color: '#000',
+  },
   primaryBtnTextDisabled: { color: C.sub },
   ghostBtn: { alignItems: 'center', paddingVertical: 12 },
   ghostBtnText: { fontSize: 12, color: C.sub, letterSpacing: 1 },
   backBtn: { marginBottom: 24 },
-  backBtnText: { fontSize: 11, color: C.sub, letterSpacing: 2, fontFamily: 'monospace' },
+  backBtnText: {
+    fontSize: 11,
+    color: C.sub,
+    letterSpacing: 2,
+    fontFamily: 'monospace',
+  },
   // Provider grid
-  providerGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 20 },
-  providerCard: { width: '47%', backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, padding: 16 },
+  providerGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginBottom: 20,
+  },
+  providerCard: {
+    width: '47%',
+    backgroundColor: C.card,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 4,
+    padding: 16,
+  },
   providerCardActive: { borderColor: C.green, backgroundColor: C.green + '12' },
-  providerLabel: { fontSize: 15, fontWeight: '700', color: C.sub, fontFamily: 'monospace', marginBottom: 4 },
+  providerLabel: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: C.sub,
+    fontFamily: 'monospace',
+    marginBottom: 4,
+  },
   providerLabelActive: { color: C.green },
   providerModel: { fontSize: 10, color: C.sub, fontFamily: 'monospace' },
   // API key
-  keyCard: { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, padding: 16, marginBottom: 12 },
+  keyCard: {
+    backgroundColor: C.card,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 4,
+    padding: 16,
+    marginBottom: 12,
+  },
   keyLabel: { fontSize: 10, color: C.sub, letterSpacing: 2, marginBottom: 8 },
   keyInput: { color: C.text, fontFamily: 'monospace', fontSize: 14 },
   keyHint: { fontSize: 11, color: C.sub, marginBottom: 28 },
   // Capabilities
   capList: { marginBottom: 28 },
-  capRow: { flexDirection: 'row', alignItems: 'center', padding: 14, borderWidth: 1, borderColor: C.border, borderRadius: 4, marginBottom: 8 },
-  capRowActive: { borderColor: C.green + '60', backgroundColor: C.green + '08' },
-  capCheck: { width: 20, height: 20, borderRadius: 3, borderWidth: 1, borderColor: C.sub, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
+  capRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 4,
+    marginBottom: 8,
+  },
+  capRowActive: {
+    borderColor: C.green + '60',
+    backgroundColor: C.green + '08',
+  },
+  capCheck: {
+    width: 20,
+    height: 20,
+    borderRadius: 3,
+    borderWidth: 1,
+    borderColor: C.sub,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
   capCheckActive: { borderColor: C.green, backgroundColor: C.green },
   capCheckMark: { fontSize: 12, color: '#000', fontWeight: '700' },
   capLabel: { fontSize: 14, color: C.sub, fontFamily: 'monospace' },
   capLabelActive: { color: C.text },
   // Rules
-  ruleCard: { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, marginBottom: 12, overflow: 'hidden' },
-  ruleRow: { flexDirection: 'row', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: C.border },
+  ruleCard: {
+    backgroundColor: C.card,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 4,
+    marginBottom: 12,
+    overflow: 'hidden',
+  },
+  ruleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
+  },
   ruleLeft: { flex: 1 },
-  ruleLabel: { fontSize: 11, color: C.text, letterSpacing: 2, fontWeight: '600' },
+  ruleLabel: {
+    fontSize: 11,
+    color: C.text,
+    letterSpacing: 2,
+    fontWeight: '600',
+  },
   ruleSub: { fontSize: 11, color: C.sub, marginTop: 3 },
-  ruleInput: { color: C.green, fontFamily: 'monospace', fontSize: 16, fontWeight: '700', width: 60, textAlign: 'right' },
-  toggleCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, padding: 16, marginBottom: 28 },
+  ruleInput: {
+    color: C.green,
+    fontFamily: 'monospace',
+    fontSize: 16,
+    fontWeight: '700',
+    width: 60,
+    textAlign: 'right',
+  },
+  toggleCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.card,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 4,
+    padding: 16,
+    marginBottom: 28,
+  },
   toggleLeft: { flex: 1, marginRight: 12 },
   // Wallet card (step 6)
-  walletCard: { backgroundColor: C.card, borderWidth: 1, borderColor: C.green + '40', borderRadius: 4, padding: 16, marginBottom: 24 },
-  walletLabel: { fontSize: 10, color: C.green, letterSpacing: 2, fontFamily: 'monospace', marginBottom: 10 },
-  walletAddress: { fontSize: 12, color: C.text, fontFamily: 'monospace', lineHeight: 18, marginBottom: 10 },
+  walletCard: {
+    backgroundColor: C.card,
+    borderWidth: 1,
+    borderColor: C.green + '40',
+    borderRadius: 4,
+    padding: 16,
+    marginBottom: 24,
+  },
+  walletLabel: {
+    fontSize: 10,
+    color: C.green,
+    letterSpacing: 2,
+    fontFamily: 'monospace',
+    marginBottom: 10,
+  },
+  walletAddress: {
+    fontSize: 12,
+    color: C.text,
+    fontFamily: 'monospace',
+    lineHeight: 18,
+    marginBottom: 10,
+  },
   walletCopyBtn: { alignSelf: 'flex-start', marginBottom: 12 },
-  walletCopyText: { fontSize: 10, color: C.green, fontFamily: 'monospace', letterSpacing: 1 },
-  walletLoading: { fontSize: 12, color: C.sub, fontFamily: 'monospace', marginBottom: 12 },
-  walletHint: { fontSize: 11, color: C.sub, fontFamily: 'monospace', lineHeight: 16 },
+  walletCopyText: {
+    fontSize: 10,
+    color: C.green,
+    fontFamily: 'monospace',
+    letterSpacing: 1,
+  },
+  walletLoading: {
+    fontSize: 12,
+    color: C.sub,
+    fontFamily: 'monospace',
+    marginBottom: 12,
+  },
+  walletHint: {
+    fontSize: 11,
+    color: C.sub,
+    fontFamily: 'monospace',
+    lineHeight: 16,
+  },
 });
