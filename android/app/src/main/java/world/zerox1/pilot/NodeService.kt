@@ -767,7 +767,12 @@ name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'w
             // --relay-server is a boolean flag; omit it (default is false)
         )
 
-        relayAddr?.let { cmd += listOf("--relay-addr", it) }
+        // Default relay: use bootstrap-1 (US) as circuit relay when no custom
+        // relay is configured.  Mobile nodes behind CGNAT need relay to participate
+        // in gossipsub and receive bilateral messages.
+        val effectiveRelay = relayAddr
+            ?: "/dns4/bootstrap-1.0x01.world/tcp/9000/p2p/12D3KooWLudabD69eAYzfoZMVRqJb8XHBLDKsQvRn6Q9hTQqvMuY/p2p-circuit"
+        cmd += listOf("--relay-addr", effectiveRelay)
         fcmToken?.let  { cmd += listOf("--fcm-token",  it) }
         if (bagsFeeBps > 0) {
             cmd += listOf("--bags-fee-bps", bagsFeeBps.toString())
@@ -778,6 +783,10 @@ name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'w
 
         // Skill workspace — enables the skill manager REST endpoints on the node.
         cmd += listOf("--skill-workspace", File(filesDir, "zw").absolutePath)
+
+        // Disable 8004 registry gate on devnet — genesis/bootstrap agents are not
+        // registered, so without this flag all PROPOSEs get dropped as "deactivated".
+        cmd += "--registry-8004-disabled"
 
         // Redact sensitive flags before logging.
         val safeCmd = cmd.toMutableList().also { list ->

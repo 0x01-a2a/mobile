@@ -27,12 +27,39 @@ import { launchImageLibrary } from 'react-native-image-picker';
 import {
   useInbox, InboundEnvelope, sendEnvelope, executeJupiterSwap, useTradeQuote,
   bagsLaunch, bagsClaim, useBagsPositions, useBagsConfig, usePhantomBalance,
+  usePortfolioHistory, usePeers, PortfolioEvent,
   BagsLaunchParams, BagsToken,
 } from '../hooks/useNodeApi';
 import { useOwnedAgents, OwnedAgent } from '../hooks/useOwnedAgents';
 import { useNode } from '../hooks/useNode';
 import { useZeroclawChat } from '../hooks/useZeroclawChat';
+import { useAgentBrain } from '../hooks/useAgentBrain';
 import { NodeStatusBanner } from '../components/NodeStatusBanner';
+
+// ── Task tracking (AsyncStorage-backed) ──────────────────────────────────
+
+const TASK_LOG_KEY = 'zerox1:task_log';
+
+interface TaskEntry {
+  conversationId: string;
+  description: string;
+  reward: string;
+  fromAgent: string;
+  status: 'active' | 'completed' | 'delivered';
+  acceptedAt: number;
+  completedAt?: number;
+}
+
+async function loadTaskLog(): Promise<TaskEntry[]> {
+  try {
+    const raw = await AsyncStorage.getItem(TASK_LOG_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+
+async function saveTaskLog(entries: TaskEntry[]): Promise<void> {
+  await AsyncStorage.setItem(TASK_LOG_KEY, JSON.stringify(entries.slice(0, 100)));
+}
 
 const C = {
   bg: '#050505',
@@ -261,7 +288,7 @@ export function EarnScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const agents = useOwnedAgents().filter(a => a.mode !== 'linked');
-  const { status } = useNode();
+  const { status, start } = useNode();
   const [bounties, setBounties] = useState<Bounty[]>([]);
   const [pickerTarget, setPickerTarget] = useState<Bounty | null>(null);
   const [registered, setRegistered] = useState<boolean | null>(null);
@@ -269,6 +296,65 @@ export function EarnScreen() {
   const [bagsExpanded, setBagsExpanded] = useState(false);
 
   const { injectSystemMessage } = useZeroclawChat(agents[0]?.id);
+
+  // ── Auto-accept ──────────────────────────────────────────────────────────────
+  const { config: brainConfig, save: saveBrain } = useAgentBrain();
+  const autoAcceptOn = brainConfig.autoAccept;
+  const toggleAutoAccept = useCallback(async () => {
+    const next = { ...brainConfig, autoAccept: !brainConfig.autoAccept };
+    await saveBrain(next);
+  }, [brainConfig, saveBrain]);
+
+  // ── Earnings summary from portfolio history ────────────────────────────────
+  const portfolioHistory = usePortfolioHistory();
+  const peers = usePeers();
+
+  const earningsSummary = useMemo(() => {
+    let totalUsdc = 0;
+    let bountyCount = 0;
+    for (const ev of portfolioHistory) {
+      if (ev.type === 'bounty') {
+        totalUsdc += ev.amount_usdc;
+        bountyCount++;
+      }
+    }
+    return { totalUsdc, bountyCount };
+  }, [portfolioHistory]);
+
+  // ── Task log (active + completed) ──────────────────────────────────────────
+  const [taskLog, setTaskLog] = useState<TaskEntry[]>([]);
+  const activeTasks = useMemo(() => taskLog.filter(t => t.status === 'active' || t.status === 'delivered'), [taskLog]);
+  const completedTasks = useMemo(() => taskLog.filter(t => t.status === 'completed').slice(0, 20), [taskLog]);
+
+  useEffect(() => {
+    loadTaskLog().then(setTaskLog);
+  }, []);
+
+  // Mark tasks complete when a matching bounty portfolio event appears.
+  // Uses functional setState to avoid taskLog as a dependency (prevents extra render cycle).
+  useEffect(() => {
+    if (portfolioHistory.length === 0) return;
+    const bountyConvIds = new Set(
+      portfolioHistory.filter((e): e is Extract<PortfolioEvent, { type: 'bounty' }> => e.type === 'bounty')
+        .map(e => e.conversation_id),
+    );
+    if (bountyConvIds.size === 0) return;
+    setTaskLog(prev => {
+      let changed = false;
+      const updated = prev.map(t => {
+        if (t.status === 'active' && bountyConvIds.has(t.conversationId)) {
+          changed = true;
+          return { ...t, status: 'completed' as const, completedAt: Date.now() };
+        }
+        return t;
+      });
+      if (changed) {
+        saveTaskLog(updated);
+        return updated;
+      }
+      return prev;
+    });
+  }, [portfolioHistory]);
 
   // ── Trade tab ──────────────────────────────────────────────────────────────
   const [swapAmount, setSwapAmount] = useState('0.1');
@@ -510,7 +596,7 @@ export function EarnScreen() {
   );
 
   const onEnvelope = useCallback((env: InboundEnvelope) => {
-    if (env.msg_type !== 'PROPOSE') return;
+    if (env.msg_type !== 'PROPOSE' && env.msg_type !== 'DISCOVER') return;
     const terms = decodeTerms(env.payload_b64);
     if (!terms) return;
     setBounties(prev => {
@@ -542,13 +628,29 @@ export function EarnScreen() {
       return;
     }
     setBounties(prev => prev.filter(b => b.conversationId !== bounty.conversationId));
+
+    // Log task
+    const entry: TaskEntry = {
+      conversationId: bounty.conversationId,
+      description: bounty.terms.description ?? 'Task',
+      reward: rewardLabel(bounty.terms),
+      fromAgent: bounty.terms.from ?? bounty.sender,
+      status: 'active',
+      acceptedAt: Date.now(),
+    };
+    setTaskLog(prev => {
+      const updated = [entry, ...prev];
+      saveTaskLog(updated);
+      return updated;
+    });
+
     navigation.navigate('Chat', {
       agentId: agent.id,
       conversationId: bounty.conversationId,
       task: {
-        description: bounty.terms.description ?? 'Task',
-        reward: rewardLabel(bounty.terms),
-        fromAgent: bounty.terms.from ?? bounty.sender,
+        description: entry.description,
+        reward: entry.reward,
+        fromAgent: entry.fromAgent,
       } as BountyTask,
     });
   }, [navigation]);
@@ -620,45 +722,143 @@ export function EarnScreen() {
       {/* Bounty Tab */}
       {activeTab === 'bounty' && (
         <>
-          <View style={s.subHeader}>
+          {/* ── Earnings summary bar ─────────────────────────────── */}
+          <View style={s.earningsBar}>
+            <View style={s.earningStat}>
+              <Text style={s.earningVal}>
+                ${earningsSummary.totalUsdc >= 1
+                  ? earningsSummary.totalUsdc.toFixed(2)
+                  : earningsSummary.totalUsdc.toFixed(4)}
+              </Text>
+              <Text style={s.earningLabel}>EARNED</Text>
+            </View>
+            <View style={s.earningDivider} />
+            <View style={s.earningStat}>
+              <Text style={s.earningVal}>{activeTasks.length}</Text>
+              <Text style={s.earningLabel}>ACTIVE</Text>
+            </View>
+            <View style={s.earningDivider} />
+            <View style={s.earningStat}>
+              <Text style={s.earningVal}>{earningsSummary.bountyCount}</Text>
+              <Text style={s.earningLabel}>COMPLETED</Text>
+            </View>
+          </View>
+
+          {/* ── Auto-accept toggle + status ──────────────────────── */}
+          <View style={s.autoAcceptRow}>
+            <TouchableOpacity
+              style={[s.autoAcceptBtn, autoAcceptOn && s.autoAcceptBtnOn]}
+              onPress={toggleAutoAccept}
+              activeOpacity={0.7}
+            >
+              <Text style={[s.autoAcceptText, autoAcceptOn && s.autoAcceptTextOn]}>
+                AUTO-ACCEPT {autoAcceptOn ? 'ON' : 'OFF'}
+              </Text>
+            </TouchableOpacity>
             <Text style={s.sub}>
               {isRunning
-                ? bounties.length > 0
-                  ? `${bounties.length} open ${bounties.length === 1 ? 'bounty' : 'bounties'}`
-                  : 'listening for bounties…'
-                : 'start node to receive bounties'}
+                ? `${peers.length} peer${peers.length !== 1 ? 's' : ''} · ${bounties.length > 0 ? `${bounties.length} pending` : 'listening…'}`
+                : 'node offline'}
             </Text>
           </View>
-          {bounties.length === 0 ? (
-            <View style={s.empty}>
-              <Text style={s.emptyText}>
-                {isRunning
-                  ? 'No bounties yet.\n\nBounties appear when agents on the\nmesh broadcast tasks your way.'
-                  : 'Your node is not running.\n\nGo to My Node to start it.'}
-              </Text>
-            </View>
-          ) : (
-            <FlatList
-              data={bounties}
-              keyExtractor={b => b.conversationId}
-              renderItem={({ item }) => (
-                <BountyCard
-                  bounty={item}
-                  onAccept={() => handleAccept(item)}
-                  onSkip={() => handleSkip(item)}
-                />
-              )}
-              contentContainerStyle={s.list}
-              refreshControl={
-                <RefreshControl
-                  refreshing={bountyRefreshing}
-                  onRefresh={refreshBountyTab}
-                  tintColor={C.green}
-                  colors={[C.green]}
-                />
-              }
-            />
-          )}
+
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={s.list}
+            refreshControl={
+              <RefreshControl
+                refreshing={bountyRefreshing}
+                onRefresh={refreshBountyTab}
+                tintColor={C.green}
+                colors={[C.green]}
+              />
+            }
+          >
+            {/* ── Context-aware empty / node start ─────────────────── */}
+            {!isRunning && bounties.length === 0 && activeTasks.length === 0 && completedTasks.length === 0 && (
+              <View style={s.emptyInline}>
+                <Text style={s.emptyText}>
+                  Your node is offline.{'\n'}Start it to receive bounties from the mesh.
+                </Text>
+                <TouchableOpacity
+                  style={s.inlineStartBtn}
+                  onPress={() => start()}
+                  activeOpacity={0.8}
+                >
+                  <Text style={s.acceptText}>START NODE</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {isRunning && bounties.length === 0 && activeTasks.length === 0 && completedTasks.length === 0 && (
+              <View style={s.emptyInline}>
+                <Text style={s.emptyText}>
+                  Listening for bounties…{'\n\n'}Tasks from agents on the mesh will appear here.
+                  {autoAcceptOn ? '\nAuto-accept is on — matching tasks will be taken automatically.' : ''}
+                </Text>
+              </View>
+            )}
+
+            {/* ── Active tasks ──────────────────────────────────────── */}
+            {activeTasks.length > 0 && (
+              <>
+                <Text style={s.sectionLabel}>ACTIVE TASKS</Text>
+                {activeTasks.map(t => (
+                  <View key={t.conversationId} style={[s.card, s.activeTaskCard]}>
+                    <View style={s.taskStatusRow}>
+                      <View style={s.taskStatusDot} />
+                      <Text style={s.taskStatusText}>
+                        {t.status === 'delivered' ? 'DELIVERED' : 'IN PROGRESS'}
+                      </Text>
+                    </View>
+                    <Text style={s.desc} numberOfLines={2}>{t.description}</Text>
+                    <View style={s.meta}>
+                      <Text style={s.reward}>{t.reward}</Text>
+                      <Text style={s.dot}> · </Text>
+                      <Text style={s.from}>from {shortId(t.fromAgent)}</Text>
+                      <Text style={s.dot}> · </Text>
+                      <Text style={s.time}>{timeAgo(t.acceptedAt)}</Text>
+                    </View>
+                  </View>
+                ))}
+              </>
+            )}
+
+            {/* ── Pending bounties ──────────────────────────────────── */}
+            {bounties.length > 0 && (
+              <>
+                <Text style={[s.sectionLabel, activeTasks.length > 0 && { marginTop: 20 }]}>INCOMING BOUNTIES</Text>
+                {bounties.map(item => (
+                  <BountyCard
+                    key={item.conversationId}
+                    bounty={item}
+                    onAccept={() => handleAccept(item)}
+                    onSkip={() => handleSkip(item)}
+                  />
+                ))}
+              </>
+            )}
+
+            {/* ── Completed tasks ───────────────────────────────────── */}
+            {completedTasks.length > 0 && (
+              <>
+                <Text style={[s.sectionLabel, { marginTop: 20 }]}>COMPLETED</Text>
+                {completedTasks.map(t => (
+                  <View key={t.conversationId} style={[s.card, { marginBottom: 8, opacity: 0.7 }]}>
+                    <Text style={s.desc} numberOfLines={1}>{t.description}</Text>
+                    <View style={s.meta}>
+                      <Text style={s.reward}>{t.reward}</Text>
+                      <Text style={s.dot}> · </Text>
+                      <Text style={s.from}>from {shortId(t.fromAgent)}</Text>
+                      <Text style={s.dot}> · </Text>
+                      <Text style={[s.time, { color: C.green }]}>done</Text>
+                    </View>
+                  </View>
+                ))}
+              </>
+            )}
+          </ScrollView>
+
           {pickerTarget && (
             <AgentPicker
               agents={agents}
@@ -1040,4 +1240,28 @@ const s = StyleSheet.create({
   sectionToggle: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 24, marginBottom: 4 },
   toggleChevron: { fontSize: 10, color: C.sub, fontFamily: 'monospace' },
   bagsNotConfigured: { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, padding: 20, alignItems: 'center', marginTop: 8 },
+
+  // Earnings summary bar
+  earningsBar: { flexDirection: 'row', backgroundColor: C.card, borderBottomWidth: 1, borderBottomColor: C.border, paddingVertical: 12, paddingHorizontal: 16 },
+  earningStat: { flex: 1, alignItems: 'center' },
+  earningVal: { fontSize: 16, fontWeight: '700', color: C.green, fontFamily: 'monospace' },
+  earningLabel: { fontSize: 8, color: C.sub, letterSpacing: 2, fontFamily: 'monospace', marginTop: 2 },
+  earningDivider: { width: 1, backgroundColor: C.border, marginVertical: 2 },
+
+  // Auto-accept row
+  autoAcceptRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.border },
+  autoAcceptBtn: { borderWidth: 1, borderColor: C.dim, borderRadius: 3, paddingHorizontal: 10, paddingVertical: 4 },
+  autoAcceptBtnOn: { borderColor: C.green, backgroundColor: '#00e67615' },
+  autoAcceptText: { fontSize: 9, color: C.dim, letterSpacing: 2, fontFamily: 'monospace', fontWeight: '700' },
+  autoAcceptTextOn: { color: C.green },
+
+  // Empty state (inline, not full-screen)
+  emptyInline: { alignItems: 'center', paddingVertical: 40, paddingHorizontal: 20 },
+  inlineStartBtn: { backgroundColor: C.green, borderRadius: 4, paddingVertical: 12, paddingHorizontal: 32, marginTop: 16 },
+
+  // Active task card
+  activeTaskCard: { borderLeftWidth: 3, borderLeftColor: C.amber, marginBottom: 10 },
+  taskStatusRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+  taskStatusDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.amber, marginRight: 6 },
+  taskStatusText: { fontSize: 9, color: C.amber, letterSpacing: 2, fontFamily: 'monospace', fontWeight: '700' },
 });

@@ -23,6 +23,7 @@ import { NodeModule } from '../native/NodeModule';
 let _apiBase = 'http://127.0.0.1:9090';
 let _wsBase = 'ws://127.0.0.1:9090';
 let _hostedToken: string | null = null;
+let _isHostedMode = false;
 
 // Skip HTTP polls while the screen is off — saves CPU and radio wakeups.
 let _appActive = AppState.currentState === 'active';
@@ -74,15 +75,17 @@ export function assertValidHostUrl(raw: string): void {
 // Module-level API configuration
 // ============================================================================
 
-/** Configure the API base URLs and optional hosted-agent token at runtime. */
+/** Configure the API base URLs and optional auth token at runtime. */
 export function configureNodeApi(opts: {
   apiBase?: string;
   wsBase?: string;
   token?: string;
+  hosted?: boolean;
 }) {
   if (opts.apiBase) _apiBase = opts.apiBase;
   if (opts.wsBase) _wsBase = opts.wsBase;
   if (opts.token !== undefined) _hostedToken = opts.token;
+  if (opts.hosted !== undefined) _isHostedMode = opts.hosted;
 }
 
 const AGGREGATOR_API = 'https://api.0x01.world';
@@ -163,7 +166,7 @@ export interface NegotiationThread {
   latestAmount?: number; // amount from latest COUNTER or ACCEPT
 }
 
-const NEGOTIATION_TYPES = new Set(['PROPOSE', 'COUNTER', 'ACCEPT', 'REJECT', 'DELIVER']);
+const NEGOTIATION_TYPES = new Set(['DISCOVER', 'PROPOSE', 'COUNTER', 'ACCEPT', 'REJECT', 'DELIVER']);
 
 function _parseNegotiationMsg(env: InboundEnvelope): NegotiationMsg {
   const base: NegotiationMsg = {
@@ -403,13 +406,21 @@ export function useInbox(
     if (!enabled) return;
     try {
       let ws: WebSocket;
-      if (_hostedToken) {
+      if (_isHostedMode && _hostedToken) {
         // Hosted mode: connect to the filtered hosted-inbox endpoint and pass
         // the token via Authorization header (never in the query string to
         // prevent log leakage). React Native's WebSocket supports headers via
         // the third constructor argument.
         ws = new WebSocket(
           `${_wsBase}/ws/hosted/inbox`,
+          undefined,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          { headers: { Authorization: `Bearer ${_hostedToken}` } } as any,
+        );
+      } else if (_hostedToken) {
+        // Local mode with auth: connect to /ws/inbox with the API secret.
+        ws = new WebSocket(
+          `${_wsBase}/ws/inbox`,
           undefined,
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           { headers: { Authorization: `Bearer ${_hostedToken}` } } as any,
@@ -425,11 +436,11 @@ export function useInbox(
         } catch { /* malformed */ }
       };
       ws.onerror = (e: WebSocketErrorEvent) => {
-        // HTTP 401/403 surfaces here in React Native. Stop reconnecting so
-        // we don't spin forever with a bad hosted token.
         const msg = (e as any)?.message ?? '';
-        if (msg.includes('401') || msg.includes('403') || msg.includes('Unauthorized') || msg.includes('Forbidden')) {
-          reconnectDelay.current = -1; // sentinel: do not reconnect
+        // HTTP 401/403 surfaces here in React Native. Stop reconnecting so
+        // we don't spin forever with a bad hosted token (local mode retries).
+        if (_isHostedMode && (msg.includes('401') || msg.includes('403') || msg.includes('Unauthorized') || msg.includes('Forbidden'))) {
+          reconnectDelay.current = -1; // sentinel: do not reconnect (hosted mode only)
         }
       };
       ws.onclose = () => {
@@ -443,6 +454,7 @@ export function useInbox(
   }, [enabled]);
 
   useEffect(() => {
+    reconnectDelay.current = 1_000; // reset backoff on enabled change
     reconnect();
     return () => {
       wsRef.current?.close();
@@ -719,6 +731,7 @@ export async function registerAsHosted(
     apiBase: hostApiUrl,
     wsBase: hostApiUrl.replace(/^https/, 'wss').replace(/^http/, 'ws'),
     token: data.token,
+    hosted: true,
   });
 
   return { agent_id: data.agent_id };

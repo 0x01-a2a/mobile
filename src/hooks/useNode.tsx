@@ -148,6 +148,7 @@ function useNodeInternal() {
               apiBase: cfg.nodeApiUrl,
               wsBase: cfg.nodeApiUrl.replace(/^https/, 'wss').replace(/^http/, 'ws'),
               token: token ?? undefined,
+              hosted: true,
             });
             setStatus('running');
           } else {
@@ -176,6 +177,7 @@ function useNodeInternal() {
               apiBase: cfg.nodeApiUrl,
               wsBase: cfg.nodeApiUrl.replace(/^https/, 'wss').replace(/^http/, 'ws'),
               token: token ?? undefined,
+              hosted: true,
             });
             setStatus('running');
           } else {
@@ -259,6 +261,7 @@ function useNodeInternal() {
         apiBase: effective.nodeApiUrl,
         wsBase: effective.nodeApiUrl.replace(/^https/, 'wss').replace(/^http/, 'ws'),
         token: token ?? undefined,
+        hosted: true,
       });
       setStatus('running');
     } else {

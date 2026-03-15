@@ -5,7 +5,7 @@
  *   Agents — all owned agents with status, reputation, location badge.
  *   Node   — local node controls, hosted banner, reputation detail, inbox.
  */
-import React, { Component, useCallback, useEffect, useState } from 'react';
+import React, { Component, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -46,7 +46,15 @@ import {
   useSolPrice,
 } from '../hooks/useNodeApi';
 import { useOwnedAgents, notifyLinkedAgentsUpdated, OwnedAgent } from '../hooks/useOwnedAgents';
+import { useAgentBrain, CAPABILITY_LABELS } from '../hooks/useAgentBrain';
+import { useBridgeCapabilities, CAPABILITY_KEYS } from '../hooks/useNodeApi';
 import { NodeStatusBanner } from '../components/NodeStatusBanner';
+
+const BRIDGE_LABELS: Record<string, string> = {
+  messaging: 'MSG', contacts: 'CONTACTS', location: 'GPS',
+  camera: 'CAM', microphone: 'MIC', screen: 'SCREEN',
+  calls: 'CALLS', calendar: 'CAL', media: 'MEDIA', motion: 'MOTION',
+};
 
 const C = {
   bg: '#050505',
@@ -132,12 +140,33 @@ function SignalBars({ rtt }: { rtt: number | null }) {
 
 // ── Agents subtab ─────────────────────────────────────────────────────────
 
-function AgentCard({ agent }: { agent: OwnedAgent }) {
+interface AgentCardProps {
+  agent: OwnedAgent;
+  brainSkills: string[];
+  bridgeCaps: Record<string, boolean>;
+  bridgeLoading: boolean;
+}
+
+function AgentCard({ agent, brainSkills, bridgeCaps, bridgeLoading }: AgentCardProps) {
   const rep = useOwnReputation(agent.id || null, 60_000);
   const dotColor = agent.status === 'running' ? C.green : C.sub;
   const badgeStyle = agent.mode === 'local' ? s.badgeLocal : agent.mode === 'hosted' ? s.badgeHosted : s.badgeLinked;
   const badgeColor = agent.mode === 'local' ? C.green : agent.mode === 'hosted' ? C.amber : C.blue;
   const badgeLabel = agent.mode === 'local' ? 'PHONE' : agent.mode === 'hosted' ? 'HOSTED' : 'LINKED';
+
+  // Collect active capabilities as skill badges.
+  const skills: string[] = [];
+  if (agent.mode === 'local') {
+    for (const sk of brainSkills) skills.push(sk);
+  }
+  // Add active bridge capabilities for local agents.
+  if (agent.mode === 'local' && !bridgeLoading) {
+    for (const key of CAPABILITY_KEYS) {
+      if (bridgeCaps[key]) skills.push(BRIDGE_LABELS[key] ?? key.toUpperCase());
+    }
+  }
+  // Always show TRADE for local/hosted agents (Jupiter is always available).
+  if (agent.mode !== 'linked') skills.push('TRADE');
 
   return (
     <View style={s.agentCard}>
@@ -166,6 +195,15 @@ function AgentCard({ agent }: { agent: OwnedAgent }) {
           <Text style={[s.agentTrend, { color: trendColor(rep.trend) }]}>
             {trendArrow(rep.trend)} {rep.trend}
           </Text>
+        </View>
+      )}
+      {skills.length > 0 && (
+        <View style={s.skillBadgeRow}>
+          {skills.map(sk => (
+            <View key={sk} style={s.skillBadge}>
+              <Text style={s.skillBadgeText}>{sk}</Text>
+            </View>
+          ))}
         </View>
       )}
     </View>
@@ -416,6 +454,14 @@ function LinkAgentSection() {
 function AgentsSubtab() {
   const agents = useOwnedAgents();
   const [refreshing, setRefreshing] = useState(false);
+  const { config: brainConfig } = useAgentBrain();
+  const bridge = useBridgeCapabilities();
+
+  // Pre-compute brain skill labels once (shared across all cards).
+  const brainSkills = useMemo(() => {
+    if (!brainConfig.enabled) return [] as string[];
+    return brainConfig.capabilities.map(cap => CAPABILITY_LABELS[cap] ?? cap);
+  }, [brainConfig.enabled, brainConfig.capabilities]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -434,12 +480,19 @@ function AgentsSubtab() {
     >
       <Text style={s.sectionLabel}>YOUR AGENTS</Text>
       {agents.map(a => (
-        <AgentCard key={a.id || a.mode} agent={a} />
+        <AgentCard
+          key={a.id || a.mode}
+          agent={a}
+          brainSkills={brainSkills}
+          bridgeCaps={bridge.caps}
+          bridgeLoading={bridge.loading}
+        />
       ))}
       <LinkAgentSection />
       <Text style={s.hint}>
         Each agent runs on a node — your phone or a hosted server.
         Agents earn reputation and USDC by completing tasks on the mesh.
+        {brainSkills.length > 0 ? ' More skills = more competitive for bounties.' : ''}
       </Text>
     </ScrollView>
   );
@@ -1282,6 +1335,10 @@ const s = StyleSheet.create({
   modeBadgeText: { fontSize: 9, fontWeight: '700', letterSpacing: 2 },
   dot: { width: 10, height: 10, borderRadius: 5, marginRight: 12 },
   agentCardOwner: { fontSize: 9, color: C.blue, fontFamily: 'monospace', marginTop: 2 },
+  // skill badges
+  skillBadgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.border },
+  skillBadge: { backgroundColor: '#00e67612', borderWidth: 1, borderColor: '#00e67630', borderRadius: 2, paddingHorizontal: 6, paddingVertical: 2 },
+  skillBadgeText: { fontSize: 8, color: C.green, letterSpacing: 1.5, fontFamily: 'monospace', fontWeight: '700' },
   // node subtab
   identityRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
   agentName: { fontSize: 16, fontWeight: '700', color: C.text, fontFamily: 'monospace' },
