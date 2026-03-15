@@ -5,7 +5,7 @@
  * cards. User picks which agent handles the task, ACCEPT is sent, then
  * the app routes to Chat with the task loaded as context.
  */
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -21,11 +21,12 @@ import {
   TextInput,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { launchImageLibrary } from 'react-native-image-picker';
 import {
   useInbox, InboundEnvelope, sendEnvelope, executeJupiterSwap, useTradeQuote,
-  bagsLaunch, bagsClaim, useBagsPositions, useBagsConfig,
+  bagsLaunch, bagsClaim, useBagsPositions, useBagsConfig, usePhantomBalance,
   BagsLaunchParams, BagsToken,
 } from '../hooks/useNodeApi';
 import { useOwnedAgents, OwnedAgent } from '../hooks/useOwnedAgents';
@@ -257,6 +258,7 @@ function BagsField({
 // ── Main screen ───────────────────────────────────────────────────────────
 
 export function EarnScreen() {
+  const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const agents = useOwnedAgents().filter(a => a.mode !== 'linked');
   const { status } = useNode();
@@ -292,22 +294,37 @@ export function EarnScreen() {
   const bagsApiConfigured = bagsConfig !== null;
 
   // ── Leaderboard ────────────────────────────────────────────────────────────
+  const phantom = usePhantomBalance();
   const [leaderboardData, setLeaderboardData] = useState<LeaderboardToken[]>([]);
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
   const [leaderboardSort, setLeaderboardSort] = useState<'volume' | 'change'>('volume');
   const [leaderboardError, setLeaderboardError] = useState<string | null>(null);
   const [bountyRefreshing, setBountyRefreshing] = useState(false);
 
-  const fetchLeaderboard = useCallback(async () => {
-    if (bagsPositions.length === 0) {
+  // Merge mint sources: Phantom SPL holdings + Bags API positions (deduplicated).
+  // This way tokens show up even without a Bags API key configured.
+  const allMints = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of phantom.splTokens) set.add(t.mint);
+    for (const t of bagsPositions) set.add(t.token_mint);
+    // Exclude stablecoins — they're not tradeable tokens for the leaderboard.
+    set.delete('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'); // USDC mainnet
+    set.delete('4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'); // USDC devnet
+    set.delete('Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB'); // USDT
+    return [...set];
+  }, [phantom.splTokens, bagsPositions]);
+
+  const fetchLeaderboard = useCallback(async (attempt = 0) => {
+    if (allMints.length === 0) {
       setLeaderboardData([]);
       return;
     }
     setLeaderboardLoading(true);
     setLeaderboardError(null);
     try {
-      const mints = bagsPositions.map(t => t.token_mint).join(',');
+      const mints = allMints.join(',');
       const res = await fetch(`https://api.dexscreener.com/tokens/v1/solana/${mints}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       if (!Array.isArray(data)) { setLeaderboardData([]); return; }
       const byMint = new Map<string, LeaderboardToken>();
@@ -328,15 +345,21 @@ export function EarnScreen() {
       }
       setLeaderboardData([...byMint.values()]);
     } catch (e: any) {
-      setLeaderboardError(e?.message ?? 'Failed to load leaderboard data.');
-      setLeaderboardData([]);
+      if (attempt < 3) {
+        // Retry with backoff — don't surface error to user on transient failures.
+        setTimeout(() => fetchLeaderboard(attempt + 1), (attempt + 1) * 2_000);
+      } else {
+        setLeaderboardError(e?.message ?? 'Failed to load data. Pull to refresh.');
+        setLeaderboardData([]);
+      }
     }
     setLeaderboardLoading(false);
-  }, [bagsPositions]);
+  }, [allMints]);
 
+  // Re-fetch leaderboard when tab is active OR when allMints populates after RPC load.
   useEffect(() => {
-    if (activeTab === 'leaderboard') fetchLeaderboard();
-  }, [activeTab, fetchLeaderboard]);
+    if (activeTab === 'leaderboard' && allMints.length > 0) fetchLeaderboard();
+  }, [activeTab, fetchLeaderboard, allMints]);
 
   const sortedLeaderboard = [...leaderboardData].sort((a, b) =>
     leaderboardSort === 'volume' ? b.volume24h - a.volume24h : b.priceChange24h - a.priceChange24h,
@@ -547,7 +570,7 @@ export function EarnScreen() {
   if (registered === false) {
     return (
       <View style={s.root}>
-        <View style={s.header}>
+        <View style={[s.header, { paddingTop: insets.top + 16 }]}>
           <Text style={s.title}>EARN</Text>
           <Text style={s.sub}>registration required</Text>
         </View>
@@ -571,7 +594,7 @@ export function EarnScreen() {
     <View style={s.root}>
       <NodeStatusBanner />
       {/* Tab Header */}
-      <View style={s.header}>
+      <View style={[s.header, { paddingTop: insets.top + 16 }]}>
         <View style={s.tabRow}>
           <TouchableOpacity
             style={[s.tabBtn, activeTab === 'bounty' && s.tabActive]}
@@ -828,7 +851,7 @@ export function EarnScreen() {
         >
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <Text style={s.sectionLabel}>BAGS TOKEN RANKINGS</Text>
-            <TouchableOpacity onPress={fetchLeaderboard} disabled={leaderboardLoading}>
+            <TouchableOpacity onPress={() => fetchLeaderboard()} disabled={leaderboardLoading}>
               <Text style={{ fontSize: 9, color: C.sub, fontFamily: 'monospace', letterSpacing: 2 }}>
                 {leaderboardLoading ? '…' : 'REFRESH'}
               </Text>
@@ -862,9 +885,11 @@ export function EarnScreen() {
           ) : sortedLeaderboard.length === 0 ? (
             <View style={s.empty}>
               <Text style={s.emptyText}>
-                {bagsPositions.length === 0
-                  ? 'No Bags tokens found.\n\nLaunch a token in the TRADE tab first.'
-                  : 'No market data available yet.\n\nTry again once your token has trading activity.'}
+                {allMints.length === 0
+                  ? (phantom.address
+                    ? 'No tokens found in your wallet.\n\nLaunch a token in the TRADE tab.'
+                    : 'Connect Phantom in Settings to see your tokens.')
+                  : 'No market data available yet.\n\nTokens may not be listed on DexScreener yet.'}
               </Text>
             </View>
           ) : (

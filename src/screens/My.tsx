@@ -19,6 +19,7 @@ import {
   View,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNode } from '../hooks/useNode';
 import {
   BridgeLogEntry,
@@ -39,6 +40,7 @@ import {
   useInbox,
   useOwnReputation,
   usePhantomBalance,
+  useDexPrices,
   usePortfolioHistory,
   useSkills,
   useSolPrice,
@@ -774,6 +776,12 @@ function PortfolioSubtab() {
   const solPrice = useSolPrice();
   const isHosted = !!config?.nodeApiUrl;
 
+  // Fetch DexScreener prices for non-stablecoin SPL tokens in the Phantom wallet.
+  const otherMints = phantom.splTokens
+    .map(t => t.mint)
+    .filter(m => !USDC_MINTS.has(m));
+  const dexPrices = useDexPrices(otherMints);
+
   const hotTotalUsd = tokens.reduce((sum, t) => {
     if (t.mint === SOL_MINT && solPrice) return sum + t.amount * solPrice;
     if (USDC_MINTS.has(t.mint)) return sum + t.amount;
@@ -827,6 +835,24 @@ function PortfolioSubtab() {
               <ActivityIndicator color={C.amber} style={{ marginTop: 12 }} />
             ) : (
               <View style={{ marginTop: 10 }}>
+                {/* Total USD */}
+                {(() => {
+                  const solUsd = (phantom.sol ?? 0) * (solPrice ?? 0);
+                  const usdcUsd = phantom.usdc ?? 0;
+                  const splUsd = phantom.splTokens.reduce((sum, t) => {
+                    const p = dexPrices.get(t.mint);
+                    return sum + (p ? t.amount * p.priceUsd : 0);
+                  }, 0);
+                  const total = solUsd + usdcUsd + splUsd;
+                  if (total <= 0) return null;
+                  return (
+                    <View style={[s.totalUsdRow, { marginBottom: 8 }]}>
+                      <Text style={s.totalUsdLabel}>TOTAL</Text>
+                      <Text style={s.totalUsdValue}>${total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+                    </View>
+                  );
+                })()}
+                {/* SOL */}
                 {phantom.sol !== null && (
                   <View style={s.hotWalletRow}>
                     <Text style={[s.hotBalance, { color: '#B351DF' }]}>
@@ -839,13 +865,36 @@ function PortfolioSubtab() {
                     )}
                   </View>
                 )}
+                {/* USDC */}
                 {phantom.usdc !== null && phantom.usdc > 0 && (
                   <View style={[s.hotWalletRow, { marginTop: 6 }]}>
-                    <Text style={[s.hotBalance, { color: C.amber }]}>
-                      USDC {phantom.usdc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    <Text style={[s.hotBalance, { color: C.amber }]}>USDC</Text>
+                    <Text style={s.hotAddr}>
+                      ${phantom.usdc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </Text>
                   </View>
                 )}
+                {/* Other SPL tokens */}
+                {phantom.splTokens
+                  .filter(t => !USDC_MINTS.has(t.mint))
+                  .map(t => {
+                    const info = dexPrices.get(t.mint);
+                    const usd = info ? t.amount * info.priceUsd : null;
+                    const label = info?.symbol || shortId(t.mint);
+                    return (
+                      <View key={t.mint} style={[s.hotWalletRow, { marginTop: 6 }]}>
+                        <Text style={[s.hotBalance, { color: C.text }]}>
+                          {label} {t.amount.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                        </Text>
+                        {usd !== null && usd > 0 ? (
+                          <Text style={s.hotAddr}>
+                            ${usd < 0.01 ? usd.toExponential(2) : usd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </Text>
+                        ) : null}
+                      </View>
+                    );
+                  })
+                }
               </View>
             )}
           </View>
@@ -1168,12 +1217,13 @@ function SkillsSubtab() {
 // ── Main screen ───────────────────────────────────────────────────────────
 
 export function MyScreen() {
+  const insets = useSafeAreaInsets();
   const [subtab, setSubtab] = useState<Subtab>('agents');
 
   return (
     <View style={s.root}>
       <NodeStatusBanner />
-      <View style={s.header}>
+      <View style={[s.header, { paddingTop: insets.top + 12 }]}>
         <Text style={s.title}>MY</Text>
         <View style={s.tabs}>
           {(['agents', 'node', 'portfolio', 'skills'] as Subtab[]).map(t => (

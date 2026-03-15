@@ -826,24 +826,33 @@ export function useHotKeyBalance(): HotKeyBalanceResult {
 
 
 
+export interface PhantomSplToken {
+  mint: string;
+  amount: number;
+}
+
 export interface PhantomBalance {
   address: string | null;
   sol: number | null;
   usdc: number | null;
+  /** All SPL tokens with non-zero balance in the Phantom wallet. */
+  splTokens: PhantomSplToken[];
   loading: boolean;
 }
 
 const USDC_MINT_MAINNET = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+const TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 
 /**
  * Reads the linked Phantom owner wallet from AsyncStorage and fetches its
- * SOL + USDC balances directly from the Solana mainnet RPC.
- * Polls every 60s. Returns nulls if no wallet is linked.
+ * SOL balance + all SPL token holdings directly from Solana mainnet RPC.
+ * Polls every 60s. Returns nulls/empty if no wallet is linked.
  */
 export function usePhantomBalance(): PhantomBalance {
   const [address, setAddress] = useState<string | null>(null);
   const [sol, setSol] = useState<number | null>(null);
   const [usdc, setUsdc] = useState<number | null>(null);
+  const [splTokens, setSplTokens] = useState<PhantomSplToken[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -853,48 +862,129 @@ export function usePhantomBalance(): PhantomBalance {
   useEffect(() => {
     if (!address) return;
     let cancelled = false;
-    const rpc = 'https://api.mainnet-beta.solana.com';
+    // Multiple public RPC endpoints — try in order until one succeeds.
+    const RPCS = [
+      'https://api.mainnet-beta.solana.com',
+      'https://rpc.ankr.com/solana',
+      'https://solana-rpc.publicnode.com',
+    ];
+
+    const rpcPost = async (rpc: string, body: object) => {
+      const res = await fetch(rpc, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      if (json.error) throw new Error(json.error.message ?? 'rpc error');
+      return json;
+    };
+
+    const rpcWithFallback = async (body: object) => {
+      for (const rpc of RPCS) {
+        try { return await rpcPost(rpc, body); } catch { /* try next */ }
+      }
+      throw new Error('all RPCs failed');
+    };
+
+    let retryTimeout: ReturnType<typeof setTimeout> | null = null;
 
     const fetchAll = async () => {
       if (!_appActive || cancelled) return;
       setLoading(true);
       try {
-        const [solRes, tokenRes] = await Promise.all([
-          fetch(rpc, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getBalance', params: [address] }),
-          }),
-          fetch(rpc, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              jsonrpc: '2.0', id: 2,
-              method: 'getTokenAccountsByOwner',
-              params: [address, { mint: USDC_MINT_MAINNET }, { encoding: 'jsonParsed' }],
-            }),
-          }),
+        const [solData, tokenData] = await Promise.all([
+          rpcWithFallback({ jsonrpc: '2.0', id: 1, method: 'getBalance', params: [address] }),
+          rpcWithFallback({ jsonrpc: '2.0', id: 2, method: 'getTokenAccountsByOwner', params: [address, { programId: TOKEN_PROGRAM_ID }, { encoding: 'jsonParsed' }] }),
         ]);
-        const [solData, tokenData] = await Promise.all([solRes.json(), tokenRes.json()]);
         if (!cancelled) {
           if (solData.result?.value !== undefined) setSol(solData.result.value / 1e9);
           const accounts: any[] = tokenData.result?.value ?? [];
-          const usdcAmount = accounts.reduce((sum: number, acc: any) => {
-            const ui = acc.account?.data?.parsed?.info?.tokenAmount?.uiAmount ?? 0;
-            return sum + ui;
-          }, 0);
-          setUsdc(usdcAmount);
+          const tokens: PhantomSplToken[] = [];
+          let usdcTotal = 0;
+          for (const acc of accounts) {
+            const info = acc.account?.data?.parsed?.info;
+            const mint: string = info?.mint ?? '';
+            const uiAmount: number = info?.tokenAmount?.uiAmount ?? 0;
+            if (!mint || uiAmount <= 0) continue;
+            tokens.push({ mint, amount: uiAmount });
+            if (mint === USDC_MINT_MAINNET) usdcTotal += uiAmount;
+          }
+          setSplTokens(tokens);
+          setUsdc(usdcTotal > 0 ? usdcTotal : null);
         }
-      } catch { /* ignore */ }
-      finally { if (!cancelled) setLoading(false); }
+      } catch {
+        // Retry after 8s if we have no data yet, otherwise wait for next poll.
+        if (!cancelled) {
+          retryTimeout = setTimeout(() => { if (!cancelled) fetchAll(); }, 8_000);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     };
 
     fetchAll();
     const id = setInterval(fetchAll, 60_000);
-    return () => { cancelled = true; clearInterval(id); };
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+      if (retryTimeout) clearTimeout(retryTimeout);
+    };
   }, [address]);
 
-  return { address, sol, usdc, loading };
+  return { address, sol, usdc, splTokens, loading };
+}
+
+export interface DexPrice {
+  symbol: string;
+  name: string;
+  priceUsd: number;
+}
+
+/**
+ * Fetches token metadata + USD price from DexScreener for the given mints.
+ * Re-fetches when `mints` identity changes. Returns a Map<mint, DexPrice>.
+ */
+export function useDexPrices(mints: string[]): Map<string, DexPrice> {
+  const [prices, setPrices] = useState<Map<string, DexPrice>>(new Map());
+  const mintsKey = mints.slice().sort().join(',');
+
+  useEffect(() => {
+    if (mints.length === 0) { setPrices(new Map()); return; }
+    let cancelled = false;
+    let retryTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    const fetchPrices = async (attempt = 0) => {
+      try {
+        const res = await fetch(`https://api.dexscreener.com/tokens/v1/solana/${mints.join(',')}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data: any[] = await res.json();
+        if (cancelled || !Array.isArray(data)) return;
+        const map = new Map<string, DexPrice>();
+        for (const pair of data) {
+          const mint: string = pair.baseToken?.address ?? '';
+          if (!mint || map.has(mint)) continue;
+          const price = parseFloat(pair.priceUsd ?? '0') || 0;
+          if (price > 0) map.set(mint, { symbol: pair.baseToken?.symbol ?? '', name: pair.baseToken?.name ?? '', priceUsd: price });
+        }
+        if (!cancelled) setPrices(map);
+      } catch {
+        if (!cancelled && attempt < 3) {
+          retryTimeout = setTimeout(() => fetchPrices(attempt + 1), (attempt + 1) * 3_000);
+        }
+      }
+    };
+
+    fetchPrices();
+    return () => {
+      cancelled = true;
+      if (retryTimeout) clearTimeout(retryTimeout);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mintsKey]);
+
+  return prices;
 }
 
 /** Polls the portfolio history from the Node API. */
