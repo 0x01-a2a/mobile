@@ -38,6 +38,7 @@ import {
   useIdentity,
   useInbox,
   useOwnReputation,
+  usePhantomBalance,
   usePortfolioHistory,
   useSkills,
   useSolPrice,
@@ -768,42 +769,34 @@ function TokenRow({ token, solPrice }: { token: TokenBalance; solPrice: number |
 function PortfolioSubtab() {
   const { config } = useNode();
   const { tokens, loading: balLoading, solanaAddress } = useHotKeyBalance();
+  const phantom = usePhantomBalance();
   const history = usePortfolioHistory();
   const solPrice = useSolPrice();
   const isHosted = !!config?.nodeApiUrl;
 
-  const totalUsd = tokens.reduce((sum, t) => {
+  const hotTotalUsd = tokens.reduce((sum, t) => {
     if (t.mint === SOL_MINT && solPrice) return sum + t.amount * solPrice;
     if (USDC_MINTS.has(t.mint)) return sum + t.amount;
     return sum;
   }, 0);
   const [sweeping, setSweeping] = useState(false);
   const [sweepAmount, setSweepAmount] = useState('');
-  const [coldWallet, setColdWallet] = useState<string | null>(null);
 
-  useEffect(() => {
-    AsyncStorage.getItem('zerox1:linked_agents')
-      .then(raw => {
-        if (!raw) return;
-        const agents: Array<{ ownerWallet?: string }> = JSON.parse(raw);
-        const first = agents.find(a => a.ownerWallet);
-        setColdWallet(first?.ownerWallet ?? null);
-      })
-      .catch(() => {});
-  }, []);
+  // Sweep destination: Phantom wallet (owner) if registered, otherwise prompt
+  const sweepDest = phantom.address;
 
   const totalUsdc = tokens.find(t => t.mint.startsWith('4zMMC') || t.mint === 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v')?.amount ?? 0;
 
   const handleSweep = async () => {
-    if (!coldWallet) return;
+    if (!sweepDest) return;
     const amountNum = sweepAmount ? parseFloat(sweepAmount) : undefined;
     const atomicAmount = amountNum ? Math.floor(amountNum * 1_000_000) : undefined;
 
     setSweeping(true);
     try {
-      const res = await sweepUsdc(coldWallet, atomicAmount);
+      const res = await sweepUsdc(sweepDest, atomicAmount);
       const txLine = res.signature ? `\n\nTx: ${res.signature}` : res.via === 'kora' ? '\n\n(gasless via Kora)' : '';
-      Alert.alert('Success', `Swept ${res.amount_usdc} USDC to ${coldWallet}${txLine}`);
+      Alert.alert('Success', `Swept ${res.amount_usdc} USDC to ${sweepDest}${txLine}`);
       setSweepAmount('');
     } catch (e: any) {
       Alert.alert('Sweep Failed', e.message);
@@ -814,15 +807,61 @@ function PortfolioSubtab() {
 
   return (
     <ScrollView style={s.subtabRoot} contentContainerStyle={s.subtabContent}>
-      <Text style={s.sectionLabel}>TOKEN BALANCES</Text>
+
+      {/* ── Owner / Phantom wallet (primary) ─────────────────────────── */}
+      {phantom.address ? (
+        <>
+          <Text style={s.sectionLabel}>OWNER WALLET (PHANTOM)</Text>
+          <View style={s.card}>
+            <TouchableOpacity
+              onPress={() => Share.share({ message: phantom.address! })}
+              activeOpacity={0.7}
+              style={s.hotWalletRow}
+            >
+              <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 0, color: C.amber }]}>
+                {shortId(phantom.address)}
+              </Text>
+              <Text style={s.hotAddr}>(COPY)</Text>
+            </TouchableOpacity>
+            {phantom.loading ? (
+              <ActivityIndicator color={C.amber} style={{ marginTop: 12 }} />
+            ) : (
+              <View style={{ marginTop: 10 }}>
+                {phantom.sol !== null && (
+                  <View style={s.hotWalletRow}>
+                    <Text style={[s.hotBalance, { color: '#B351DF' }]}>
+                      SOL {phantom.sol.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
+                    </Text>
+                    {solPrice && (
+                      <Text style={s.hotAddr}>
+                        ${(phantom.sol * solPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </Text>
+                    )}
+                  </View>
+                )}
+                {phantom.usdc !== null && phantom.usdc > 0 && (
+                  <View style={[s.hotWalletRow, { marginTop: 6 }]}>
+                    <Text style={[s.hotBalance, { color: C.amber }]}>
+                      USDC {phantom.usdc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            )}
+          </View>
+        </>
+      ) : null}
+
+      {/* ── Agent hot wallet (earnings) ───────────────────────────────── */}
+      <Text style={s.sectionLabel}>
+        {phantom.address ? 'AGENT HOT WALLET (EARNINGS)' : 'TOKEN BALANCES'}
+      </Text>
       <View style={s.card}>
         <View style={s.hotWalletRow}>
           <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 4 }]}>ADDRESS</Text>
           {solanaAddress && (
             <TouchableOpacity
-              onPress={() => {
-                Share.share({ message: solanaAddress });
-              }}
+              onPress={() => Share.share({ message: solanaAddress })}
               activeOpacity={0.7}
             >
               <Text style={s.hotAddr}>
@@ -832,10 +871,10 @@ function PortfolioSubtab() {
           )}
         </View>
 
-        {tokens.length > 0 && totalUsd > 0 && (
+        {tokens.length > 0 && hotTotalUsd > 0 && (
           <View style={s.totalUsdRow}>
             <Text style={s.totalUsdLabel}>TOTAL</Text>
-            <Text style={s.totalUsdValue}>${totalUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+            <Text style={s.totalUsdValue}>${hotTotalUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
           </View>
         )}
         {balLoading && tokens.length === 0 ? (
@@ -846,9 +885,9 @@ function PortfolioSubtab() {
           tokens.map(t => <TokenRow key={t.mint} token={t} solPrice={solPrice} />)
         )}
 
-        {!isHosted && totalUsdc > 0 && coldWallet && (
+        {!isHosted && totalUsdc > 0 && sweepDest && (
           <View style={{ marginTop: 24, borderTopWidth: 1, borderTopColor: C.border, paddingTop: 16 }}>
-            <Text style={s.sectionLabel}>SWEEP USDC</Text>
+            <Text style={s.sectionLabel}>SWEEP TO PHANTOM</Text>
             <View style={s.linkInputRow}>
               <TextInput
                 style={s.linkInput}
@@ -871,7 +910,7 @@ function PortfolioSubtab() {
               </TouchableOpacity>
             </View>
             <Text style={[s.hint, { marginTop: 8, textAlign: 'left' }]}>
-              Destination: {shortId(coldWallet)}
+              → {shortId(sweepDest)}
             </Text>
           </View>
         )}

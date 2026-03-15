@@ -94,7 +94,10 @@ export interface LocalAuthConfig {
 export const NodeModule = {
   /** Start the node foreground service with the given config. */
   startNode: (config: NodeConfig = {}): Promise<void> =>
-    ZeroxNodeModule.startNode(config),
+    ZeroxNodeModule.startNode({
+      rpcUrl: 'https://api.mainnet-beta.solana.com',
+      ...config,
+    }),
 
   /** Stop the node and remove the foreground notification. */
   stopNode: (): Promise<void> =>

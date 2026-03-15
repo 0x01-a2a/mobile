@@ -826,6 +826,77 @@ export function useHotKeyBalance(): HotKeyBalanceResult {
 
 
 
+export interface PhantomBalance {
+  address: string | null;
+  sol: number | null;
+  usdc: number | null;
+  loading: boolean;
+}
+
+const USDC_MINT_MAINNET = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+
+/**
+ * Reads the linked Phantom owner wallet from AsyncStorage and fetches its
+ * SOL + USDC balances directly from the Solana mainnet RPC.
+ * Polls every 60s. Returns nulls if no wallet is linked.
+ */
+export function usePhantomBalance(): PhantomBalance {
+  const [address, setAddress] = useState<string | null>(null);
+  const [sol, setSol] = useState<number | null>(null);
+  const [usdc, setUsdc] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem('zerox1:linked_wallet').then(a => setAddress(a ?? null)).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!address) return;
+    let cancelled = false;
+    const rpc = 'https://api.mainnet-beta.solana.com';
+
+    const fetchAll = async () => {
+      if (!_appActive || cancelled) return;
+      setLoading(true);
+      try {
+        const [solRes, tokenRes] = await Promise.all([
+          fetch(rpc, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getBalance', params: [address] }),
+          }),
+          fetch(rpc, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              jsonrpc: '2.0', id: 2,
+              method: 'getTokenAccountsByOwner',
+              params: [address, { mint: USDC_MINT_MAINNET }, { encoding: 'jsonParsed' }],
+            }),
+          }),
+        ]);
+        const [solData, tokenData] = await Promise.all([solRes.json(), tokenRes.json()]);
+        if (!cancelled) {
+          if (solData.result?.value !== undefined) setSol(solData.result.value / 1e9);
+          const accounts: any[] = tokenData.result?.value ?? [];
+          const usdcAmount = accounts.reduce((sum: number, acc: any) => {
+            const ui = acc.account?.data?.parsed?.info?.tokenAmount?.uiAmount ?? 0;
+            return sum + ui;
+          }, 0);
+          setUsdc(usdcAmount);
+        }
+      } catch { /* ignore */ }
+      finally { if (!cancelled) setLoading(false); }
+    };
+
+    fetchAll();
+    const id = setInterval(fetchAll, 60_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [address]);
+
+  return { address, sol, usdc, loading };
+}
+
 /** Polls the portfolio history from the Node API. */
 export function usePortfolioHistory(intervalMs = 30_000): PortfolioEvent[] {
   const [events, setEvents] = useState<PortfolioEvent[]>([]);

@@ -833,7 +833,6 @@ function OnchainRegistrationStep({
   const [nodeReady, setNodeReady] = useState(false);
   // Phantom wallet address if user connected
   const [phantomAddress, setPhantomAddress] = useState<string | null>(null);
-  const [phantomConnecting, setPhantomConnecting] = useState(false);
 
   // Start the node on mount and resolve the hot wallet address.
   useEffect(() => {
@@ -900,54 +899,15 @@ function OnchainRegistrationStep({
     };
   }, []);
 
-  // Connect Phantom via Mobile Wallet Adapter.
-  const handleConnectPhantom = async () => {
-    setPhantomConnecting(true);
+  // Register with Phantom: authorize + sign registration tx in one MWA session.
+  const handleRegisterWithPhantom = async () => {
+    setRegistering(true);
     setError(null);
     try {
       const {
         transact,
       } = require('@solana-mobile/mobile-wallet-adapter-protocol-web3js');
-      const address: string = await transact(async (wallet: any) => {
-        const { accounts } = await wallet.authorize({
-          cluster: 'devnet',
-          identity: {
-            name: '01 Pilot',
-            uri: 'https://0x01.world',
-            icon: 'favicon.ico',
-          },
-        });
-        // accounts[0].address is a base64-encoded 32-byte pubkey (raw MWA protocol).
-        // Convert to base58 Solana address via @solana/web3.js.
-        const { PublicKey } = require('@solana/web3.js');
-        const addrBytes = decodeBase64(accounts[0].address);
-        return new PublicKey(addrBytes).toBase58();
-      });
-      setPhantomAddress(address);
-    } catch (e: any) {
-      const msg: string = e?.message ?? '';
-      if (
-        msg.includes('No wallet') ||
-        msg.includes('not found') ||
-        msg.includes('SolanaMobileWalletAdapterWalletNotInstalledError')
-      ) {
-        setError(
-          'Phantom not installed. Get it from the Play Store, or register with the embedded wallet below.',
-        );
-      } else {
-        setError(msg || 'Phantom connection failed.');
-      }
-    } finally {
-      setPhantomConnecting(false);
-    }
-  };
-
-  // Register with Phantom as owner — prepare tx on node, Phantom signs + broadcasts.
-  const handleRegisterWithPhantom = async () => {
-    if (!phantomAddress) return;
-    setRegistering(true);
-    setError(null);
-    try {
+      const { PublicKey, Transaction } = require('@solana/web3.js');
       const { NodeModule } = require('../native/NodeModule');
       const auth = await NodeModule.getLocalAuthConfig();
       const token: string = auth?.nodeApiToken ?? '';
@@ -956,60 +916,105 @@ function OnchainRegistrationStep({
       };
       if (token) headers.Authorization = `Bearer ${token}`;
 
-      const prepareRes = await fetch(
-        'http://127.0.0.1:9090/registry/8004/register-prepare',
-        {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            owner_pubkey: phantomAddress,
-            agent_uri: agentName.trim(),
-          }),
-        },
-      );
-      if (!prepareRes.ok) {
-        const err = await prepareRes.json().catch(() => ({}));
-        throw new Error(
-          (err as any).error || `prepare failed: ${prepareRes.status}`,
-        );
-      }
-      const prepared: { transaction_b64: string; asset_pubkey: string } =
-        await prepareRes.json();
-
-      // Phantom signs the partially-signed tx and broadcasts it directly.
-      // The tx_b64 from the node is a legacy bincode-serialized Transaction.
-      // Deserialize to a web3.js Transaction so the MWA wrapper can call .serialize() on it.
-      const { Transaction } = require('@solana/web3.js');
-      const txBytes = Uint8Array.from(atob(prepared.transaction_b64), c =>
-        c.charCodeAt(0),
-      );
-      const legacyTx = Transaction.from(txBytes);
-      const {
-        transact,
-      } = require('@solana-mobile/mobile-wallet-adapter-protocol-web3js');
-      await transact(async (wallet: any) => {
-        await wallet.authorize({
-          cluster: 'devnet',
+      const [address, ownerSigB64, preparedTxB64] = await transact(async (wallet: any) => {
+        // Step 1: authorize — get the owner wallet address.
+        const { accounts } = await wallet.authorize({
+          cluster: 'mainnet-beta',
           identity: {
             name: '01 Pilot',
             uri: 'https://0x01.world',
             icon: 'favicon.ico',
           },
         });
-        await wallet.signAndSendTransactions({
-          transactions: [legacyTx],
-        });
+        const addrBytes = decodeBase64(accounts[0].address);
+        const ownerPubkey = new PublicKey(addrBytes).toBase58();
+
+        // Step 2: prepare registration tx (HTTP to local node, inside same session).
+        const prepareRes = await fetch(
+          'http://127.0.0.1:9090/registry/8004/register-prepare',
+          {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              owner_pubkey: ownerPubkey,
+              agent_uri: agentName.trim(),
+            }),
+          },
+        );
+        if (!prepareRes.ok) {
+          const err = await prepareRes.json().catch(() => ({}));
+          throw new Error(
+            (err as any).error || `prepare failed: ${prepareRes.status}`,
+          );
+        }
+        const prepared: { transaction_b64: string } = await prepareRes.json();
+        const txBytes = Uint8Array.from(atob(prepared.transaction_b64), c =>
+          c.charCodeAt(0),
+        );
+        const legacyTx = Transaction.from(txBytes);
+
+        // Step 3: sign only (no broadcast) — Phantom returns immediately.
+        // We broadcast via the node's register-submit endpoint after returning.
+        const [signedTx] = await wallet.signTransactions({ transactions: [legacyTx] });
+
+        // Extract the owner's signature (first signer = owner pubkey).
+        const ownerPk = new PublicKey(addrBytes);
+        const sig = signedTx.signatures.find(
+          (s: any) => s.publicKey.equals(ownerPk),
+        );
+        if (!sig?.signature) throw new Error('Owner signature missing from signed tx.');
+        const sigB64 = btoa(String.fromCharCode(...sig.signature));
+
+        return [ownerPubkey, sigB64, prepared.transaction_b64];
       });
 
+      // Step 4: submit — node injects owner sig + broadcasts. Done outside transact()
+      // so Phantom has already closed and we're back in 01 Pilot.
+      // Retry up to 3 times with backoff to handle transient RPC 429s.
+      let submitErr = '';
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) await new Promise<void>(r => setTimeout(r, attempt * 2000));
+        const submitRes = await fetch(
+          'http://127.0.0.1:9090/registry/8004/register-submit',
+          {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              transaction_b64: preparedTxB64,
+              owner_signature_b64: ownerSigB64,
+            }),
+          },
+        );
+        if (submitRes.ok) { submitErr = ''; break; }
+        const err = await submitRes.json().catch(() => ({}));
+        submitErr = (err as any).error || `submit failed: ${submitRes.status}`;
+        if (!submitErr.includes('429') && !submitErr.includes('rate limit')) break;
+      }
+      if (submitErr) throw new Error(submitErr);
+
+      setPhantomAddress(address);
       await AsyncStorage.multiSet([
         ['zerox1:8004_registered', 'true'],
-        ['zerox1:linked_wallet', phantomAddress],
+        ['zerox1:linked_wallet', address],
       ]);
       await AsyncStorage.removeItem(ONBOARDING_STATE_KEY);
       await markOnboardingDone();
       onFinish(config);
     } catch (e: any) {
-      setError(e?.message ?? 'Registration failed.');
+      const msg: string = e?.message ?? '';
+      if (
+        msg.includes('No wallet') ||
+        msg.includes('not found') ||
+        msg.includes('SolanaMobileWalletAdapterWalletNotInstalledError') ||
+        msg.includes('SolanaMobileWalletAdapter') ||
+        msg.includes('could not be found')
+      ) {
+        setError(
+          'Phantom not installed. Get it from the Play Store, or register with the embedded wallet below.',
+        );
+      } else {
+        setError(msg || 'Registration failed.');
+      }
     } finally {
       setRegistering(false);
     }
@@ -1050,50 +1055,16 @@ function OnchainRegistrationStep({
       {/* Phantom option */}
       <View style={s.walletCard}>
         <Text style={s.walletLabel}>OPTION 1 — PHANTOM WALLET</Text>
-        {phantomAddress ? (
-          <>
-            <Text style={s.walletAddress} selectable>
-              {phantomAddress}
-            </Text>
-            <Text style={[s.walletHint, { color: C.green, marginBottom: 0 }]}>
-              Connected. Phantom will be the on-chain owner of your agent.
-            </Text>
-          </>
-        ) : (
-          <Text style={s.walletHint}>
-            Phantom becomes the owner of your on-chain agent identity. Your
-            signing key stays separate — the agent operates autonomously using
-            the embedded wallet.
-          </Text>
-        )}
-        {!phantomAddress && (
-          <TouchableOpacity
-            style={[
-              s.primaryBtn,
-              { marginTop: 12, marginBottom: 0 },
-              phantomConnecting && s.primaryBtnDisabled,
-            ]}
-            onPress={handleConnectPhantom}
-            activeOpacity={0.8}
-            disabled={phantomConnecting || registering}
-          >
-            <Text
-              style={[
-                s.primaryBtnText,
-                phantomConnecting && s.primaryBtnTextDisabled,
-              ]}
-            >
-              {phantomConnecting ? 'CONNECTING…' : 'CONNECT PHANTOM'}
-            </Text>
-          </TouchableOpacity>
-        )}
-        {phantomAddress && (
-          <PrimaryBtn
-            label={registering ? 'REGISTERING…' : 'REGISTER WITH PHANTOM →'}
-            onPress={handleRegisterWithPhantom}
-            disabled={registering || !nodeReady}
-          />
-        )}
+        <Text style={s.walletHint}>
+          Phantom becomes the owner of your on-chain agent identity. Your
+          signing key stays separate — the agent operates autonomously using
+          the embedded wallet.
+        </Text>
+        <PrimaryBtn
+          label={registering ? 'REGISTERING…' : 'REGISTER WITH PHANTOM →'}
+          onPress={handleRegisterWithPhantom}
+          disabled={registering || !nodeReady}
+        />
       </View>
 
       {/* Embedded wallet option */}
@@ -1129,7 +1100,7 @@ function OnchainRegistrationStep({
         <PrimaryBtn
           label={registering ? 'REGISTERING…' : 'REGISTER WITH HOT WALLET →'}
           onPress={handleRegisterEmbedded}
-          disabled={registering || !hotWalletAddress || !!phantomAddress}
+          disabled={registering || !hotWalletAddress}
         />
       </View>
 
