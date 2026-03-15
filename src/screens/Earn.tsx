@@ -5,11 +5,13 @@
  * cards. User picks which agent handles the task, ACCEPT is sent, then
  * the app routes to Chat with the task loaded as context.
  */
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   FlatList,
+  Linking,
   Modal,
   Pressable,
   RefreshControl,
@@ -81,6 +83,103 @@ interface LeaderboardToken {
   volume24h: number;
   priceChange24h: number;
   marketCap: number;
+}
+
+// ── Campaign ──────────────────────────────────────────────────────────────
+
+const CAMPAIGN_END_DATE = new Date('2026-04-15T23:59:59Z');
+
+type TrackId = 'design' | 'launch' | 'social';
+type TrackStatus = 'pending' | 'submitted' | 'claimed';
+
+interface CampaignSubmission {
+  status: TrackStatus;
+  submittedAt?: number;
+}
+
+const CAMPAIGN_STORAGE_KEY = 'zerox1:campaign_01pilot_v1';
+
+interface CampaignState {
+  design: CampaignSubmission;
+  launch: CampaignSubmission;
+  social: CampaignSubmission;
+}
+
+const DEFAULT_CAMPAIGN_STATE: CampaignState = {
+  design:  { status: 'pending' },
+  launch:  { status: 'pending' },
+  social:  { status: 'pending' },
+};
+
+function daysLeft(): number {
+  return Math.max(0, Math.ceil((CAMPAIGN_END_DATE.getTime() - Date.now()) / 86_400_000));
+}
+
+// ── Campaign track card ────────────────────────────────────────────────────
+
+function CampaignTrackCard({
+  icon,
+  title,
+  rewardLine,
+  description,
+  requirements,
+  submission,
+  ctaLabel,
+  onCta,
+}: {
+  icon: string;
+  title: string;
+  rewardLine: string;
+  description: string;
+  requirements: string[];
+  submission: CampaignSubmission;
+  ctaLabel: string;
+  onCta: () => void;
+}) {
+  const statusColor =
+    submission.status === 'claimed'    ? C.green :
+    submission.status === 'submitted'  ? C.amber :
+    C.sub;
+  const statusLabel =
+    submission.status === 'claimed'    ? 'REWARDED' :
+    submission.status === 'submitted'  ? 'SUBMITTED' :
+    'OPEN';
+
+  return (
+    <View style={cs.trackCard}>
+      <View style={cs.trackHeader}>
+        <Text style={cs.trackIcon}>{icon}</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={cs.trackTitle}>{title}</Text>
+          <Text style={cs.trackReward}>{rewardLine}</Text>
+        </View>
+        <View style={[cs.statusBadge, { borderColor: statusColor + '80', backgroundColor: statusColor + '15' }]}>
+          <Text style={[cs.statusText, { color: statusColor }]}>{statusLabel}</Text>
+        </View>
+      </View>
+
+      <Text style={cs.trackDesc}>{description}</Text>
+
+      <View style={cs.reqList}>
+        {requirements.map((r, i) => (
+          <Text key={i} style={cs.reqItem}>{'> '}{r}</Text>
+        ))}
+      </View>
+
+      {submission.status !== 'claimed' && (
+        <TouchableOpacity
+          style={[cs.ctaBtn, submission.status === 'submitted' && { opacity: 0.55 }]}
+          activeOpacity={0.8}
+          onPress={onCta}
+          disabled={submission.status === 'submitted'}
+        >
+          <Text style={cs.ctaText}>
+            {submission.status === 'submitted' ? 'AWAITING REVIEW' : ctaLabel}
+          </Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
 }
 
 // ── Token whitelist (mirrors node SWAP_WHITELIST) ─────────────────────────
@@ -263,8 +362,18 @@ export function EarnScreen() {
   const [bounties, setBounties] = useState<Bounty[]>([]);
   const [pickerTarget, setPickerTarget] = useState<Bounty | null>(null);
   const [registered, setRegistered] = useState<boolean | null>(null);
-  const [activeTab, setActiveTab] = useState<'bounty' | 'trade' | 'leaderboard'>('bounty');
+  const [activeTab, setActiveTab] = useState<'bounty' | 'trade' | 'leaderboard' | 'campaign'>('bounty');
   const [bagsExpanded, setBagsExpanded] = useState(false);
+
+  // ── Campaign state ─────────────────────────────────────────────────────────
+  const [campaignState, setCampaignState] = useState<CampaignState>(DEFAULT_CAMPAIGN_STATE);
+  const [designModalVisible, setDesignModalVisible] = useState(false);
+  const [socialModalVisible, setSocialModalVisible] = useState(false);
+  const [designImageBytes, setDesignImageBytes] = useState<string | null>(null);
+  const [designImageName, setDesignImageName] = useState<string | null>(null);
+  const [designNote, setDesignNote] = useState('');
+  const [socialPostUrl, setSocialPostUrl] = useState('');
+  const campaignPulse = useRef(new Animated.Value(1)).current;
 
   const { injectSystemMessage } = useZeroclawChat(agents[0]?.id);
 
@@ -337,6 +446,96 @@ export function EarnScreen() {
   useEffect(() => {
     if (activeTab === 'leaderboard') fetchLeaderboard();
   }, [activeTab, fetchLeaderboard]);
+
+  // Load/save campaign submission state
+  useEffect(() => {
+    AsyncStorage.getItem(CAMPAIGN_STORAGE_KEY).then(val => {
+      if (val) {
+        try { setCampaignState(JSON.parse(val)); } catch { /* ignore */ }
+      }
+    });
+  }, []);
+
+  const saveCampaignState = useCallback((next: CampaignState) => {
+    setCampaignState(next);
+    AsyncStorage.setItem(CAMPAIGN_STORAGE_KEY, JSON.stringify(next)).catch(() => {});
+  }, []);
+
+  // Pulse animation for the MISSION badge
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(campaignPulse, { toValue: 1.18, duration: 900, useNativeDriver: true }),
+        Animated.timing(campaignPulse, { toValue: 1, duration: 900, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [campaignPulse]);
+
+  const handleDesignPickImage = useCallback(() => {
+    launchImageLibrary(
+      { mediaType: 'photo', includeBase64: true, quality: 0.8, maxWidth: 1024, maxHeight: 1024 },
+      (response) => {
+        if (response.didCancel || response.errorCode) return;
+        const asset = response.assets?.[0];
+        if (!asset?.base64) return;
+        setDesignImageBytes(asset.base64);
+        setDesignImageName(asset.fileName ?? 'design.jpg');
+      },
+    );
+  }, []);
+
+  const handleDesignSubmit = useCallback(() => {
+    if (!designImageBytes) {
+      Alert.alert('Missing Image', 'Please pick a token design image to submit.');
+      return;
+    }
+    const next: CampaignState = {
+      ...campaignState,
+      design: { status: 'submitted', submittedAt: Date.now() },
+    };
+    saveCampaignState(next);
+    setDesignModalVisible(false);
+    setDesignImageBytes(null);
+    setDesignImageName(null);
+    setDesignNote('');
+    Alert.alert(
+      'Design Submitted',
+      'Your token design has been submitted for review. Rewards are distributed within 48h of acceptance.',
+    );
+  }, [designImageBytes, designNote, campaignState, saveCampaignState]);
+
+  const handleSocialSubmit = useCallback(() => {
+    const url = socialPostUrl.trim();
+    if (!url.startsWith('https://')) {
+      Alert.alert('Invalid URL', 'Enter the full https:// link to your post.');
+      return;
+    }
+    const next: CampaignState = {
+      ...campaignState,
+      social: { status: 'submitted', submittedAt: Date.now() },
+    };
+    saveCampaignState(next);
+    setSocialModalVisible(false);
+    setSocialPostUrl('');
+    Alert.alert(
+      'Post Submitted',
+      'Your social post has been submitted for review. Rewards are sent once engagement is verified (up to 72h).',
+    );
+  }, [socialPostUrl, campaignState, saveCampaignState]);
+
+  const handleLaunchTrackCta = useCallback(() => {
+    setActiveTab('trade');
+    setBagsExpanded(true);
+    if (campaignState.launch.status === 'pending') {
+      const next: CampaignState = {
+        ...campaignState,
+        launch: { status: 'submitted', submittedAt: Date.now() },
+      };
+      saveCampaignState(next);
+    }
+  }, [campaignState, saveCampaignState]);
 
   const sortedLeaderboard = [...leaderboardData].sort((a, b) =>
     leaderboardSort === 'volume' ? b.volume24h - a.volume24h : b.priceChange24h - a.priceChange24h,
@@ -590,6 +789,15 @@ export function EarnScreen() {
             onPress={() => setActiveTab('leaderboard')}
           >
             <Text style={[s.tabText, activeTab === 'leaderboard' && s.tabTextActive]}>TOP</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[s.tabBtn, activeTab === 'campaign' && s.tabActive]}
+            onPress={() => setActiveTab('campaign')}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+              <Text style={[s.tabText, activeTab === 'campaign' && s.tabTextActive]}>MISSION</Text>
+              <Animated.View style={[cs.liveDot, { transform: [{ scale: campaignPulse }] }]} />
+            </View>
           </TouchableOpacity>
         </View>
       </View>
@@ -908,6 +1116,171 @@ export function EarnScreen() {
         </ScrollView>
       )}
 
+      {/* Campaign Tab */}
+      {activeTab === 'campaign' && (
+        <ScrollView style={s.tradeRoot} contentContainerStyle={s.tradeContent}>
+          {/* Campaign header */}
+          <View style={cs.campaignBanner}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <View style={{ flex: 1 }}>
+                <Text style={cs.campaignTitle}>01PILOT LAUNCH CAMPAIGN</Text>
+                <Text style={cs.campaignSub}>Earn rewards by growing the 01pilot ecosystem</Text>
+              </View>
+              <View style={cs.daysLeftBadge}>
+                <Text style={cs.daysLeftNum}>{daysLeft()}</Text>
+                <Text style={cs.daysLeftLabel}>DAYS LEFT</Text>
+              </View>
+            </View>
+            <View style={cs.partnerNote}>
+              <Text style={cs.partnerNoteText}>
+                {'[!] Partner key active — you earn 25% of fees from every token launched via 01pilot'}
+              </Text>
+            </View>
+          </View>
+
+          {/* Track: Design */}
+          <CampaignTrackCard
+            icon="[#]"
+            title="TOKEN DESIGN"
+            rewardLine="8 USDC per accepted design"
+            description="Create original artwork for tokens launched via 01pilot. Stand out with a strong visual identity — clean logos, distinct colour palettes."
+            requirements={[
+              'Original art (no plagiarism)',
+              'PNG or JPG, min 512×512',
+              'Brief concept note (1–2 sentences)',
+            ]}
+            submission={campaignState.design}
+            ctaLabel="SUBMIT DESIGN"
+            onCta={() => setDesignModalVisible(true)}
+          />
+
+          {/* Track: Launch & Trade */}
+          <CampaignTrackCard
+            icon="[^]"
+            title="LAUNCH & TRADE"
+            rewardLine="12 USDC first launch · ongoing fee share"
+            description="Launch a token on Bags.fm through 01pilot. You keep all pool trading fees as creator. On top of that, the 01pilot partner key earns you 25% of platform fees from every launch in this app."
+            requirements={[
+              'Bags API key configured in Settings',
+              'Launch at least one token via 01pilot',
+              'Token must have a name, symbol, and description',
+            ]}
+            submission={campaignState.launch}
+            ctaLabel="GO TO LAUNCH"
+            onCta={handleLaunchTrackCta}
+          />
+
+          {/* Track: Social */}
+          <CampaignTrackCard
+            icon="[~]"
+            title="SOCIAL PROMO"
+            rewardLine="3 USDC per qualifying post"
+            description="Post about 01pilot on X (Twitter). Show your trades, bounties earned, or agent activity. Tag @0x01world and include #01pilot."
+            requirements={[
+              'Post on X (Twitter)',
+              'Tag @0x01world + #01pilot',
+              'Minimum 50 engagements (likes + replies)',
+              'Submit post URL below',
+            ]}
+            submission={campaignState.social}
+            ctaLabel="SUBMIT POST"
+            onCta={() => setSocialModalVisible(true)}
+          />
+
+          <TouchableOpacity
+            onPress={() => Linking.openURL('https://x.com/0x01world')}
+            style={{ marginTop: 4, marginBottom: 32, alignSelf: 'center' }}
+            activeOpacity={0.7}
+          >
+            <Text style={{ fontSize: 10, color: C.sub, fontFamily: 'monospace', letterSpacing: 1 }}>
+              questions? @0x01world on X
+            </Text>
+          </TouchableOpacity>
+        </ScrollView>
+      )}
+
+      {/* Design submission modal */}
+      {designModalVisible && (
+        <Modal transparent animationType="slide" onRequestClose={() => setDesignModalVisible(false)}>
+          <Pressable style={s.overlay} onPress={() => setDesignModalVisible(false)} />
+          <View style={[s.sheet, { paddingBottom: 32 }]}>
+            <Text style={s.sheetTitle}>SUBMIT TOKEN DESIGN</Text>
+
+            {/* Image picker */}
+            <TouchableOpacity
+              style={cs.imagePickerBtn}
+              onPress={handleDesignPickImage}
+              activeOpacity={0.7}
+            >
+              <Text style={[cs.imagePickerText, designImageBytes ? { color: C.green } : {}]} numberOfLines={1}>
+                {designImageName ?? 'Tap to pick image…'}
+              </Text>
+              {designImageBytes && (
+                <TouchableOpacity
+                  onPress={() => { setDesignImageBytes(null); setDesignImageName(null); }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Text style={{ fontSize: 11, color: C.red, fontFamily: 'monospace' }}>✕</Text>
+                </TouchableOpacity>
+              )}
+            </TouchableOpacity>
+
+            <TextInput
+              style={cs.noteInput}
+              value={designNote}
+              onChangeText={setDesignNote}
+              placeholder="Concept note (what is this token for?)"
+              placeholderTextColor={C.dim}
+              multiline
+              maxLength={280}
+              autoCapitalize="sentences"
+              autoCorrect={false}
+            />
+
+            <TouchableOpacity
+              style={[cs.ctaBtn, { marginTop: 16 }, !designImageBytes && { opacity: 0.4 }]}
+              activeOpacity={0.8}
+              onPress={handleDesignSubmit}
+              disabled={!designImageBytes}
+            >
+              <Text style={cs.ctaText}>SUBMIT</Text>
+            </TouchableOpacity>
+          </View>
+        </Modal>
+      )}
+
+      {/* Social submission modal */}
+      {socialModalVisible && (
+        <Modal transparent animationType="slide" onRequestClose={() => setSocialModalVisible(false)}>
+          <Pressable style={s.overlay} onPress={() => setSocialModalVisible(false)} />
+          <View style={[s.sheet, { paddingBottom: 32 }]}>
+            <Text style={s.sheetTitle}>SUBMIT SOCIAL POST</Text>
+            <Text style={[s.sub, { marginBottom: 14 }]}>
+              {'Post must tag @0x01world + #01pilot and have 50+ engagements.'}
+            </Text>
+            <TextInput
+              style={cs.noteInput}
+              value={socialPostUrl}
+              onChangeText={setSocialPostUrl}
+              placeholder="https://x.com/your_post_url"
+              placeholderTextColor={C.dim}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+              maxLength={512}
+            />
+            <TouchableOpacity
+              style={[cs.ctaBtn, { marginTop: 16 }, !socialPostUrl.trim() && { opacity: 0.4 }]}
+              activeOpacity={0.8}
+              onPress={handleSocialSubmit}
+              disabled={!socialPostUrl.trim()}
+            >
+              <Text style={cs.ctaText}>SUBMIT</Text>
+            </TouchableOpacity>
+          </View>
+        </Modal>
+      )}
+
       {/* Token picker modal */}
       {pickerFor && (
         <Modal transparent animationType="slide" onRequestClose={() => setPickerFor(null)}>
@@ -1015,4 +1388,193 @@ const s = StyleSheet.create({
   sectionToggle: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 24, marginBottom: 4 },
   toggleChevron: { fontSize: 10, color: C.sub, fontFamily: 'monospace' },
   bagsNotConfigured: { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, padding: 20, alignItems: 'center', marginTop: 8 },
+});
+
+// ── Campaign styles ────────────────────────────────────────────────────────
+
+const CAMPAIGN_ACCENT = '#b388ff'; // soft purple — distinct from green/amber
+
+const cs = StyleSheet.create({
+  liveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: CAMPAIGN_ACCENT,
+    marginBottom: 1,
+  },
+
+  // Banner
+  campaignBanner: {
+    backgroundColor: '#0d0a14',
+    borderWidth: 1,
+    borderColor: CAMPAIGN_ACCENT + '50',
+    borderRadius: 6,
+    padding: 16,
+    marginBottom: 16,
+  },
+  campaignTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: CAMPAIGN_ACCENT,
+    fontFamily: 'monospace',
+    letterSpacing: 2,
+    marginBottom: 4,
+  },
+  campaignSub: {
+    fontSize: 11,
+    color: C.sub,
+    fontFamily: 'monospace',
+    lineHeight: 16,
+  },
+  daysLeftBadge: {
+    alignItems: 'center',
+    backgroundColor: CAMPAIGN_ACCENT + '18',
+    borderWidth: 1,
+    borderColor: CAMPAIGN_ACCENT + '50',
+    borderRadius: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginLeft: 12,
+  },
+  daysLeftNum: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: CAMPAIGN_ACCENT,
+    fontFamily: 'monospace',
+    textAlign: 'center',
+  },
+  daysLeftLabel: {
+    fontSize: 7,
+    color: CAMPAIGN_ACCENT + 'aa',
+    fontFamily: 'monospace',
+    letterSpacing: 2,
+    textAlign: 'center',
+  },
+  partnerNote: {
+    marginTop: 12,
+    backgroundColor: '#00e67610',
+    borderWidth: 1,
+    borderColor: '#00e67640',
+    borderRadius: 3,
+    padding: 8,
+  },
+  partnerNoteText: {
+    fontSize: 10,
+    color: C.green,
+    fontFamily: 'monospace',
+    lineHeight: 15,
+  },
+
+  // Track card
+  trackCard: {
+    backgroundColor: '#0a0a10',
+    borderWidth: 1,
+    borderColor: '#1e1a2e',
+    borderRadius: 6,
+    padding: 16,
+    marginBottom: 14,
+  },
+  trackHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginBottom: 10,
+  },
+  trackIcon: {
+    fontSize: 14,
+    color: CAMPAIGN_ACCENT,
+    fontFamily: 'monospace',
+    fontWeight: '700',
+    marginTop: 1,
+  },
+  trackTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: C.text,
+    fontFamily: 'monospace',
+    letterSpacing: 2,
+  },
+  trackReward: {
+    fontSize: 10,
+    color: CAMPAIGN_ACCENT,
+    fontFamily: 'monospace',
+    marginTop: 2,
+  },
+  statusBadge: {
+    borderWidth: 1,
+    borderRadius: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+  statusText: {
+    fontSize: 8,
+    fontWeight: '700',
+    fontFamily: 'monospace',
+    letterSpacing: 2,
+  },
+  trackDesc: {
+    fontSize: 12,
+    color: '#aaaaaa',
+    fontFamily: 'monospace',
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  reqList: {
+    gap: 4,
+    marginBottom: 14,
+  },
+  reqItem: {
+    fontSize: 10,
+    color: C.sub,
+    fontFamily: 'monospace',
+    lineHeight: 15,
+  },
+  ctaBtn: {
+    backgroundColor: CAMPAIGN_ACCENT + '20',
+    borderWidth: 1,
+    borderColor: CAMPAIGN_ACCENT + '80',
+    borderRadius: 4,
+    paddingVertical: 11,
+    alignItems: 'center',
+  },
+  ctaText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: CAMPAIGN_ACCENT,
+    fontFamily: 'monospace',
+    letterSpacing: 2,
+  },
+
+  // Modals
+  imagePickerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.bg,
+    borderWidth: 1,
+    borderColor: C.dim,
+    borderRadius: 3,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    gap: 8,
+    marginBottom: 12,
+  },
+  imagePickerText: {
+    fontSize: 13,
+    color: C.dim,
+    fontFamily: 'monospace',
+    flex: 1,
+  },
+  noteInput: {
+    backgroundColor: C.bg,
+    borderWidth: 1,
+    borderColor: C.dim,
+    borderRadius: 3,
+    color: C.text,
+    fontFamily: 'monospace',
+    fontSize: 13,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    minHeight: 72,
+    textAlignVertical: 'top',
+  },
 });
