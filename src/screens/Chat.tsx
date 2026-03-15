@@ -253,6 +253,10 @@ export function ChatScreen() {
   const [bagsKeyDraft, setBagsKeyDraft] = useState('');
   const [bagsKeySaving, setBagsKeySaving] = useState(false);
 
+  // Text deliver modal state
+  const [textDeliverVisible, setTextDeliverVisible] = useState(false);
+  const [textDeliverInput, setTextDeliverInput] = useState('');
+
   // Show the Bags API key modal when ZeroClaw signals rate limiting.
   useEffect(() => {
     const last = messages[messages.length - 1];
@@ -389,8 +393,9 @@ export function ChatScreen() {
 
     const ok = await sendEnvelope({
       msg_type: 'DELIVER',
+      recipient: params.task?.fromAgent,
       conversation_id: params.conversationId,
-      payload,
+      payload_b64: payload,
     });
     if (ok) {
       Alert.alert('Delivered', isHosted
@@ -402,14 +407,33 @@ export function ChatScreen() {
     }
   }, [upload, params.conversationId, config.nodeApiUrl]);
 
+  const submitTextDeliver = useCallback(async () => {
+    const text = textDeliverInput.trim();
+    if (!text || !params.conversationId) return;
+    setTextDeliverVisible(false);
+    setTextDeliverInput('');
+    const ok = await sendEnvelope({
+      msg_type: 'DELIVER',
+      recipient: params.task?.fromAgent,
+      conversation_id: params.conversationId,
+      payload_b64: btoa(unescape(encodeURIComponent(JSON.stringify({ text })))),
+    });
+    if (ok) {
+      Alert.alert('Delivered', 'DELIVER sent — awaiting feedback.');
+    } else {
+      Alert.alert('Error', 'DELIVER failed. Check your connection and try again.');
+    }
+  }, [textDeliverInput, params.conversationId]);
+
   const handleDeliver = useCallback(() => {
     if (!params.conversationId) return;
     Alert.alert(
       'Deliver task',
-      'Attach proof of completion:',
+      'How to deliver:',
       [
+        { text: 'Text Result', onPress: () => setTextDeliverVisible(true) },
         { text: 'Take Photo', onPress: () => pickAndDeliver('camera') },
-        { text: 'Choose from Gallery', onPress: () => pickAndDeliver('gallery') },
+        { text: 'From Gallery', onPress: () => pickAndDeliver('gallery') },
         { text: 'Cancel', style: 'cancel' },
       ],
     );
@@ -543,6 +567,46 @@ export function ChatScreen() {
                 }}
               >
                 <Text style={s.modalSaveText}>{bagsKeySaving ? '...' : 'SAVE'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Text deliver modal */}
+      <Modal
+        visible={textDeliverVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setTextDeliverVisible(false)}
+      >
+        <View style={s.modalOverlay}>
+          <View style={s.modalCard}>
+            <Text style={s.modalTitle}>DELIVER RESULT</Text>
+            <TextInput
+              style={[s.modalInput, { minHeight: 80, textAlignVertical: 'top' }]}
+              value={textDeliverInput}
+              onChangeText={setTextDeliverInput}
+              placeholder="Enter your result..."
+              placeholderTextColor={C.sub}
+              autoCapitalize="none"
+              autoCorrect={false}
+              multiline
+              maxLength={2000}
+            />
+            <View style={s.modalActions}>
+              <TouchableOpacity
+                style={s.modalCancel}
+                onPress={() => { setTextDeliverVisible(false); setTextDeliverInput(''); }}
+              >
+                <Text style={s.modalCancelText}>CANCEL</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.modalSave, !textDeliverInput.trim() && s.sendBtnDisabled]}
+                disabled={!textDeliverInput.trim()}
+                onPress={submitTextDeliver}
+              >
+                <Text style={s.modalSaveText}>SEND</Text>
               </TouchableOpacity>
             </View>
           </View>

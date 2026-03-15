@@ -97,6 +97,7 @@ interface Bounty {
   slot: number;
   terms: ProposalTerms;
   receivedAt: number;
+  deadlineAt?: number; // ms epoch; undefined = no deadline
 }
 
 // ── Leaderboard types ─────────────────────────────────────────────────────
@@ -202,8 +203,25 @@ function BountyCard({
   onAccept: () => void;
   onSkip: () => void;
 }) {
+  const [remaining, setRemaining] = useState<number | null>(
+    bounty.deadlineAt ? Math.max(0, Math.floor((bounty.deadlineAt - Date.now()) / 1000)) : null,
+  );
+
+  useEffect(() => {
+    if (!bounty.deadlineAt) return;
+    const id = setInterval(() => {
+      setRemaining(Math.max(0, Math.floor((bounty.deadlineAt! - Date.now()) / 1000)));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [bounty.deadlineAt]);
+
+  const urgent = remaining !== null && remaining <= 30;
+  const remainStr = remaining === null ? null
+    : remaining >= 60 ? `${Math.floor(remaining / 60)}m ${remaining % 60}s`
+    : `${remaining}s`;
+
   return (
-    <View style={s.card}>
+    <View style={[s.card, urgent && { borderColor: C.red }]}>
       <Text style={s.desc} numberOfLines={4}>
         {bounty.terms.description ?? 'No description'}
       </Text>
@@ -215,6 +233,12 @@ function BountyCard({
         </Text>
         <Text style={s.dot}> · </Text>
         <Text style={s.time}>{timeAgo(bounty.receivedAt)}</Text>
+        {remainStr !== null && (
+          <>
+            <Text style={s.dot}> · </Text>
+            <Text style={[s.time, urgent && { color: C.red }]}>{remainStr}</Text>
+          </>
+        )}
       </View>
       <View style={s.actions}>
         <TouchableOpacity style={s.skipBtn} onPress={onSkip} activeOpacity={0.7}>
@@ -599,6 +623,8 @@ export function EarnScreen() {
     if (env.msg_type !== 'PROPOSE' && env.msg_type !== 'DISCOVER') return;
     const terms = decodeTerms(env.payload_b64);
     if (!terms) return;
+    const deadlineSecs = typeof terms.deadline_secs === 'number' ? terms.deadline_secs : null;
+    const now = Date.now();
     setBounties(prev => {
       if (prev.some(b => b.conversationId === env.conversation_id)) return prev;
       return [
@@ -607,7 +633,8 @@ export function EarnScreen() {
           sender: env.sender,
           slot: env.slot,
           terms,
-          receivedAt: Date.now(),
+          receivedAt: now,
+          deadlineAt: deadlineSecs ? now + deadlineSecs * 1000 : undefined,
         },
         ...prev,
       ].slice(0, 50);
@@ -616,12 +643,22 @@ export function EarnScreen() {
 
   useInbox(onEnvelope, status === 'running');
 
+  // Auto-expire bounties past their deadline
+  useEffect(() => {
+    const id = setInterval(() => {
+      const now = Date.now();
+      setBounties(prev => prev.filter(b => !b.deadlineAt || b.deadlineAt > now));
+    }, 2000);
+    return () => clearInterval(id);
+  }, []);
+
   const assignAndNavigate = useCallback(async (bounty: Bounty, agent: OwnedAgent) => {
     setPickerTarget(null);
     const ok = await sendEnvelope({
       msg_type: 'ACCEPT',
       recipient: bounty.sender,
       conversation_id: bounty.conversationId,
+      payload_b64: '',
     });
     if (!ok) {
       Alert.alert('Error', 'Failed to send ACCEPT. Check node connection and try again.');
