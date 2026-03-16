@@ -130,7 +130,17 @@ function decodeTerms(payloadB64: string): ProposalTerms | null {
   try {
     if (payloadB64.length > 65536) return null; // ~48KB decoded max
     const json = JSON.parse(atob(payloadB64));
-    return json?.terms ?? json ?? null;
+    const terms: ProposalTerms = json?.terms ?? json ?? null;
+    if (!terms) return null;
+    // Normalize: DISCOVER sends "message" + "amount_usdc_micro",
+    // but ProposalTerms expects "description" + "escrow_amount_usdc".
+    if (!terms.description && terms.message) {
+      terms.description = terms.message as string;
+    }
+    if (!terms.escrow_amount_usdc && typeof terms.amount_usdc_micro === 'number') {
+      terms.escrow_amount_usdc = (terms.amount_usdc_micro as number) / 1_000_000;
+    }
+    return terms;
   } catch {
     return null;
   }
