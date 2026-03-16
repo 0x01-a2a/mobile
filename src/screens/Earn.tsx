@@ -23,7 +23,7 @@ import {
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { launchImageLibrary } from 'react-native-image-picker';
+import { launchImageLibrary, type ImagePickerResponse } from 'react-native-image-picker';
 import {
   useInbox, InboundEnvelope, sendEnvelope, executeJupiterSwap, useTradeQuote,
   bagsLaunch, bagsClaim, useBagsPositions, useBagsConfig, usePhantomBalance,
@@ -80,8 +80,13 @@ interface ProposalTerms {
   description?: string;
   reward?: string;
   escrow_amount_usdc?: number;
+  message?: string;
   quest?: string;
   from?: string;
+  terms?: ProposalTerms;
+  max_rounds?: number;
+  round?: number;
+  deadline_secs?: number;
   [key: string]: unknown;
 }
 
@@ -126,11 +131,62 @@ const SWAP_TOKENS = [
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
+function readBidAmountMicro(raw: Uint8Array): number {
+  if (raw.length < 8) return 0;
+  const lo = raw[0] | (raw[1] << 8) | (raw[2] << 16) | (raw[3] << 24);
+  const hi = raw[4] | (raw[5] << 8) | (raw[6] << 16) | (raw[7] << 24);
+  return (lo >>> 0) + (hi >>> 0) * 4294967296;
+}
+
+function parseJsonRecord(text: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    return parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
 function decodeTerms(payloadB64: string): ProposalTerms | null {
   try {
     if (payloadB64.length > 65536) return null; // ~48KB decoded max
-    const json = JSON.parse(atob(payloadB64));
-    return json?.terms ?? json ?? null;
+    const raw = Uint8Array.from(atob(payloadB64), c => c.charCodeAt(0));
+
+    // Backward-compat format: payload is plain JSON.
+    const plain = parseJsonRecord(String.fromCharCode(...raw));
+    if (plain) {
+      const nested = plain.terms;
+      const base =
+        nested && typeof nested === 'object' && !Array.isArray(nested)
+          ? (nested as ProposalTerms)
+          : (plain as ProposalTerms);
+      return {
+        ...base,
+        description: base.description ?? base.message,
+      };
+    }
+
+    // Current negotiate wire format:
+    // [16-byte LE i128 amount_usdc_micro][JSON body]
+    if (raw.length < 17 || raw[16] !== 0x7b) return null; // 0x7b = '{'
+    const body = parseJsonRecord(String.fromCharCode(...raw.slice(16)));
+    if (!body) return null;
+    const terms = body.terms && typeof body.terms === 'object' && !Array.isArray(body.terms)
+      ? (body.terms as ProposalTerms)
+      : (body as ProposalTerms);
+    const amountUsdc = readBidAmountMicro(raw) / 1_000_000;
+
+    return {
+      ...terms,
+      description: terms.description ?? terms.message,
+      escrow_amount_usdc:
+        terms.escrow_amount_usdc !== undefined
+          ? terms.escrow_amount_usdc
+          : amountUsdc > 0
+          ? amountUsdc
+          : undefined,
+    };
   } catch {
     return null;
   }
@@ -478,7 +534,7 @@ export function EarnScreen() {
   const handlePickImage = useCallback(() => {
     launchImageLibrary(
       { mediaType: 'photo', includeBase64: true, quality: 0.8, maxWidth: 1024, maxHeight: 1024 },
-      (response) => {
+      (response: ImagePickerResponse) => {
         if (response.didCancel || response.errorCode) return;
         const asset = response.assets?.[0];
         if (!asset?.base64) return;
