@@ -22,12 +22,39 @@ import {
 } from 'react-native';
 import { useRoute } from '@react-navigation/native';
 import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useZeroclawChat, ChatMessage } from '../hooks/useZeroclawChat';
 import { useOwnedAgents, OwnedAgent } from '../hooks/useOwnedAgents';
 import { useBlobs } from '../hooks/useBlobs';
 import { sendEnvelope, setBagsApiKey } from '../hooks/useNodeApi';
 import { useNode } from '../hooks/useNode';
 import type { BountyTask } from './Earn';
+
+const TASK_LOG_KEY = 'zerox1:task_log';
+
+async function markTaskDelivered(conversationId: string) {
+  try {
+    const raw = await AsyncStorage.getItem(TASK_LOG_KEY);
+    if (!raw) return;
+    const log = JSON.parse(raw);
+    const updated = log.map((t: any) =>
+      t.conversationId === conversationId && t.status === 'active'
+        ? { ...t, status: 'delivered' }
+        : t,
+    );
+    await AsyncStorage.setItem(TASK_LOG_KEY, JSON.stringify(updated));
+  } catch { /* silently ignore */ }
+}
+
+async function markTaskAbandoned(conversationId: string) {
+  try {
+    const raw = await AsyncStorage.getItem(TASK_LOG_KEY);
+    if (!raw) return;
+    const log = JSON.parse(raw);
+    const updated = log.filter((t: any) => t.conversationId !== conversationId);
+    await AsyncStorage.setItem(TASK_LOG_KEY, JSON.stringify(updated));
+  } catch { /* silently ignore */ }
+}
 
 const C = {
   bg: '#050505',
@@ -56,11 +83,13 @@ function TaskBanner({
   task,
   uploading,
   onDeliver,
+  onReject,
 }: {
   task: BountyTask;
   conversationId: string;
   uploading: boolean;
   onDeliver: () => void;
+  onReject: () => void;
 }) {
   return (
     <View style={s.taskBanner}>
@@ -71,14 +100,23 @@ function TaskBanner({
           {task.reward}  ·  from {task.fromAgent.length > 12 ? task.fromAgent.slice(0, 8) + '…' : task.fromAgent}
         </Text>
       </View>
-      <TouchableOpacity
-        style={[s.deliverBtn, uploading && s.deliverBtnBusy]}
-        onPress={onDeliver}
-        activeOpacity={0.8}
-        disabled={uploading}
-      >
-        <Text style={s.deliverText}>{uploading ? '...' : 'DELIVER'}</Text>
-      </TouchableOpacity>
+      <View style={s.taskBannerActions}>
+        <TouchableOpacity
+          style={s.rejectBtn}
+          onPress={onReject}
+          activeOpacity={0.8}
+        >
+          <Text style={s.rejectText}>REJECT</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[s.deliverBtn, uploading && s.deliverBtnBusy]}
+          onPress={onDeliver}
+          activeOpacity={0.8}
+          disabled={uploading}
+        >
+          <Text style={s.deliverText}>{uploading ? '...' : 'DELIVER'}</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -398,6 +436,7 @@ export function ChatScreen() {
       payload_b64: payload,
     });
     if (ok) {
+      if (params.conversationId) await markTaskDelivered(params.conversationId);
       Alert.alert('Delivered', isHosted
         ? 'Photo sent inline. DELIVER sent — awaiting feedback.'
         : 'Photo uploaded. DELIVER sent — awaiting feedback.',
@@ -419,6 +458,7 @@ export function ChatScreen() {
       payload_b64: btoa(unescape(encodeURIComponent(JSON.stringify({ text })))),
     });
     if (ok) {
+      await markTaskDelivered(params.conversationId);
       Alert.alert('Delivered', 'DELIVER sent — awaiting feedback.');
     } else {
       Alert.alert('Error', 'DELIVER failed. Check your connection and try again.');
@@ -438,6 +478,30 @@ export function ChatScreen() {
       ],
     );
   }, [params.conversationId, pickAndDeliver]);
+
+  const handleReject = useCallback(() => {
+    if (!params.conversationId) return;
+    Alert.alert(
+      'Reject task',
+      'Send REJECT and remove this task from your active list?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'REJECT',
+          style: 'destructive',
+          onPress: async () => {
+            await sendEnvelope({
+              msg_type: 'REJECT',
+              recipient: params.task?.fromAgent,
+              conversation_id: params.conversationId,
+              payload_b64: '',
+            });
+            await markTaskAbandoned(params.conversationId!);
+          },
+        },
+      ],
+    );
+  }, [params.conversationId, params.task?.fromAgent]);
 
   return (
     <KeyboardAvoidingView
@@ -472,6 +536,7 @@ export function ChatScreen() {
           conversationId={params.conversationId}
           uploading={uploading}
           onDeliver={handleDeliver}
+          onReject={handleReject}
         />
       )}
 
@@ -722,12 +787,15 @@ const s = StyleSheet.create({
   // task banner
   taskBanner: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#0a1a0a', borderBottomWidth: 1, borderBottomColor: C.green + '40', paddingHorizontal: 16, paddingVertical: 12, gap: 12 },
   taskBannerLeft: { flex: 1 },
+  taskBannerActions: { flexDirection: 'column', gap: 6 },
   taskLabel: { fontSize: 9, color: C.green, letterSpacing: 3, fontWeight: '700', fontFamily: 'monospace', marginBottom: 3 },
   taskDesc: { fontSize: 12, color: C.text, fontFamily: 'monospace', lineHeight: 17 },
   taskMeta: { fontSize: 10, color: C.sub, fontFamily: 'monospace', marginTop: 4 },
   deliverBtn: { backgroundColor: C.green, borderRadius: 3, paddingHorizontal: 12, paddingVertical: 8 },
   deliverBtnBusy: { backgroundColor: C.sub },
   deliverText: { fontSize: 10, color: '#000', fontWeight: '700', letterSpacing: 2 },
+  rejectBtn: { borderWidth: 1, borderColor: C.red + '80', borderRadius: 3, paddingHorizontal: 12, paddingVertical: 6 },
+  rejectText: { fontSize: 10, color: C.red, fontWeight: '700', letterSpacing: 2, fontFamily: 'monospace' },
   // messages
   listContent: { padding: 12, paddingBottom: 8, flexGrow: 1 },
   bubbleRow: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 10, gap: 6 },

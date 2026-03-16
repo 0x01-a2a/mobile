@@ -616,6 +616,8 @@ export function EarnScreen() {
       AsyncStorage.getItem('zerox1:8004_registered').then(val => {
         setRegistered(val === 'true');
       });
+      // Reload task log so status changes made in Chat (delivered/abandoned) are reflected.
+      loadTaskLog().then(setTaskLog);
     }, [])
   );
 
@@ -702,6 +704,33 @@ export function EarnScreen() {
 
   const handleSkip = useCallback((bounty: Bounty) => {
     setBounties(prev => prev.filter(b => b.conversationId !== bounty.conversationId));
+  }, []);
+
+  const handleAbandonTask = useCallback((task: TaskEntry) => {
+    Alert.alert(
+      'Give up task?',
+      'This will send REJECT to the requester and remove the task from your active list.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'GIVE UP',
+          style: 'destructive',
+          onPress: async () => {
+            await sendEnvelope({
+              msg_type: 'REJECT',
+              recipient: task.fromAgent,
+              conversation_id: task.conversationId,
+              payload_b64: '',
+            });
+            setTaskLog(prev => {
+              const updated = prev.filter(t => t.conversationId !== task.conversationId);
+              saveTaskLog(updated);
+              return updated;
+            });
+          },
+        },
+      ],
+    );
   }, []);
 
   const isRunning = status === 'running';
@@ -845,7 +874,7 @@ export function EarnScreen() {
                     <View style={s.taskStatusRow}>
                       <View style={s.taskStatusDot} />
                       <Text style={s.taskStatusText}>
-                        {t.status === 'delivered' ? 'DELIVERED' : 'IN PROGRESS'}
+                        {t.status === 'delivered' ? 'DELIVERED — awaiting payment' : 'IN PROGRESS'}
                       </Text>
                     </View>
                     <Text style={s.desc} numberOfLines={2}>{t.description}</Text>
@@ -855,6 +884,27 @@ export function EarnScreen() {
                       <Text style={s.from}>from {shortId(t.fromAgent)}</Text>
                       <Text style={s.dot}> · </Text>
                       <Text style={s.time}>{timeAgo(t.acceptedAt)}</Text>
+                    </View>
+                    <View style={s.activeTaskActions}>
+                      <TouchableOpacity
+                        style={s.resumeBtn}
+                        onPress={() => navigation.navigate('Chat', {
+                          conversationId: t.conversationId,
+                          task: { description: t.description, reward: t.reward, fromAgent: t.fromAgent } as BountyTask,
+                        })}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={s.resumeText}>RESUME</Text>
+                      </TouchableOpacity>
+                      {t.status !== 'delivered' && (
+                        <TouchableOpacity
+                          style={s.giveUpBtn}
+                          onPress={() => handleAbandonTask(t)}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={s.giveUpText}>GIVE UP</Text>
+                        </TouchableOpacity>
+                      )}
                     </View>
                   </View>
                 ))}
@@ -1301,4 +1351,9 @@ const s = StyleSheet.create({
   taskStatusRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
   taskStatusDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.amber, marginRight: 6 },
   taskStatusText: { fontSize: 9, color: C.amber, letterSpacing: 2, fontFamily: 'monospace', fontWeight: '700' },
+  activeTaskActions: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  resumeBtn: { borderWidth: 1, borderColor: C.green + '80', borderRadius: 3, paddingHorizontal: 12, paddingVertical: 6 },
+  resumeText: { fontSize: 10, color: C.green, fontWeight: '700', letterSpacing: 2, fontFamily: 'monospace' },
+  giveUpBtn: { borderWidth: 1, borderColor: C.red + '60', borderRadius: 3, paddingHorizontal: 12, paddingVertical: 6 },
+  giveUpText: { fontSize: 10, color: C.red, fontWeight: '700', letterSpacing: 2, fontFamily: 'monospace' },
 });
