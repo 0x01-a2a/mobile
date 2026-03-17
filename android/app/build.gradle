@@ -122,6 +122,7 @@ android {
         }
         dappstore {
             dimension "distribution"
+            minSdkVersion 26
             buildConfigField "String", "DISTRIBUTION", '"dappstore"'
         }
         googleplay {
