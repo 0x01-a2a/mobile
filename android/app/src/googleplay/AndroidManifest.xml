@@ -1,6 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
           xmlns:tools="http://schemas.android.com/tools">
 
+    <uses-sdk tools:overrideLibrary="androidx.health.connect.client" />
+
     <!-- ── Permissions removed for Google Play compliance ── -->
 
     <!-- SMS — requires being default SMS app; Play Store rejects without it -->
