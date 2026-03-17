@@ -8,6 +8,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  Clipboard,
   FlatList,
   KeyboardAvoidingView,
   Modal,
@@ -20,9 +21,9 @@ import {
   View,
   Image,
 } from 'react-native';
-import { useRoute } from '@react-navigation/native';
-import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
 import { useZeroclawChat, ChatMessage } from '../hooks/useZeroclawChat';
 import { useOwnedAgents, OwnedAgent } from '../hooks/useOwnedAgents';
 import { useBlobs } from '../hooks/useBlobs';
@@ -31,6 +32,20 @@ import { useNode } from '../hooks/useNode';
 import type { BountyTask } from './Earn';
 
 const TASK_LOG_KEY = 'zerox1:task_log';
+
+/**
+ * Strip characters that could be used for prompt injection from bounty content
+ * before passing it to the LLM as part of the task context (H-1).
+ * Control characters and repeated newlines are removed; length is capped.
+ */
+function sanitizeForPrompt(text: string, maxLen = 500): string {
+  return String(text)
+    .slice(0, maxLen * 2) // pre-cap before expensive regex
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '') // strip control chars
+    .replace(/\n{3,}/g, '\n\n')                          // collapse excess newlines
+    .trim()
+    .slice(0, maxLen);
+}
 
 async function markTaskDelivered(conversationId: string) {
   try {
@@ -229,10 +244,21 @@ function Bubble({ msg }: { msg: ChatMessage }) {
     ? msg.text.replace(/\{[^{}]*"token_mint"[^{}]*\}/, '').trim()
     : msg.text;
 
+  const handleLongPress = useCallback(() => {
+    if (!displayText) return;
+    Clipboard.setString(displayText);
+    Alert.alert('Copied', undefined, [{ text: 'OK' }], { cancelable: true });
+  }, [displayText]);
+
   return (
     <View style={[s.bubbleRow, isUser ? s.rowRight : s.rowLeft]}>
       {!isUser && <Text style={s.roleLabel}>[ZC]</Text>}
-      <View style={[s.bubble, isUser ? s.bubbleUser : s.bubbleAgent]}>
+      <TouchableOpacity
+        activeOpacity={0.85}
+        onLongPress={handleLongPress}
+        delayLongPress={400}
+        style={[s.bubble, isUser ? s.bubbleUser : s.bubbleAgent]}
+      >
         {msg.imageUri ? (
           <Image
             source={{ uri: msg.imageUri }}
@@ -246,7 +272,7 @@ function Bubble({ msg }: { msg: ChatMessage }) {
           </Text>
         ) : null}
         {launchResult ? <LaunchResultCard result={launchResult} /> : null}
-      </View>
+      </TouchableOpacity>
       {isUser && <Text style={s.roleLabel}>[YOU]</Text>}
     </View>
   );
@@ -257,8 +283,18 @@ function Bubble({ msg }: { msg: ChatMessage }) {
 // Hosted mode: limit inline image data to 150 KB to stay within MAX_MESSAGE_SIZE.
 const MAX_INLINE_BYTES = 150 * 1024;
 
+// ── Task entry type (mirrors Earn storage format) ─────────────────────────
+interface TaskEntry {
+  conversationId: string;
+  description: string;
+  reward: string;
+  fromAgent: string;
+  status: 'active' | 'delivered' | 'completed';
+}
+
 export function ChatScreen() {
   const route = useRoute();
+  const navigation = useNavigation<any>();
   const params = (route.params ?? {}) as ChatRouteParams;
   const { config } = useNode();
 
@@ -266,6 +302,37 @@ export function ChatScreen() {
   const [selectedAgentId, setSelectedAgentId] = useState<string>(
     params.agentId ?? agents[0]?.id ?? '',
   );
+
+  // Active task conversations — loaded from AsyncStorage on focus.
+  const [activeTasks, setActiveTasks] = useState<TaskEntry[]>([]);
+  const [selectedConvId, setSelectedConvId] = useState<string | undefined>(
+    params.conversationId,
+  );
+  // Derive current BountyTask from selected entry or nav params.
+  const selectedEntry = activeTasks.find(t => t.conversationId === selectedConvId);
+  const activeTask: BountyTask | undefined = selectedEntry
+    ? { description: selectedEntry.description, reward: selectedEntry.reward, fromAgent: selectedEntry.fromAgent }
+    : params.task;
+
+  // Reload task log whenever the screen comes into focus.
+  useFocusEffect(useCallback(() => {
+    AsyncStorage.getItem(TASK_LOG_KEY).then(raw => {
+      if (!raw) return;
+      try {
+        const log: any[] = JSON.parse(raw);
+        const entries: TaskEntry[] = log.filter(
+          t => (t.status === 'active' || t.status === 'delivered') && t.conversationId && t.description,
+        );
+        setActiveTasks(entries);
+        // If navigated with a conversationId, select it; otherwise keep current or pick first.
+        if (params.conversationId) {
+          setSelectedConvId(params.conversationId);
+        } else if (!selectedConvId && entries.length > 0) {
+          setSelectedConvId(entries[0].conversationId);
+        }
+      } catch {}
+    });
+  }, [params.conversationId])); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keep selectedAgentId in sync when agents load or params change.
   useEffect(() => {
@@ -276,8 +343,8 @@ export function ChatScreen() {
     }
   }, [params.agentId, agents, selectedAgentId]);
 
-  // Pass agentId so the hook scopes its session per agent and auto-resets on switch.
-  const { messages, loading, error, send, resetSession } = useZeroclawChat(selectedAgentId);
+  // Session scoped by agentId + conversationId so each bounty has its own LLM context.
+  const { messages, loading, error, send, resetSession } = useZeroclawChat(selectedAgentId, selectedConvId);
   const { upload, uploading, error: uploadError } = useBlobs();
   const [draft, setDraft] = useState('');
   const listRef = useRef<FlatList>(null);
@@ -303,26 +370,22 @@ export function ChatScreen() {
     }
   }, [messages]);
 
-  // Inject task context as first message when routed from Earn.
-  // Reset taskInjected whenever the agent changes so context is re-injected
-  // into the fresh session for the new agent.
+  // Inject task context when a new bounty session starts (messages empty = fresh session).
   const [taskInjected, setTaskInjected] = useState(false);
   useEffect(() => {
     setTaskInjected(false);
-  }, [selectedAgentId]);
+  }, [selectedAgentId, selectedConvId]);
   useEffect(() => {
-    if (params.task && !taskInjected && messages.length === 0) {
+    if (activeTask && !taskInjected && messages.length === 0) {
       setTaskInjected(true);
-      // Use JSON.stringify to safely embed untrusted mesh data in the prompt,
-      // preventing prompt injection via crafted task descriptions.
       send(
-        `You have accepted a new task. Task: ${JSON.stringify(String(params.task.description).slice(0, 500))}. ` +
-        `Reward: ${JSON.stringify(String(params.task.reward))}. ` +
-        `Requester: ${JSON.stringify(String(params.task.fromAgent))}. ` +
+        `You have accepted a new task. Task: ${JSON.stringify(sanitizeForPrompt(activeTask.description))}. ` +
+        `Reward: ${JSON.stringify(sanitizeForPrompt(activeTask.reward, 80))}. ` +
+        `Requester: ${JSON.stringify(sanitizeForPrompt(activeTask.fromAgent, 80))}. ` +
         `Let me know when you are ready to deliver.`,
       );
     }
-  }, [params.task, taskInjected, messages.length, send]);
+  }, [activeTask, taskInjected, messages.length, send]);
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -364,14 +427,15 @@ export function ChatScreen() {
     const img = pendingImage;
     setPendingImage(null);
     if (img) {
-      // Upload to blob store first, then send.
-      try {
-        const cid = await upload(img.base64, img.mime);
-        if (!cid) return; // upload error surfaced via useBlobs
-        await send(text, { uri: img.uri, cid, mime: img.mime });
-      } catch {
-        // upload() already sets uploadError
-      }
+      // Send immediately with inline base64 so ZeroClaw sees the image regardless
+      // of blob-store availability (no reputation gate on the LLM path).
+      // Attempt blob upload in the background to get a CID for task delivery — but
+      // don't block the chat on it.
+      upload(img.base64, img.mime).then(cid => {
+        // cid may be null if upload fails (e.g. node not running, rep too low)
+        // that's fine — the LLM already received the image inline above
+      }).catch(() => {});
+      await send(text, { uri: img.uri, base64: img.base64, mime: img.mime });
     } else {
       await send(text);
     }
@@ -431,12 +495,12 @@ export function ChatScreen() {
 
     const ok = await sendEnvelope({
       msg_type: 'DELIVER',
-      recipient: params.task?.fromAgent,
-      conversation_id: params.conversationId,
+      recipient: activeTask?.fromAgent,
+      conversation_id: selectedConvId,
       payload_b64: payload,
     });
     if (ok) {
-      if (params.conversationId) await markTaskDelivered(params.conversationId);
+      if (selectedConvId) await markTaskDelivered(selectedConvId);
       Alert.alert('Delivered', isHosted
         ? 'Photo sent inline. DELIVER sent — awaiting feedback.'
         : 'Photo uploaded. DELIVER sent — awaiting feedback.',
@@ -444,29 +508,29 @@ export function ChatScreen() {
     } else {
       Alert.alert('Error', 'DELIVER failed. Check your connection and try again.');
     }
-  }, [upload, params.conversationId, config.nodeApiUrl]);
+  }, [upload, selectedConvId, activeTask, config.nodeApiUrl]);
 
   const submitTextDeliver = useCallback(async () => {
     const text = textDeliverInput.trim();
-    if (!text || !params.conversationId) return;
+    if (!text || !selectedConvId) return;
     setTextDeliverVisible(false);
     setTextDeliverInput('');
     const ok = await sendEnvelope({
       msg_type: 'DELIVER',
-      recipient: params.task?.fromAgent,
-      conversation_id: params.conversationId,
+      recipient: activeTask?.fromAgent,
+      conversation_id: selectedConvId,
       payload_b64: btoa(unescape(encodeURIComponent(JSON.stringify({ text })))),
     });
     if (ok) {
-      await markTaskDelivered(params.conversationId);
+      await markTaskDelivered(selectedConvId);
       Alert.alert('Delivered', 'DELIVER sent — awaiting feedback.');
     } else {
       Alert.alert('Error', 'DELIVER failed. Check your connection and try again.');
     }
-  }, [textDeliverInput, params.conversationId]);
+  }, [textDeliverInput, selectedConvId, activeTask]);
 
   const handleDeliver = useCallback(() => {
-    if (!params.conversationId) return;
+    if (!selectedConvId) return;
     Alert.alert(
       'Deliver task',
       'How to deliver:',
@@ -477,10 +541,10 @@ export function ChatScreen() {
         { text: 'Cancel', style: 'cancel' },
       ],
     );
-  }, [params.conversationId, pickAndDeliver]);
+  }, [selectedConvId, pickAndDeliver]);
 
   const handleReject = useCallback(() => {
-    if (!params.conversationId) return;
+    if (!selectedConvId) return;
     Alert.alert(
       'Reject task',
       'Send REJECT and remove this task from your active list?',
@@ -492,16 +556,22 @@ export function ChatScreen() {
           onPress: async () => {
             await sendEnvelope({
               msg_type: 'REJECT',
-              recipient: params.task?.fromAgent,
-              conversation_id: params.conversationId,
+              recipient: activeTask?.fromAgent,
+              conversation_id: selectedConvId,
               payload_b64: '',
             });
-            await markTaskAbandoned(params.conversationId!);
+            await markTaskAbandoned(selectedConvId);
+            // Remove from local list and switch to next or clear
+            setActiveTasks(prev => {
+              const remaining = prev.filter(t => t.conversationId !== selectedConvId);
+              setSelectedConvId(remaining[0]?.conversationId ?? undefined);
+              return remaining;
+            });
           },
         },
       ],
     );
-  }, [params.conversationId, params.task?.fromAgent]);
+  }, [selectedConvId, activeTask]);
 
   return (
     <KeyboardAvoidingView
@@ -529,11 +599,45 @@ export function ChatScreen() {
         onSelect={a => setSelectedAgentId(a.id)}
       />
 
-      {/* Task banner — visible when routed from Earn */}
-      {params.task && params.conversationId && (
+      {/* Task switcher — shows all active bounty tasks when there are multiple */}
+      {activeTasks.length > 0 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={s.taskSwitcher}
+          contentContainerStyle={s.taskSwitcherContent}
+        >
+          <TouchableOpacity
+            style={[s.taskPill, !selectedConvId && s.taskPillActive]}
+            onPress={() => setSelectedConvId(undefined)}
+          >
+            <Text style={[s.taskPillText, !selectedConvId && s.taskPillTextActive]}>FREE CHAT</Text>
+          </TouchableOpacity>
+          {activeTasks.map(t => {
+            const active = t.conversationId === selectedConvId;
+            return (
+              <TouchableOpacity
+                key={t.conversationId}
+                style={[s.taskPill, active && s.taskPillActive, t.status === 'delivered' && s.taskPillDelivered]}
+                onPress={() => setSelectedConvId(t.conversationId)}
+              >
+                <Text style={[s.taskPillText, active && s.taskPillTextActive]} numberOfLines={1}>
+                  {(t.description ?? '').slice(0, 20)}…
+                </Text>
+                {t.status === 'delivered' && (
+                  <Text style={s.taskPillBadge}>✓</Text>
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      )}
+
+      {/* Task banner — visible when a bounty task is selected */}
+      {activeTask && selectedConvId && (
         <TaskBanner
-          task={params.task}
-          conversationId={params.conversationId}
+          task={activeTask}
+          conversationId={selectedConvId}
           uploading={uploading}
           onDeliver={handleDeliver}
           onReject={handleReject}
@@ -784,6 +888,15 @@ const s = StyleSheet.create({
   agentPillText: { fontSize: 11, color: C.sub, fontFamily: 'monospace' },
   agentPillTextActive: { color: C.green },
   agentPillBadge: { fontSize: 11 },
+  // task switcher
+  taskSwitcher: { maxHeight: 44, borderBottomWidth: 1, borderBottomColor: C.border },
+  taskSwitcherContent: { paddingHorizontal: 10, paddingVertical: 6, gap: 6, flexDirection: 'row', alignItems: 'center' },
+  taskPill: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1, borderColor: C.border, backgroundColor: C.card, maxWidth: 160 },
+  taskPillActive: { borderColor: C.amber, backgroundColor: '#ffc10715' },
+  taskPillDelivered: { borderColor: C.green + '80' },
+  taskPillText: { fontSize: 10, color: C.sub, fontFamily: 'monospace' },
+  taskPillTextActive: { color: C.amber },
+  taskPillBadge: { fontSize: 10, color: C.green, marginLeft: 4 },
   // task banner
   taskBanner: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#0a1a0a', borderBottomWidth: 1, borderBottomColor: C.green + '40', paddingHorizontal: 16, paddingVertical: 12, gap: 12 },
   taskBannerLeft: { flex: 1 },

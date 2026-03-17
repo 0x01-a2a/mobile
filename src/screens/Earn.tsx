@@ -28,7 +28,7 @@ import {
   useInbox, InboundEnvelope, sendEnvelope, executeJupiterSwap, useTradeQuote,
   bagsLaunch, bagsClaim, useBagsPositions, useBagsConfig, usePhantomBalance,
   usePortfolioHistory, usePeers, PortfolioEvent,
-  BagsLaunchParams, BagsToken,
+  BagsLaunchParams, BagsToken, use8004Badge,
 } from '../hooks/useNodeApi';
 import { useOwnedAgents, OwnedAgent } from '../hooks/useOwnedAgents';
 import { useNode } from '../hooks/useNode';
@@ -254,11 +254,14 @@ function BountyCard({
   bounty,
   onAccept,
   onSkip,
+  onReject,
 }: {
   bounty: Bounty;
   onAccept: () => void;
   onSkip: () => void;
+  onReject: () => void;
 }) {
+  const senderRegistered = use8004Badge(bounty.sender);
   const [remaining, setRemaining] = useState<number | null>(
     bounty.deadlineAt ? Math.max(0, Math.floor((bounty.deadlineAt - Date.now()) / 1000)) : null,
   );
@@ -287,6 +290,11 @@ function BountyCard({
         <Text style={s.from}>
           from {shortId(bounty.terms.from ?? bounty.sender)}
         </Text>
+        {senderRegistered && (
+          <View style={s.badge8004}>
+            <Text style={s.badge8004Text}>[8004]</Text>
+          </View>
+        )}
         <Text style={s.dot}> · </Text>
         <Text style={s.time}>{timeAgo(bounty.receivedAt)}</Text>
         {remainStr !== null && (
@@ -299,6 +307,9 @@ function BountyCard({
       <View style={s.actions}>
         <TouchableOpacity style={s.skipBtn} onPress={onSkip} activeOpacity={0.7}>
           <Text style={s.skipText}>SKIP</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={s.rejectBountyBtn} onPress={onReject} activeOpacity={0.7}>
+          <Text style={s.rejectBountyText}>REJECT</Text>
         </TouchableOpacity>
         <TouchableOpacity style={s.acceptBtn} onPress={onAccept} activeOpacity={0.8}>
           <Text style={s.acceptText}>ACCEPT</Text>
@@ -371,7 +382,6 @@ export function EarnScreen() {
   const { status, start } = useNode();
   const [bounties, setBounties] = useState<Bounty[]>([]);
   const [pickerTarget, setPickerTarget] = useState<Bounty | null>(null);
-  const [registered, setRegistered] = useState<boolean | null>(null);
   const [activeTab, setActiveTab] = useState<'bounty' | 'trade' | 'leaderboard'>('bounty');
   const [bagsExpanded, setBagsExpanded] = useState(false);
 
@@ -662,16 +672,11 @@ export function EarnScreen() {
 
   const refreshBountyTab = useCallback(async () => {
     setBountyRefreshing(true);
-    const val = await AsyncStorage.getItem('zerox1:8004_registered');
-    setRegistered(val === 'true');
     setBountyRefreshing(false);
   }, []);
 
   useFocusEffect(
     useCallback(() => {
-      AsyncStorage.getItem('zerox1:8004_registered').then(val => {
-        setRegistered(val === 'true');
-      });
       // Reload task log so status changes made in Chat (delivered/abandoned) are reflected.
       loadTaskLog().then(setTaskLog);
     }, [])
@@ -762,6 +767,16 @@ export function EarnScreen() {
     setBounties(prev => prev.filter(b => b.conversationId !== bounty.conversationId));
   }, []);
 
+  const handleRejectBounty = useCallback((bounty: Bounty) => {
+    setBounties(prev => prev.filter(b => b.conversationId !== bounty.conversationId));
+    sendEnvelope({
+      msg_type: 'REJECT',
+      recipient: bounty.sender,
+      conversation_id: bounty.conversationId,
+      payload_b64: '',
+    });
+  }, []);
+
   const handleAbandonTask = useCallback((task: TaskEntry) => {
     Alert.alert(
       'Give up task?',
@@ -790,29 +805,6 @@ export function EarnScreen() {
   }, []);
 
   const isRunning = status === 'running';
-
-  if (registered === false) {
-    return (
-      <View style={s.root}>
-        <View style={[s.header, { paddingTop: insets.top + 16 }]}>
-          <Text style={s.title}>EARN</Text>
-          <Text style={s.sub}>registration required</Text>
-        </View>
-
-        <View style={s.empty}>
-          <Text style={s.emptyText}>
-            You must register your agent on the Solana 8004 network to participate in earning activities.
-          </Text>
-          <TouchableOpacity
-            style={s.settingsBtn}
-            onPress={() => navigation.navigate('Settings')}
-          >
-            <Text style={s.acceptText}>GO TO SETTINGS</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  }
 
   return (
     <View style={s.root}>
@@ -977,6 +969,7 @@ export function EarnScreen() {
                     bounty={item}
                     onAccept={() => handleAccept(item)}
                     onSkip={() => handleSkip(item)}
+                    onReject={() => handleRejectBounty(item)}
                   />
                 ))}
               </>
@@ -1329,10 +1322,14 @@ const s = StyleSheet.create({
   reward: { fontSize: 11, color: C.green, fontFamily: 'monospace', fontWeight: '700' },
   dot: { fontSize: 11, color: C.dim },
   from: { fontSize: 11, color: C.sub, fontFamily: 'monospace' },
+  badge8004: { backgroundColor: '#00e67614', borderWidth: 1, borderColor: C.green + '50', borderRadius: 3, paddingHorizontal: 4, paddingVertical: 1, marginLeft: 5 },
+  badge8004Text: { fontSize: 8, color: C.green, fontFamily: 'monospace', fontWeight: '700', letterSpacing: 1 },
   time: { fontSize: 11, color: C.sub, fontFamily: 'monospace' },
   actions: { flexDirection: 'row', gap: 10 },
   skipBtn: { flex: 1, borderWidth: 1, borderColor: C.dim, borderRadius: 3, paddingVertical: 9, alignItems: 'center' },
   skipText: { fontSize: 11, color: C.sub, letterSpacing: 2, fontWeight: '700' },
+  rejectBountyBtn: { flex: 1, borderWidth: 1, borderColor: C.red + '60', borderRadius: 3, paddingVertical: 9, alignItems: 'center' },
+  rejectBountyText: { fontSize: 11, color: C.red, letterSpacing: 2, fontWeight: '700' },
   acceptBtn: { flex: 2, backgroundColor: C.green, borderRadius: 3, paddingVertical: 9, alignItems: 'center' },
   acceptText: { fontSize: 11, color: '#000', letterSpacing: 2, fontWeight: '700' },
   settingsBtn: { backgroundColor: C.green, borderRadius: 3, paddingVertical: 10, paddingHorizontal: 28, alignItems: 'center', marginTop: 16 },

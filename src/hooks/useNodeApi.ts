@@ -400,10 +400,13 @@ export function useInbox(
   const wsRef = useRef<WebSocket | null>(null);
   const handlerRef = useRef(onEnvelope);
   const reconnectDelay = useRef(1_000);
+  // M-1: Store the reconnect timer so we can cancel it on unmount.
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
   handlerRef.current = onEnvelope;
 
   const reconnect = useCallback(() => {
-    if (!enabled) return;
+    if (!enabled || !mountedRef.current) return;
     try {
       let ws: WebSocket;
       if (_isHostedMode && _hostedToken) {
@@ -444,19 +447,26 @@ export function useInbox(
         }
       };
       ws.onclose = () => {
-        if (reconnectDelay.current < 0) return; // auth failure — stop
+        if (reconnectDelay.current < 0 || !mountedRef.current) return; // auth failure or unmounted — stop
         const delay = reconnectDelay.current;
         reconnectDelay.current = Math.min(delay * 2, 30_000);
-        setTimeout(reconnect, delay);
+        reconnectTimerRef.current = setTimeout(reconnect, delay);
       };
       wsRef.current = ws;
     } catch { /* node not running */ }
   }, [enabled]);
 
   useEffect(() => {
+    mountedRef.current = true;
     reconnectDelay.current = 1_000; // reset backoff on enabled change
     reconnect();
     return () => {
+      mountedRef.current = false;
+      // M-1: Cancel any pending reconnect timer before closing the socket.
+      if (reconnectTimerRef.current !== null) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
       wsRef.current?.close();
       wsRef.current = null;
     };
@@ -622,9 +632,11 @@ export interface HostingNode {
  * or null on failure.
  */
 export async function probeRtt(apiUrl: string): Promise<number | null> {
+  // M-5: Validate the URL before fetching to prevent SSRF via malicious aggregator data.
+  try { assertValidHostUrl(apiUrl); } catch { return null; }
   const start = Date.now();
   try {
-    const res = await fetch(`${apiUrl}/hosted/ping`);
+    const res = await fetch(`${apiUrl}/hosted/ping`, { signal: AbortSignal.timeout(5_000) });
     if (!res.ok) return null;
     return Date.now() - start;
   } catch {
@@ -713,9 +725,20 @@ export async function registerAsHosted(
   // Enforce HTTPS before sending any credentials to the remote host.
   assertValidHostUrl(hostApiUrl);
 
-  const res = await fetch(`${hostApiUrl}/hosted/register`, { method: 'POST' });
+  const res = await fetch(`${hostApiUrl}/hosted/register`, {
+    method: 'POST',
+    signal: AbortSignal.timeout(15_000),
+  });
   if (!res.ok) throw new Error(`Registration failed: ${res.status}`);
   const data: { agent_id: string; token: string } = await res.json();
+
+  // H-3: Validate the response fields before trusting them.
+  if (typeof data.agent_id !== 'string' || !/^[0-9a-f]{64}$/.test(data.agent_id)) {
+    throw new Error('Registration response contained an invalid agent_id');
+  }
+  if (typeof data.token !== 'string' || data.token.length < 8) {
+    throw new Error('Registration response contained an invalid token');
+  }
 
   // Store the session token in the OS Keychain (hardware-protected).
   await saveTokenToKeychain(data.token);
@@ -772,6 +795,69 @@ export async function registerLocal8004(agentUri: string = ''): Promise<{ signat
   }
 
   return res.json();
+}
+
+// ============================================================================
+// 8004 registration badge
+// ============================================================================
+
+const REGISTRY_8004_URL = 'https://8004-indexer-production.up.railway.app/v2/graphql';
+const _8004Cache = new Map<string, boolean>(); // hex pubkey → registered
+
+/** Convert hex agent_id to base58 Solana pubkey string. */
+function hexToBase58(hex: string): string | null {
+  try {
+    const { PublicKey } = require('@solana/web3.js');
+    const bytes = Uint8Array.from((hex.match(/.{1,2}/g) ?? []).map((b: string) => parseInt(b, 16)));
+    return new PublicKey(bytes).toBase58();
+  } catch { return null; }
+}
+
+/** Query 8004 registry. Returns true if `hexPubkey` owner has ≥1 registered agent. */
+async function fetch8004Status(hexPubkey: string): Promise<boolean> {
+  const b58 = hexToBase58(hexPubkey);
+  if (!b58) return false;
+  try {
+    const res = await fetch(REGISTRY_8004_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        query: 'query($o:String!){agents(first:1,where:{owner:$o}){id}}',
+        variables: { o: b58 },
+      }),
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    const agents = data?.data?.agents;
+    return Array.isArray(agents) && agents.length > 0;
+  } catch { return false; }
+}
+
+/**
+ * Hook: returns whether `hexPubkey` is registered on the 8004 Solana Agent Registry.
+ * Results are cached in-memory for the session.
+ */
+export function use8004Badge(hexPubkey: string | null | undefined): boolean {
+  const [registered, setRegistered] = useState(
+    hexPubkey ? (_8004Cache.get(hexPubkey) ?? false) : false,
+  );
+
+  useEffect(() => {
+    if (!hexPubkey) return;
+    if (_8004Cache.has(hexPubkey)) {
+      setRegistered(_8004Cache.get(hexPubkey)!);
+      return;
+    }
+    let cancelled = false;
+    fetch8004Status(hexPubkey).then(ok => {
+      if (cancelled) return;
+      _8004Cache.set(hexPubkey, ok);
+      setRegistered(ok);
+    });
+    return () => { cancelled = true; };
+  }, [hexPubkey]);
+
+  return registered;
 }
 
 // ============================================================================
