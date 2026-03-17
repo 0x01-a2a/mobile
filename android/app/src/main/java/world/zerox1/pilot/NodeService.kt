@@ -44,11 +44,11 @@ class NodeService : Service() {
         const val NOTIF_ID         = 1
         const val NODE_API_PORT    = 9090
         const val BINARY_NAME      = "zerox1-node"
-        const val ASSET_VERSION    = "0.3.4"   // bump when binary changes
+        const val ASSET_VERSION    = "0.4.0"   // bump when binary changes
 
         // ZeroClaw agent brain binary
         const val AGENT_BINARY_NAME    = "zeroclaw"
-        const val AGENT_ASSET_VERSION  = "0.1.13"   // bump when zeroclaw binary changes
+        const val AGENT_ASSET_VERSION  = "0.1.15"   // bump when zeroclaw binary changes
         const val AGENT_CONFIG_FILE    = "config.toml"  // zeroclaw --config-dir looks for config.toml
         const val AGENT_GATEWAY_PORT   = 42617
         const val AGENT_BRIDGE_PORT    = 9092
@@ -69,6 +69,12 @@ class NodeService : Service() {
         const val EXTRA_BAGS_WALLET  = "bags_wallet"
         const val EXTRA_BAGS_API_KEY = "bags_api_key"
         const val EXTRA_BAGS_PARTNER_KEY = "bags_partner_key"
+
+        // Intent extras — Jupiter referral
+        const val EXTRA_JUPITER_FEE_ACCOUNT = "jupiter_fee_account"
+
+        // Intent extras — Raydium LaunchLab share fee
+        const val EXTRA_LAUNCHLAB_SHARE_FEE_WALLET = "launchlab_share_fee_wallet"
 
         // Intent extras — ZeroClaw brain
         const val EXTRA_BRAIN_ENABLED  = "brain_enabled"
@@ -219,36 +225,62 @@ image_url  = "HTTPS URL of token image for Dexscreener. Leave empty string to sk
         val TRADE_SKILL_TOML = """
 [skill]
 name        = "trade"
-version     = "1.0.0"
-description = "Trade any token on Solana via Jupiter — swap, price check, token search, limit orders, and DCA."
+version     = "1.1.0"
+description = "Trade any token on Solana via Jupiter or Raydium LaunchLab — swap, price check, token search, limit orders, DCA, and bonding-curve buy/sell."
 author      = "0x01 World"
-tags        = ["jupiter", "swap", "trading", "defi", "solana", "limit-orders", "dca"]
+tags        = ["jupiter", "raydium", "launchlab", "swap", "trading", "defi", "solana", "limit-orders", "dca", "bonding-curve"]
 
 prompts = [${'$'}TOML_TQ
-# Jupiter Trading
+# Solana Trading — Jupiter + Raydium LaunchLab
 
-You can trade any Solana token directly from this agent using Jupiter's routing.
+You can trade any Solana token directly from this agent.
 
-## Capabilities
+## Routing decision: Jupiter vs LaunchLab
 
-1. **Swap** — trade_swap executes a market swap instantly. One-shot: quote + sign + broadcast.
-2. **Quote** — trade_quote checks the expected output before committing.
-3. **Price** — trade_price looks up current USD price for any token by mint address.
-4. **Token search** — trade_tokens finds a token mint by name or symbol.
-5. **Limit orders** — trade_limit_create places a buy/sell at a target price.
-   trade_limit_orders lists open orders. trade_limit_cancel cancels them.
-6. **DCA** — trade_dca_create sets up recurring buys at a fixed interval.
+| Situation | Tool to use |
+|-----------|-------------|
+| Token is **established / graduated** (listed on major DEXes) | Jupiter — `trade_swap` |
+| Token is **still on the LaunchLab bonding curve** (not yet graduated) | `launchlab_buy` / `launchlab_sell` |
+| User mentions "bonding curve", "pump", "LaunchLab", or a very new token | LaunchLab |
+| Unsure → check price first | `trade_price`; if it returns data, Jupiter works |
+
+## Jupiter capabilities
+
+1. **Swap** — `trade_swap` executes a market swap instantly (quote + sign + broadcast).
+2. **Quote** — `trade_quote` checks expected output before committing.
+3. **Price** — `trade_price` looks up current USD price by mint address.
+4. **Token search** — `trade_tokens` finds a mint by name or symbol.
+5. **Limit orders** — `trade_limit_create` places a buy/sell at a target price.
+   `trade_limit_orders` lists open orders. `trade_limit_cancel` cancels them.
+6. **DCA** — `trade_dca_create` sets up recurring buys at a fixed interval.
+
+## Raydium LaunchLab capabilities
+
+Use the `launchlab` skill tools for bonding-curve tokens:
+
+1. **Buy** — `launchlab_buy` — spend SOL (in lamports) to buy tokens from the bonding curve.
+2. **Sell** — `launchlab_sell` — sell tokens (in base units) back to the bonding curve.
+
+The node earns a 0.1% share fee on every LaunchLab trade, credited on-chain atomically.
+
+## Jupiter swap whitelist
+
+`trade_swap` only executes swaps involving whitelisted mints to prevent scam tokens.
+Whitelisted tokens: SOL (wrapped), USDC (mainnet + devnet), USDT, JUP, BONK, RAY, WIF, BAGS.
+If the user wants to swap an unlisted token, use `launchlab_buy` if it's on a bonding curve,
+or explain to the user that custom tokens are not in the default whitelist.
 
 ## Amount conventions
 
 - SOL amounts: lamports (1 SOL = 1_000_000_000)
 - USDC amounts: micro-USDC (1 USDC = 1_000_000)
-- Use trade_price or trade_quote to calculate amounts before swapping.
+- Token base units vary by mint — use `trade_quote` or `trade_price` to calculate.
 
 ## Rules
 
 - Always confirm trade details (token, amount, expected output) with the user before executing.
-- Use trade_quote or trade_price first so the user knows what they're getting.
+- Use `trade_quote` or `trade_price` first so the user knows what they're getting.
+- For LaunchLab (`launchlab_buy`/`launchlab_sell`), confirm the SOL amount before buying; report the txid and share fee after.
 - For limit orders, confirm the target price and expiry before placing.
 - For DCA, confirm total amount, per-cycle amount, and interval before creating.
 ${'$'}TOML_TQ]
@@ -335,6 +367,183 @@ output_mint       = "Mint to buy (e.g. SOL)"
 in_amount         = "Total amount of input_mint to DCA (base units)"
 in_amount_per_cycle = "Amount to swap each cycle (base units)"
 cycle_seconds     = "Seconds between each cycle (3600 = hourly, 86400 = daily)"
+""".trimIndent()
+
+        // ── Raydium LaunchLab bonding-curve skill ────────────────────────────
+        val LAUNCHLAB_SKILL_TOML = """
+[skill]
+name        = "launchlab"
+version     = "1.0.0"
+description = "Buy and sell tokens on the Raydium LaunchLab bonding curve. Earns a 0.1% share fee on every trade routed through the node — paid on-chain atomically."
+author      = "0x01 World"
+tags        = ["raydium", "launchlab", "bonding-curve", "defi", "solana", "fee-sharing"]
+
+prompts = [${'$'}TOML_TQ
+# Raydium LaunchLab Trading
+
+You can buy and sell tokens on the Raydium LaunchLab bonding curve directly from this agent.
+Every trade earns a 0.1% share fee for the node operator, credited on-chain atomically.
+
+## Capabilities
+
+1. **Buy** — launchlab_buy spends SOL (lamports) to buy a token from its bonding curve.
+2. **Sell** — launchlab_sell sells tokens back to the bonding curve for SOL.
+
+## Amount conventions
+
+- amount_in for buys: lamports of SOL (1 SOL = 1_000_000_000)
+- amount_in for sells: token base units
+- minimum_amount_out: optional slippage floor; use 0 or omit for no protection
+
+## When to use
+
+- Token is still on its Raydium LaunchLab bonding curve (not yet graduated).
+- If a trade fails with "not found on LaunchLab", the token may have graduated — use trade_swap (Jupiter) instead.
+
+## Rules
+
+- Always confirm the mint, amount, and direction (buy/sell) with the user before executing.
+- Report the share_fee_rate in the response (1000 = 0.1%) so users know the fee.
+${'$'}TOML_TQ]
+
+[[tools]]
+name        = "launchlab_buy"
+description = "Buy a token from its Raydium LaunchLab bonding curve using SOL. Returns txid and the share fee rate applied."
+kind        = "shell"
+command     = ${'$'}TOML_TQjq -nc --arg m {mint} --argjson amt {amount_in} --argjson min_out {minimum_amount_out} '{"mint":${'$'}m,"amount_in":${'$'}amt,"minimum_amount_out":(${'$'}min_out|if . == 0 then null else . end)}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/launchlab/buy" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+
+[tools.args]
+mint               = "Base58 mint address of the token to buy"
+amount_in          = "Lamports of SOL to spend (1 SOL = 1_000_000_000)"
+minimum_amount_out = "Minimum tokens to receive — slippage floor. Use 0 for no protection."
+
+[[tools]]
+name        = "launchlab_sell"
+description = "Sell a token back to its Raydium LaunchLab bonding curve for SOL. Returns txid and the share fee rate applied."
+kind        = "shell"
+command     = ${'$'}TOML_TQjq -nc --arg m {mint} --argjson amt {amount_in} --argjson min_out {minimum_amount_out} '{"mint":${'$'}m,"amount_in":${'$'}amt,"minimum_amount_out":(${'$'}min_out|if . == 0 then null else . end)}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/launchlab/sell" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+
+[tools.args]
+mint               = "Base58 mint address of the token to sell"
+amount_in          = "Amount of tokens to sell (base units)"
+minimum_amount_out = "Minimum SOL lamports to receive. Use 0 for no slippage protection."
+""".trimIndent()
+
+        // ── Raydium CPMM pool creation skill ─────────────────────────────────
+        val CPMM_SKILL_TOML = """
+[skill]
+name        = "cpmm"
+version     = "1.0.0"
+description = "Create a Raydium CPMM (Constant Product) liquidity pool. Pool creator earns LP fees on every swap forever. Typical use: list a newly launched token for open trading after the bonding curve phase."
+author      = "0x01 World"
+tags        = ["raydium", "cpmm", "amm", "liquidity", "defi", "solana", "pool-creation"]
+
+prompts = [${'$'}TOML_TQ
+# Raydium CPMM Pool Creation
+
+You can create a Raydium CPMM liquidity pool for any token pair directly from this agent.
+The pool creator earns a share of every swap fee in proportion to their LP token holdings.
+
+## Capabilities
+
+1. **Create pool** — cpmm_create_pool deploys a new constant-product AMM pool.
+   Returns pool_id, lp_mint, and txid.
+
+## Cost
+
+- ~0.15 SOL Raydium pool creation fee (paid on-chain, non-refundable).
+- Plus initial liquidity: amount_a and amount_b are deposited into the pool.
+
+## Fee tiers (fee_config_index)
+
+- 0 = 0.25% (default, most tokens)
+- 1 = 0.30% (higher-volume pairs)
+- 2 = 0.01% (stable pairs)
+
+## Typical workflow after a Bags token launch
+
+1. Launch token with bags_launch.
+2. Once the user wants open trading, call cpmm_create_pool with the new mint and
+   WSOL (So11111111111111111111111111111111111111112) as mint_b.
+3. Share the pool_id — users can now swap on Raydium.
+
+## Rules
+
+- Always confirm the token pair, amounts, and fee tier with the user before creating.
+- Remind the user that the 0.15 SOL creation fee is non-refundable.
+- Report pool_id and lp_mint after success — the user will want to save these.
+- open_time = 0 means trading opens immediately.
+${'$'}TOML_TQ]
+
+[[tools]]
+name        = "cpmm_create_pool"
+description = "Create a Raydium CPMM liquidity pool for a token pair. Costs ~0.15 SOL creation fee plus initial liquidity. Returns pool_id, lp_mint, and txid."
+kind        = "shell"
+command     = ${'$'}TOML_TQjq -nc --arg ma {mint_a} --arg mb {mint_b} --argjson aa {amount_a} --argjson ab {amount_b} --argjson ot {open_time} --argjson fi {fee_config_index} '{"mint_a":${'$'}ma,"mint_b":${'$'}mb,"amount_a":${'$'}aa,"amount_b":${'$'}ab,"open_time":(${'$'}ot|if . == 0 then null else . end),"fee_config_index":(${'$'}fi|if . == 0 then null else . end)}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/cpmm/create-pool" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+
+[tools.args]
+mint_a           = "Base58 mint address of the first token (e.g. newly launched token)"
+mint_b           = "Base58 mint address of the second token (e.g. WSOL: So11111111111111111111111111111111111111112)"
+amount_a         = "Initial liquidity for mint_a in base units"
+amount_b         = "Initial liquidity for mint_b in base units (sets the initial price ratio)"
+open_time        = "Unix timestamp when swapping opens (0 = immediately)"
+fee_config_index = "Raydium fee tier: 0=0.25% default, 1=0.30%, 2=0.01% stable"
+""".trimIndent()
+
+        // ── Phone health & wearables skill ───────────────────────────────────
+        val HEALTH_SKILL_TOML = """
+[skill]
+name        = "health"
+version     = "1.0.0"
+description = "Read health metrics from Android Health Connect and paired BLE wearables. Compute sleep + recovery readiness scores and give actionable coaching."
+author      = "0x01 World"
+tags        = ["health", "fitness", "wearables", "sleep", "recovery", "hrv", "biometrics", "coaching"]
+
+prompts = [${'$'}TOML_TQ
+# Health & Wearables
+
+You can access real health data from this Android device and its paired BLE wearables.
+All data is read-only. Never share raw health data externally without explicit user consent.
+
+## Available tools
+
+| Tool | What it does |
+|------|-------------|
+| `phone_health_read` | Aggregate health data from Android Health Connect (steps, HR, HRV, sleep, calories, SpO2, weight) |
+| `phone_wearable_scan` | Discover nearby BLE health devices (heart rate monitors, glucose meters, CGM, smart scales, running pods) |
+| `phone_wearable_read` | Connect to a specific wearable and read one service characteristic in real time |
+| `phone_recovery_status` | Compute a 0-100 sleep + recovery readiness score with per-component breakdown and insights |
+
+## Workflows
+
+### Daily health summary
+1. Call `phone_health_read` with `types=steps,heart_rate,hrv,sleep,calories` and `days=1`.
+2. Present a concise summary: steps vs typical, sleep duration and quality, average HR.
+
+### Recovery coaching
+1. Call `phone_recovery_status` — returns score, label (Optimal / Good / Fair / Poor), and insights.
+2. Use the insights list to give specific, actionable advice (sleep earlier, rest day, light workout, etc.).
+3. If HRV or resting HR data is stale (>24h), mention that the score may be less accurate.
+
+### Wearable data (real-time)
+1. Call `phone_wearable_scan` to list nearby devices.
+2. Present the list to the user; ask which device and which service they want to read.
+3. Call `phone_wearable_read` with the chosen device address and service.
+4. Supported services: `heart_rate`, `battery`, `body_composition`, `running_speed_cadence`, `glucose`, `cgm`.
+
+### HRV trend / baseline
+1. Call `phone_health_read` with `types=hrv` and `days=30` for the 30-day picture.
+2. Call with `days=7` for the recent week.
+3. Compare weekly average to 30-day baseline to spot training load or stress trends.
+
+## Rules
+
+- Always check Health Connect availability; if `status != SDK_AVAILABLE` explain the user needs to install Google Health Connect.
+- Permissions must be granted in the app before data is available; if empty results, remind the user to grant health permissions.
+- Never guess or fabricate health values — only report what the tools return.
+- Recovery advice should be supportive and non-diagnostic. Do not make medical claims.
+- For glucose or CGM data, note that these require a compatible device to be paired and within BLE range.
+${'$'}TOML_TQ]
 """.trimIndent()
 
         // All tools call the node REST API — no shell file operations.
@@ -550,6 +759,12 @@ name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'w
         val bagsPartnerKey = intent?.getStringExtra(EXTRA_BAGS_PARTNER_KEY)
             ?.takeIf { it.isNotBlank() }
             ?: BuildConfig.DEFAULT_BAGS_PARTNER_KEY.takeIf { it.isNotBlank() }
+        val jupiterFeeAccount = intent?.getStringExtra(EXTRA_JUPITER_FEE_ACCOUNT)
+            ?.takeIf { it.isNotBlank() }
+            ?: BuildConfig.DEFAULT_JUPITER_FEE_ACCOUNT.takeIf { it.isNotBlank() }
+        val launchlabShareFeeWallet = intent?.getStringExtra(EXTRA_LAUNCHLAB_SHARE_FEE_WALLET)
+            ?.takeIf { it.isNotBlank() }
+            ?: BuildConfig.DEFAULT_LAUNCHLAB_SHARE_FEE_WALLET.takeIf { it.isNotBlank() }
         val brainEnabled   = intent?.getBooleanExtra(EXTRA_BRAIN_ENABLED, false) ?: false
         val llmProvider    = intent?.getStringExtra(EXTRA_LLM_PROVIDER) ?: "gemini"
         val llmModel       = intent?.getStringExtra(EXTRA_LLM_MODEL) ?: ""
@@ -579,7 +794,7 @@ name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'w
             try {
                 val binary = prepareNodeBinary()
                 // MED-4: Replace recursive launchNode with iterative loop in separate job
-                launchNodeIterative(binary, relayAddr, fcmToken, agentName, rpcUrl, bagsFeeBps, bagsWallet, bagsApiKey, bagsPartnerKey)
+                launchNodeIterative(binary, relayAddr, fcmToken, agentName, rpcUrl, bagsFeeBps, bagsWallet, bagsApiKey, bagsPartnerKey, jupiterFeeAccount, launchlabShareFeeWallet)
             } catch (e: Exception) {
                 Log.e(TAG, "Node start failed: $e")
                 broadcastStatus(STATUS_ERROR, e.message ?: "unknown error")
@@ -717,9 +932,11 @@ name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'w
         bagsWallet:  String?,
         bagsApiKey:  String?,
         bagsPartnerKey: String?,
+        jupiterFeeAccount: String?,
+        launchlabShareFeeWallet: String?,
     ) {
         while (coroutineContext.isActive) {
-            launchNode(binary, relayAddr, fcmToken, agentName, rpcUrl, bagsFeeBps, bagsWallet, bagsApiKey, bagsPartnerKey)
+            launchNode(binary, relayAddr, fcmToken, agentName, rpcUrl, bagsFeeBps, bagsWallet, bagsApiKey, bagsPartnerKey, jupiterFeeAccount, launchlabShareFeeWallet)
             if (!coroutineContext.isActive) break
             Log.i(TAG, "Restarting node in 5s…")
             updateNotification("Restarting…")
@@ -737,6 +954,8 @@ name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'w
         bagsWallet:  String?,
         bagsApiKey:  String?,
         bagsPartnerKey: String?,
+        jupiterFeeAccount: String?,
+        launchlabShareFeeWallet: String?,
     ) = withContext(Dispatchers.IO) {
         val logDir      = File(filesDir, "logs").also { it.mkdirs() }
         File(filesDir, "zw").mkdirs()   // skill workspace must exist before node starts
@@ -780,6 +999,8 @@ name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'w
         }
         bagsApiKey?.let { cmd += listOf("--bags-api-key", it) }
         bagsPartnerKey?.let { cmd += listOf("--bags-partner-key", it) }
+        jupiterFeeAccount?.let { cmd += listOf("--jupiter-fee-account", it) }
+        launchlabShareFeeWallet?.let { cmd += listOf("--launchlab-share-fee-wallet", it) }
 
         // Skill workspace — enables the skill manager REST endpoints on the node.
         cmd += listOf("--skill-workspace", File(filesDir, "zw").absolutePath)
@@ -790,7 +1011,7 @@ name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'w
 
         // Redact sensitive flags before logging.
         val safeCmd = cmd.toMutableList().also { list ->
-            for (flag in listOf("--bags-api-key", "--bags-partner-key", "--api-secret", "--fcm-token")) {
+            for (flag in listOf("--bags-api-key", "--bags-partner-key", "--jupiter-fee-account", "--api-secret", "--fcm-token")) {
                 val idx = list.indexOf(flag)
                 if (idx >= 0 && idx + 1 < list.size) list[idx + 1] = "[REDACTED]"
             }
@@ -978,6 +1199,21 @@ timeout_secs = 10
         val tradeSkillDir = File(skillsRoot, "trade")
         tradeSkillDir.mkdirs()
         File(tradeSkillDir, "SKILL.toml").writeText(TRADE_SKILL_TOML)
+
+        // ── Raydium LaunchLab bonding-curve skill ───────────────────────────
+        val launchlabSkillDir = File(skillsRoot, "launchlab")
+        launchlabSkillDir.mkdirs()
+        File(launchlabSkillDir, "SKILL.toml").writeText(LAUNCHLAB_SKILL_TOML)
+
+        // ── Raydium CPMM pool creation skill ────────────────────────────────
+        val cpmmSkillDir = File(skillsRoot, "cpmm")
+        cpmmSkillDir.mkdirs()
+        File(cpmmSkillDir, "SKILL.toml").writeText(CPMM_SKILL_TOML)
+
+        // ── Phone health & wearables skill ─────────────────────────────────
+        val healthSkillDir = File(skillsRoot, "health")
+        healthSkillDir.mkdirs()
+        File(healthSkillDir, "SKILL.toml").writeText(HEALTH_SKILL_TOML)
 
         // ── Skill manager (dynamic installer) ──────────────────────────────
         val smSkillDir = File(skillsRoot, "skill_manager")

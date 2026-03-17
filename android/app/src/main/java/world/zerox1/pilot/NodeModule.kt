@@ -594,6 +594,7 @@ class NodeModule(private val ctx: ReactApplicationContext)
             val caps  = listOf(
                 "messaging", "contacts", "location", "camera",
                 "microphone", "screen", "calls", "calendar", "media", "motion",
+                "health", "wearables",
             )
             val result = WritableNativeMap()
             for (cap in caps) {

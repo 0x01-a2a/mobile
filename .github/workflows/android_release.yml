@@ -52,8 +52,10 @@ jobs:
       ZEROX1_RELEASE_STORE_PASS: ${{ secrets.ZEROX1_RELEASE_STORE_PASS }}
       ZEROX1_RELEASE_KEY_PASS:   ${{ secrets.ZEROX1_RELEASE_KEY_PASS }}
       ZEROX1_RELEASE_KEYSTORE:   release.keystore
-      ZEROX1_BAGS_PARTNER_KEY:   ${{ secrets.ZEROX1_BAGS_PARTNER_KEY }}
-      ZEROX1_HELIUS_API_KEY:     ${{ secrets.ZEROX1_HELIUS_API_KEY }}
+      ZEROX1_BAGS_PARTNER_KEY:      ${{ secrets.ZEROX1_BAGS_PARTNER_KEY }}
+      ZEROX1_HELIUS_API_KEY:        ${{ secrets.ZEROX1_HELIUS_API_KEY }}
+      ZEROX1_JUPITER_FEE_ACCOUNT:          ${{ secrets.ZEROX1_JUPITER_FEE_ACCOUNT }}
+      ZEROX1_LAUNCHLAB_SHARE_FEE_WALLET:   ${{ secrets.ZEROX1_LAUNCHLAB_SHARE_FEE_WALLET }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4

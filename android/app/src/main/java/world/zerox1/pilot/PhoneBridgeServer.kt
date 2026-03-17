@@ -337,6 +337,20 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
             method == "POST" && path == "/phone/calls/respond"  ->
                 if (!isCapEnabled("calls")) capDisabled("calls") else handleCallsRespond(body)
 
+            // ---- Health Connect ----
+            method == "GET"  && path == "/phone/health" ->
+                if (!isCapEnabled("health")) capDisabled("health") else handleHealthRead(params)
+
+            // ---- Wearables (BLE GATT) ----
+            method == "GET"  && path == "/phone/wearables/scan" ->
+                if (!isCapEnabled("wearables")) capDisabled("wearables") else handleWearablesScan(params)
+            method == "GET"  && path == "/phone/wearables/read" ->
+                if (!isCapEnabled("wearables")) capDisabled("wearables") else handleWearablesRead(params)
+
+            // ---- Recovery / readiness ----
+            method == "GET"  && path == "/phone/recovery" ->
+                if (!isCapEnabled("health")) capDisabled("health") else handleRecovery()
+
             // ---- Activity log ----
             method == "GET"  && path == "/phone/activity_log"   -> handleActivityLog(params)
 
@@ -395,12 +409,70 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
         path == "/phone/imu/record" -> "MOTION" to "Recorded ${
             (body?.optLong("duration_ms") ?: params["duration_ms"]?.toLongOrNull() ?: 5_000L) / 1000
         }s IMU data at ${body?.optInt("rate_hz") ?: params["rate_hz"]?.toIntOrNull() ?: 50}Hz"
+        path == "/phone/health"          -> "HEALTH" to "Read health data (${params["types"] ?: "default"}, ${params["days"] ?: "7"} days)"
+        path == "/phone/wearables/scan"  -> "WEARABLES" to "Scanned for nearby BLE health devices"
+        path == "/phone/wearables/read"  -> "WEARABLES" to "Read ${params["service"] ?: "?"} from ${params["device"] ?: "?"}"
+        path == "/phone/recovery"        -> "HEALTH" to "Computed sleep + recovery readiness score"
         else -> "SYSTEM" to "$method $path"
     }
 
     // -------------------------------------------------------------------------
     // Endpoints
     // -------------------------------------------------------------------------
+
+    // ── Health Connect ───────────────────────────────────────────────────────
+
+    private fun handleHealthRead(params: Map<String, String>): BridgeResponse {
+        val typesParam = params["types"] ?: "steps,heart_rate,sleep,calories"
+        val types = typesParam.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
+        val days  = params["days"]?.toIntOrNull()?.coerceIn(1, 90) ?: 7
+        return runBlocking {
+            try {
+                val data = HealthDataReader.readHealth(context, types, days)
+                jsonOk(data)
+            } catch (e: Exception) {
+                jsonError("health read failed: ${e.message}")
+            }
+        }
+    }
+
+    private fun handleRecovery(): BridgeResponse {
+        return runBlocking {
+            try {
+                val data = RecoveryScorer.compute(context)
+                jsonOk(data)
+            } catch (e: Exception) {
+                jsonError("recovery score failed: ${e.message}")
+            }
+        }
+    }
+
+    // ── Wearables (BLE GATT) ─────────────────────────────────────────────────
+
+    private fun handleWearablesScan(params: Map<String, String>): BridgeResponse {
+        val durationMs = params["duration_ms"]?.toLongOrNull()?.coerceIn(2_000, 15_000) ?: 8_000
+        return runBlocking {
+            try {
+                val devices = WearableScanner.scan(context, durationMs)
+                jsonOk(devices)
+            } catch (e: Exception) {
+                jsonError("wearable scan failed: ${e.message}")
+            }
+        }
+    }
+
+    private fun handleWearablesRead(params: Map<String, String>): BridgeResponse {
+        val address = params["device"] ?: return jsonError("device address required")
+        val service = params["service"] ?: return jsonError("service required (heart_rate|battery|body_composition|running_speed_cadence|glucose|cgm)")
+        return runBlocking {
+            try {
+                val data = WearableScanner.readDevice(context, address, service)
+                jsonOk(data)
+            } catch (e: Exception) {
+                jsonError("wearable read failed: ${e.message}")
+            }
+        }
+    }
 
     private fun handleContactsRead(params: Map<String, String>): BridgeResponse {
         if (!hasPermission(Manifest.permission.READ_CONTACTS)) return permDenied()
