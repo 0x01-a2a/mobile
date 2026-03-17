@@ -47,7 +47,7 @@ import {
 } from '../hooks/useNodeApi';
 import { useOwnedAgents, notifyLinkedAgentsUpdated, OwnedAgent } from '../hooks/useOwnedAgents';
 import { useAgentBrain, CAPABILITY_LABELS } from '../hooks/useAgentBrain';
-import { useBridgeCapabilities, CAPABILITY_KEYS } from '../hooks/useNodeApi';
+import { useBridgeCapabilities, CAPABILITY_KEYS, use8004Badge } from '../hooks/useNodeApi';
 import { NodeStatusBanner } from '../components/NodeStatusBanner';
 
 const BRIDGE_LABELS: Record<string, string> = {
@@ -149,6 +149,16 @@ interface AgentCardProps {
 
 function AgentCard({ agent, brainSkills, bridgeCaps, bridgeLoading }: AgentCardProps) {
   const rep = useOwnReputation(agent.id || null, 60_000);
+  // For local/hosted agents: read from AsyncStorage (set during onboarding registration).
+  // For linked agents: query 8004 by their agent ID.
+  const [ownRegistered, setOwnRegistered] = useState(false);
+  useEffect(() => {
+    if (agent.mode !== 'linked') {
+      AsyncStorage.getItem('zerox1:8004_registered').then(v => setOwnRegistered(v === 'true'));
+    }
+  }, [agent.mode]);
+  const linkedRegistered = use8004Badge(agent.mode === 'linked' ? (agent.id ?? null) : null);
+  const verified = agent.mode === 'linked' ? linkedRegistered : ownRegistered;
   const dotColor = agent.status === 'running' ? C.green : C.sub;
   const badgeStyle = agent.mode === 'local' ? s.badgeLocal : agent.mode === 'hosted' ? s.badgeHosted : s.badgeLinked;
   const badgeColor = agent.mode === 'local' ? C.green : agent.mode === 'hosted' ? C.amber : C.blue;
@@ -173,7 +183,14 @@ function AgentCard({ agent, brainSkills, bridgeCaps, bridgeLoading }: AgentCardP
       <View style={s.agentCardRow}>
         <View style={[s.dot, { backgroundColor: dotColor }]} />
         <View style={s.agentCardInfo}>
-          <Text style={s.agentCardName}>{agent.name}</Text>
+          <View style={s.agentNameRow}>
+            <Text style={s.agentCardName}>{agent.name}</Text>
+            {verified && (
+              <View style={s.verifiedBadge}>
+                <Text style={s.verifiedText}>[8004]</Text>
+              </View>
+            )}
+          </View>
           <Text style={s.agentCardId}>{agent.id ? shortId(agent.id) : 'pending…'}</Text>
           {agent.mode === 'linked' && agent.ownerWallet && (
             <Text style={s.agentCardOwner}>owner {shortId(agent.ownerWallet)}</Text>
@@ -848,22 +865,40 @@ function PortfolioSubtab() {
 
   const totalUsdc = tokens.find(t => t.mint.startsWith('4zMMC') || t.mint === 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v')?.amount ?? 0;
 
-  const handleSweep = async () => {
+  const handleSweep = () => {
     if (!sweepDest) return;
     const amountNum = sweepAmount ? parseFloat(sweepAmount) : undefined;
-    const atomicAmount = amountNum ? Math.floor(amountNum * 1_000_000) : undefined;
-
-    setSweeping(true);
-    try {
-      const res = await sweepUsdc(sweepDest, atomicAmount);
-      const txLine = res.signature ? `\n\nTx: ${res.signature}` : res.via === 'kora' ? '\n\n(gasless via Kora)' : '';
-      Alert.alert('Success', `Swept ${res.amount_usdc} USDC to ${sweepDest}${txLine}`);
-      setSweepAmount('');
-    } catch (e: any) {
-      Alert.alert('Sweep Failed', e.message);
-    } finally {
-      setSweeping(false);
-    }
+    // H-2: Require explicit user confirmation before sweeping funds.
+    const displayAmount = amountNum != null && !isNaN(amountNum)
+      ? `${amountNum.toFixed(6)} USDC`
+      : `all USDC (max ${totalUsdc.toFixed(2)})`;
+    Alert.alert(
+      'Confirm Sweep',
+      `Send ${displayAmount} to ${sweepDest.slice(0, 8)}…${sweepDest.slice(-4)}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sweep',
+          style: 'destructive',
+          onPress: async () => {
+            const atomicAmount = amountNum != null && !isNaN(amountNum)
+              ? Math.floor(amountNum * 1_000_000)
+              : undefined;
+            setSweeping(true);
+            try {
+              const res = await sweepUsdc(sweepDest, atomicAmount);
+              const txLine = res.signature ? `\n\nTx: ${res.signature}` : res.via === 'kora' ? '\n\n(gasless via Kora)' : '';
+              Alert.alert('Success', `Swept ${res.amount_usdc} USDC to ${sweepDest}${txLine}`);
+              setSweepAmount('');
+            } catch (e: any) {
+              Alert.alert('Sweep Failed', e.message);
+            } finally {
+              setSweeping(false);
+            }
+          },
+        },
+      ],
+    );
   };
 
   return (
@@ -1321,7 +1356,10 @@ const s = StyleSheet.create({
   agentCard: { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, padding: 14, marginBottom: 8 },
   agentCardRow: { flexDirection: 'row', alignItems: 'center' },
   agentCardInfo: { flex: 1 },
+  agentNameRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
   agentCardName: { fontSize: 14, fontWeight: '700', color: C.text, fontFamily: 'monospace' },
+  verifiedBadge: { backgroundColor: '#00e67618', borderWidth: 1, borderColor: C.green + '60', borderRadius: 3, paddingHorizontal: 5, paddingVertical: 1 },
+  verifiedText: { fontSize: 8, color: C.green, fontWeight: '700', letterSpacing: 1, fontFamily: 'monospace' },
   agentCardId: { fontSize: 10, color: C.sub, fontFamily: 'monospace', marginTop: 2 },
   agentCardStats: { flexDirection: 'row', alignItems: 'center', marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.border },
   agentScore: { fontSize: 16, fontWeight: '700', fontFamily: 'monospace' },

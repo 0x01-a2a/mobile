@@ -14,7 +14,9 @@ import { NodeModule } from '../native/NodeModule';
 
 const GATEWAY_URL = 'http://127.0.0.1:42617';
 const SESSION_KEY_PREFIX = 'zerox1:zeroclaw_session';
+const MESSAGES_KEY_PREFIX = 'zerox1:zeroclaw_messages';
 const REQUEST_TIMEOUT = 60_000;   // ms — LLM can be slow on first token
+const MAX_STORED_MESSAGES = 200;
 
 export interface ChatMessage {
   id: string;
@@ -29,20 +31,34 @@ export interface UseZeroclawChatResult {
   messages: ChatMessage[];
   loading: boolean;
   error: string | null;
-  send: (text: string, image?: { uri: string; cid: string; mime: string }) => Promise<void>;
+  send: (text: string, image?: { uri: string; base64: string; mime: string; cid?: string }) => Promise<void>;
   resetSession: () => Promise<void>;
   injectSystemMessage: (text: string) => void;
 }
 
 function genId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  // Use crypto.getRandomValues when available (Hermes release builds, M-7).
+  // Fall back to Math.random for dev/Metro environments where global crypto
+  // may not be polyfilled.
+  if (typeof crypto !== 'undefined' && crypto?.getRandomValues) {
+    const buf = new Uint32Array(2);
+    crypto.getRandomValues(buf);
+    return `${Date.now()}-${buf[0].toString(36)}${buf[1].toString(36)}`;
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
 }
 
-function sessionKey(agentId?: string): string {
-  return agentId ? `${SESSION_KEY_PREFIX}_${agentId}` : SESSION_KEY_PREFIX;
+function sessionKey(agentId?: string, conversationId?: string): string {
+  const base = agentId ? `${SESSION_KEY_PREFIX}_${agentId}` : SESSION_KEY_PREFIX;
+  return conversationId ? `${base}_${conversationId}` : base;
 }
 
-export function useZeroclawChat(agentId?: string): UseZeroclawChatResult {
+function messagesKey(agentId?: string, conversationId?: string): string {
+  const base = agentId ? `${MESSAGES_KEY_PREFIX}_${agentId}` : MESSAGES_KEY_PREFIX;
+  return conversationId ? `${base}_${conversationId}` : base;
+}
+
+export function useZeroclawChat(agentId?: string, conversationId?: string): UseZeroclawChatResult {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,18 +67,29 @@ export function useZeroclawChat(agentId?: string): UseZeroclawChatResult {
   const systemContextRef = useRef<string[]>([]);
 
   // Track the current key so async callbacks always write to the right slot.
-  const sessionKeyRef = useRef(sessionKey(agentId));
+  const sessionKeyRef = useRef(sessionKey(agentId, conversationId));
+  const messagesKeyRef = useRef(messagesKey(agentId, conversationId));
 
-  // When agentId changes: reset in-memory state and load the persisted session
-  // for the new agent (or start fresh if none exists).
+  // When agentId or conversationId changes: reset in-memory state and load the persisted session.
   useEffect(() => {
-    const key = sessionKey(agentId);
+    const key = sessionKey(agentId, conversationId);
+    const mKey = messagesKey(agentId, conversationId);
     sessionKeyRef.current = key;
+    messagesKeyRef.current = mKey;
 
-    // Clear state synchronously so the UI empties immediately.
+    // Clear state synchronously so the UI empties immediately before async load.
     sessionRef.current = null;
     setMessages([]);
     setError(null);
+
+    // Restore persisted messages for this session.
+    AsyncStorage.getItem(mKey).then(raw => {
+      if (messagesKeyRef.current !== mKey || !raw) return;
+      try {
+        const saved: ChatMessage[] = JSON.parse(raw);
+        if (Array.isArray(saved) && saved.length > 0) setMessages(saved);
+      } catch {}
+    });
 
     // Build wallet identity context so ZeroClaw knows about its Solana wallet.
     if (agentId && agentId.length === 64) {
@@ -93,20 +120,11 @@ export function useZeroclawChat(agentId?: string): UseZeroclawChatResult {
           })
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           .then((data: any) => {
+            // M-3: Do NOT include wallet balance in the LLM context to prevent
+            // social engineering via crafted task descriptions. The agent can
+            // query the balance itself via the API if needed.
             if (!data?.tokens || sessionKeyRef.current !== key) return;
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const sol  = data.tokens.find((t: any) =>
-              t.mint === 'So11111111111111111111111111111111111111112');
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const usdc = data.tokens.find((t: any) =>
-              t.mint === 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' ||
-              t.mint === '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU');
-            const solAmt  = (sol?.amount  ?? 0) as number;
-            const usdcAmt = (usdc?.amount ?? 0) as number;
-            systemContextRef.current = [
-              ...baseContext,
-              `Current hot wallet balance: ${solAmt.toFixed(6)} SOL, ${usdcAmt.toFixed(2)} USDC (Solana devnet).`,
-            ];
+            // Balance fetched successfully — context stays as baseContext (no balance line).
           })
           .catch(() => { /* balance fetch failed — context stays without balance line */ });
       } catch {
@@ -135,7 +153,7 @@ export function useZeroclawChat(agentId?: string): UseZeroclawChatResult {
           gatewayTokenRef.current = null;
         }
       });
-  }, [agentId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [agentId, conversationId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const getOrCreateSession = useCallback(async (): Promise<string> => {
     if (sessionRef.current) return sessionRef.current;
@@ -147,16 +165,28 @@ export function useZeroclawChat(agentId?: string): UseZeroclawChatResult {
 
   const send = useCallback(async (
     text: string,
-    image?: { uri: string; cid: string; mime: string },
+    image?: { uri: string; base64: string; mime: string; cid?: string },
   ) => {
     const trimmed = text.trim();
     if (!trimmed && !image || loading) return;
 
-    // Build the message text sent to zeroclaw. If an image is attached, include
-    // the CID so the agent can reference it (e.g. for bags_launch image_url).
-    const messageText = image
-      ? `${trimmed ? trimmed + '\n' : ''}[User attached image — CID: ${image.cid}, mime: ${image.mime}. Accessible at https://api.0x01.world/blobs/${image.cid}]`
-      : trimmed;
+    // Build the message text sent to zeroclaw.
+    // Images are embedded inline using the [IMAGE:data:<mime>;base64,<data>] marker
+    // so the LLM receives actual image bytes regardless of blob-store availability.
+    // If a CID is also available (local-mode upload succeeded), append it as a URL
+    // reference so the agent can use it for tasks like bags_launch image_url.
+    let messageText: string;
+    if (image) {
+      const imageMarker = `[IMAGE:data:${image.mime};base64,${image.base64}]`;
+      const cidRef = image.cid
+        ? ` (also available at https://api.0x01.world/blobs/${image.cid})`
+        : '';
+      messageText = trimmed
+        ? `${trimmed}\n${imageMarker}${cidRef}`
+        : `${imageMarker}${cidRef}`;
+    } else {
+      messageText = trimmed;
+    }
 
     const userMsg: ChatMessage = {
       id: genId(),
@@ -166,7 +196,11 @@ export function useZeroclawChat(agentId?: string): UseZeroclawChatResult {
       imageUri: image?.uri,
       imageCid: image?.cid,
     };
-    setMessages(prev => [...prev, userMsg]);
+    setMessages(prev => {
+      const next = [...prev, userMsg];
+      AsyncStorage.setItem(messagesKeyRef.current, JSON.stringify(next.slice(-MAX_STORED_MESSAGES))).catch(() => {});
+      return next;
+    });
     setLoading(true);
     setError(null);
 
@@ -218,7 +252,11 @@ export function useZeroclawChat(agentId?: string): UseZeroclawChatResult {
         text: data.reply,
         ts: Date.now(),
       };
-      setMessages(prev => [...prev, assistantMsg]);
+      setMessages(prev => {
+        const next = [...prev, assistantMsg];
+        AsyncStorage.setItem(messagesKeyRef.current, JSON.stringify(next.slice(-MAX_STORED_MESSAGES))).catch(() => {});
+        return next;
+      });
 
       // Notify user if app is in the background
       if (AppState.currentState !== 'active') {
@@ -240,7 +278,10 @@ export function useZeroclawChat(agentId?: string): UseZeroclawChatResult {
 
   const resetSession = useCallback(async () => {
     sessionRef.current = null;
-    await AsyncStorage.removeItem(sessionKeyRef.current);
+    await Promise.all([
+      AsyncStorage.removeItem(sessionKeyRef.current),
+      AsyncStorage.removeItem(messagesKeyRef.current),
+    ]);
     setMessages([]);
     setError(null);
   }, []);
