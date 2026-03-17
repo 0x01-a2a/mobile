@@ -1636,6 +1636,7 @@ the capability in the app Settings > Phone Bridge section instead.
      * | microphone  |  on  |    on     |    OFF     |
      * | calls       |  on  |    OFF    |    OFF     |
      * | screen      |  on  |    OFF    |    OFF     |
+     * | wearables   |  on  |    OFF    |    on      | (dappstore strips BT; Play allows with neverForLocation)
      */
     private fun applyDistributionCapabilityDefaults() {
         val prefs = applicationContext.getSharedPreferences("zerox1_bridge", android.content.Context.MODE_PRIVATE)
@@ -1649,11 +1650,13 @@ the capability in the app Settings > Phone Bridge section instead.
                 editor.putBoolean("bridge_cap_microphone",  false)
                 editor.putBoolean("bridge_cap_calls",       false)
                 editor.putBoolean("bridge_cap_screen",      false)
+                // wearables: ON — BLUETOOTH_SCAN with neverForLocation is Play-approved for health devices
                 // messaging/contacts/location/calendar/media: leave at default (true)
             }
             "dappstore" -> {
                 editor.putBoolean("bridge_cap_calls",       false)
                 editor.putBoolean("bridge_cap_screen",      false)
+                editor.putBoolean("bridge_cap_wearables",   false)
                 // camera/microphone/messaging/contacts/location/calendar/media: leave at default (true)
             }
             else -> {

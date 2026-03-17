@@ -21,7 +21,8 @@
     <!-- Activity recognition — not justifiable without system app status -->
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" tools:node="remove" />
 
-    <!-- Bluetooth — Play Store requires prominent disclosure and narrow use case -->
+    <!-- Bluetooth classic — Play Store requires prominent disclosure and narrow use case -->
+    <!-- BLUETOOTH_SCAN is kept for wearable health device support (neverForLocation declared in main manifest) -->
     <uses-permission android:name="android.permission.BLUETOOTH" tools:node="remove" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" tools:node="remove" />
 
