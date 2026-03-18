@@ -963,15 +963,19 @@ export function EarnScreen() {
             {bounties.length > 0 && (
               <>
                 <Text style={[s.sectionLabel, activeTasks.length > 0 && { marginTop: 20 }]}>INCOMING BOUNTIES</Text>
-                {bounties.map(item => (
-                  <BountyCard
-                    key={item.conversationId}
-                    bounty={item}
-                    onAccept={() => handleAccept(item)}
-                    onSkip={() => handleSkip(item)}
-                    onReject={() => handleRejectBounty(item)}
-                  />
-                ))}
+                <FlatList
+                  data={bounties}
+                  keyExtractor={item => item.conversationId}
+                  renderItem={({ item }) => (
+                    <BountyCard
+                      bounty={item}
+                      onAccept={() => handleAccept(item)}
+                      onSkip={() => handleSkip(item)}
+                      onReject={() => handleRejectBounty(item)}
+                    />
+                  )}
+                  scrollEnabled={false}
+                />
               </>
             )}
 
@@ -1218,53 +1222,59 @@ export function EarnScreen() {
 
           {leaderboardLoading && leaderboardData.length === 0 ? (
             <ActivityIndicator color={C.green} style={{ marginTop: 40 }} />
-          ) : sortedLeaderboard.length === 0 ? (
-            <View style={s.empty}>
-              <Text style={s.emptyText}>
-                {allMints.length === 0
-                  ? (phantom.address
-                    ? 'No tokens found in your wallet.\n\nLaunch a token in the TRADE tab.'
-                    : 'Connect Phantom in Settings to see your tokens.')
-                  : 'No market data available yet.\n\nTokens may not be listed on DexScreener yet.'}
-              </Text>
-            </View>
           ) : (
-            sortedLeaderboard.map((token, i) => {
-              const changePos = token.priceChange24h >= 0;
-              const changeColor = changePos ? C.green : C.red;
-              return (
-                <View key={token.mint} style={[s.card, { marginBottom: 10 }]}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                    <Text style={s.rankNum}>#{i + 1}</Text>
-                    <View style={{ flex: 1 }}>
-                      <Text style={s.agentName}>{token.name || token.symbol}</Text>
-                      <Text style={s.agentId}>{token.symbol} · {shortId(token.mint)}</Text>
-                    </View>
-                    <View style={{ alignItems: 'flex-end' }}>
-                      <Text style={[s.lbPrice, !token.priceUsd && { color: C.sub }]}>
-                        {token.priceUsd ? `$${token.priceUsd < 0.01 ? token.priceUsd.toExponential(2) : token.priceUsd.toFixed(4)}` : '—'}
-                      </Text>
-                      <Text style={[s.lbChange, { color: changeColor }]}>
-                        {token.priceChange24h !== 0 ? `${changePos ? '+' : ''}${token.priceChange24h.toFixed(2)}%` : '—'}
-                      </Text>
-                    </View>
-                  </View>
-                  {token.volume24h > 0 && (
-                    <View style={s.lbMetaRow}>
-                      <Text style={s.lbMetaLabel}>VOL 24H</Text>
-                      <Text style={s.lbMetaVal}>${token.volume24h >= 1000 ? `${(token.volume24h / 1000).toFixed(1)}K` : token.volume24h.toFixed(0)}</Text>
-                      {token.marketCap > 0 && (
-                        <>
-                          <Text style={s.lbMetaDot}> · </Text>
-                          <Text style={s.lbMetaLabel}>MCAP</Text>
-                          <Text style={s.lbMetaVal}>${token.marketCap >= 1e6 ? `${(token.marketCap / 1e6).toFixed(1)}M` : token.marketCap >= 1000 ? `${(token.marketCap / 1000).toFixed(1)}K` : token.marketCap.toFixed(0)}</Text>
-                        </>
-                      )}
-                    </View>
-                  )}
+            <FlatList
+              data={sortedLeaderboard}
+              keyExtractor={item => item.mint}
+              scrollEnabled={false}
+              ListEmptyComponent={
+                <View style={s.empty}>
+                  <Text style={s.emptyText}>
+                    {allMints.length === 0
+                      ? (phantom.address
+                        ? 'No tokens found in your wallet.\n\nLaunch a token in the TRADE tab.'
+                        : 'Connect Phantom in Settings to see your tokens.')
+                      : 'No data yet'}
+                  </Text>
                 </View>
-              );
-            })
+              }
+              renderItem={({ item: token, index: i }) => {
+                const changePos = token.priceChange24h >= 0;
+                const changeColor = changePos ? C.green : C.red;
+                return (
+                  <View key={token.mint} style={[s.card, { marginBottom: 10 }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                      <Text style={s.rankNum}>#{i + 1}</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.agentName}>{token.name || token.symbol}</Text>
+                        <Text style={s.agentId}>{token.symbol} · {shortId(token.mint)}</Text>
+                      </View>
+                      <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={[s.lbPrice, !token.priceUsd && { color: C.sub }]}>
+                          {token.priceUsd ? `$${token.priceUsd < 0.01 ? token.priceUsd.toExponential(2) : token.priceUsd.toFixed(4)}` : '—'}
+                        </Text>
+                        <Text style={[s.lbChange, { color: changeColor }]}>
+                          {token.priceChange24h !== 0 ? `${changePos ? '+' : ''}${token.priceChange24h.toFixed(2)}%` : '—'}
+                        </Text>
+                      </View>
+                    </View>
+                    {token.volume24h > 0 && (
+                      <View style={s.lbMetaRow}>
+                        <Text style={s.lbMetaLabel}>VOL 24H</Text>
+                        <Text style={s.lbMetaVal}>${token.volume24h >= 1000 ? `${(token.volume24h / 1000).toFixed(1)}K` : token.volume24h.toFixed(0)}</Text>
+                        {token.marketCap > 0 && (
+                          <>
+                            <Text style={s.lbMetaDot}> · </Text>
+                            <Text style={s.lbMetaLabel}>MCAP</Text>
+                            <Text style={s.lbMetaVal}>${token.marketCap >= 1e6 ? `${(token.marketCap / 1e6).toFixed(1)}M` : token.marketCap >= 1000 ? `${(token.marketCap / 1000).toFixed(1)}K` : token.marketCap.toFixed(0)}</Text>
+                          </>
+                        )}
+                      </View>
+                    )}
+                  </View>
+                );
+              }}
+            />
           )}
         </ScrollView>
       )}
@@ -1275,25 +1285,29 @@ export function EarnScreen() {
           <Pressable style={s.overlay} onPress={() => setPickerFor(null)} />
           <View style={s.sheet}>
             <Text style={s.sheetTitle}>SELECT TOKEN</Text>
-            {SWAP_TOKENS.map((t, i) => {
-              const isOtherSide = pickerFor === 'input' ? i === outputIdx : i === inputIdx;
-              return (
-                <TouchableOpacity
-                  key={t.mint}
-                  style={[s.agentRow, isOtherSide && { opacity: 0.3 }]}
-                  onPress={() => {
-                    if (isOtherSide) return;
-                    if (pickerFor === 'input') setInputIdx(i);
-                    else setOutputIdx(i);
-                    setPickerFor(null);
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Text style={s.agentName}>{t.label}</Text>
-                  <Text style={s.agentId}>{t.mint.slice(0, 8)}…</Text>
-                </TouchableOpacity>
-              );
-            })}
+            {quoteLoading ? (
+              <ActivityIndicator color={C.green} style={{ marginVertical: 24 }} />
+            ) : (
+              SWAP_TOKENS.map((t, i) => {
+                const isOtherSide = pickerFor === 'input' ? i === outputIdx : i === inputIdx;
+                return (
+                  <TouchableOpacity
+                    key={t.mint}
+                    style={[s.agentRow, isOtherSide && { opacity: 0.3 }]}
+                    onPress={() => {
+                      if (isOtherSide) return;
+                      if (pickerFor === 'input') setInputIdx(i);
+                      else setOutputIdx(i);
+                      setPickerFor(null);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={s.agentName}>{t.label}</Text>
+                    <Text style={s.agentId}>{t.mint.slice(0, 8)}…</Text>
+                  </TouchableOpacity>
+                );
+              })
+            )}
           </View>
         </Modal>
       )}

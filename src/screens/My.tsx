@@ -1242,22 +1242,25 @@ function SkillsSubtab() {
         ) : (
           skills.map((skill, i) => (
             <View key={skill.name} style={[s.skillRow, i === skills.length - 1 && { borderBottomWidth: 0 }]}>
-              <View style={s.skillDot} />
-              <Text style={s.skillName}>{skill.name}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={s.skillName}>{skill.icon}  {skill.label}</Text>
+                {skill.description ? (
+                  <Text style={s.skillDesc}>{skill.description}</Text>
+                ) : null}
+              </View>
               <TouchableOpacity
-                style={[s.removeBtn, removing === skill.name && { opacity: 0.4 }]}
                 onPress={() => handleRemove(skill)}
                 disabled={removing === skill.name}
-                activeOpacity={0.7}
+                style={{ paddingLeft: 12 }}
               >
-                <Text style={s.removeBtnText}>{removing === skill.name ? '…' : 'REMOVE'}</Text>
+                <Text style={s.removeBtnText}>{removing === skill.name ? '...' : 'REMOVE'}</Text>
               </TouchableOpacity>
             </View>
           ))
         )}
       </View>
 
-      <Text style={s.sectionLabel}>INSTALL FROM URL</Text>
+      <Text style={s.sectionLabel}>INSTALL SKILL</Text>
       <View style={s.card}>
         <Text style={[s.noData, { marginBottom: 12, lineHeight: 18 }]}>
           HTTPS only. URL must point to a raw SKILL.toml file.
@@ -1282,6 +1285,7 @@ function SkillsSubtab() {
           autoCapitalize="none"
           autoCorrect={false}
         />
+        <Text style={{ fontSize: 10, color: C.sub, marginTop: 4 }}>Paste a URL to a SKILL.toml file</Text>
         <TouchableOpacity
           style={[s.btn, { marginTop: 14, backgroundColor: C.green }, !canInstall && { opacity: 0.4 }]}
           onPress={handleInstall}
@@ -1440,9 +1444,9 @@ const s = StyleSheet.create({
   totalUsdLabel: { fontSize: 9, color: C.sub, letterSpacing: 3, fontFamily: 'monospace' },
   totalUsdValue: { fontSize: 20, fontWeight: '700', color: C.green, fontFamily: 'monospace' },
   // skills
-  skillRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.border, gap: 10 },
-  skillDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.green },
-  skillName: { flex: 1, fontSize: 13, color: C.text, fontFamily: 'monospace' },
+  skillRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.border },
+  skillName: { fontSize: 13, color: C.text, fontFamily: 'monospace' },
+  skillDesc: { fontSize: 11, color: C.sub, lineHeight: 16, marginTop: 3 },
   removeBtn: { borderWidth: 1, borderColor: C.red + '60', borderRadius: 3, paddingHorizontal: 8, paddingVertical: 4 },
   removeBtnText: { fontSize: 9, color: C.red, letterSpacing: 2, fontWeight: '700', fontFamily: 'monospace' },
   fieldLabel: { fontSize: 9, color: C.sub, letterSpacing: 2, fontFamily: 'monospace', marginBottom: 6 },

@@ -15,6 +15,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Alert,
+  Dimensions,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -113,7 +114,7 @@ function StepShell({
   return (
     <KeyboardAvoidingView
       style={s.root}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView
         contentContainerStyle={s.content}
@@ -1189,7 +1190,7 @@ const s = StyleSheet.create({
     marginBottom: 20,
   },
   providerCard: {
-    width: '47%',
+    width: Dimensions.get('window').width < 360 ? '100%' : '47%',
     backgroundColor: C.card,
     borderWidth: 1,
     borderColor: C.border,
@@ -1313,7 +1314,7 @@ const s = StyleSheet.create({
     lineHeight: 18,
     marginBottom: 10,
   },
-  walletCopyBtn: { alignSelf: 'flex-start', marginBottom: 12 },
+  walletCopyBtn: { alignSelf: 'flex-start', marginBottom: 12, minWidth: 44, minHeight: 44, justifyContent: 'center' },
   walletCopyText: {
     fontSize: 10,
     color: C.green,

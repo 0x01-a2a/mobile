@@ -13,6 +13,7 @@ import {
   KeyboardAvoidingView,
   Modal,
   Platform,
+  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -621,7 +622,7 @@ export function ChatScreen() {
                 style={[s.taskPill, active && s.taskPillActive, t.status === 'delivered' && s.taskPillDelivered]}
                 onPress={() => setSelectedConvId(t.conversationId)}
               >
-                <Text style={[s.taskPillText, active && s.taskPillTextActive]} numberOfLines={1}>
+                <Text style={[s.taskPillText, active && s.taskPillTextActive]} numberOfLines={1} ellipsizeMode="tail">
                   {(t.description ?? '').slice(0, 20)}…
                 </Text>
                 {t.status === 'delivered' && (
@@ -694,52 +695,54 @@ export function ChatScreen() {
         animationType="fade"
         onRequestClose={() => setBagsKeyModalVisible(false)}
       >
-        <View style={s.modalOverlay}>
-          <View style={s.modalCard}>
-            <Text style={s.modalTitle}>BAGS API KEY REQUIRED</Text>
-            <Text style={s.modalBody}>
-              The default Bags API key is rate-limited. Paste your own key from bags.fm to continue.
-            </Text>
-            <TextInput
-              style={s.modalInput}
-              value={bagsKeyDraft}
-              onChangeText={setBagsKeyDraft}
-              placeholder="Enter Bags API key..."
-              placeholderTextColor={C.sub}
-              autoCapitalize="none"
-              autoCorrect={false}
-              editable={!bagsKeySaving}
-            />
-            <View style={s.modalActions}>
-              <TouchableOpacity
-                style={s.modalCancel}
-                onPress={() => { setBagsKeyModalVisible(false); setBagsKeyDraft(''); }}
-                disabled={bagsKeySaving}
-              >
-                <Text style={s.modalCancelText}>CANCEL</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[s.modalSave, (!bagsKeyDraft.trim() || bagsKeySaving) && s.sendBtnDisabled]}
-                disabled={!bagsKeyDraft.trim() || bagsKeySaving}
-                onPress={async () => {
-                  setBagsKeySaving(true);
-                  try {
-                    await setBagsApiKey(bagsKeyDraft.trim());
-                    setBagsKeyModalVisible(false);
-                    setBagsKeyDraft('');
-                    Alert.alert('Saved', 'Bags API key updated. Try your request again.');
-                  } catch (e: any) {
-                    Alert.alert('Error', e?.message ?? 'Failed to save key.');
-                  } finally {
-                    setBagsKeySaving(false);
-                  }
-                }}
-              >
-                <Text style={s.modalSaveText}>{bagsKeySaving ? '...' : 'SAVE'}</Text>
-              </TouchableOpacity>
+        <SafeAreaView style={{ flex: 1 }}>
+          <View style={s.modalOverlay}>
+            <View style={[s.modalCard, { paddingBottom: 32 }]}>
+              <Text style={s.modalTitle}>BAGS API KEY REQUIRED</Text>
+              <Text style={s.modalBody}>
+                The default Bags API key is rate-limited. Paste your own key from bags.fm to continue.
+              </Text>
+              <TextInput
+                style={s.modalInput}
+                value={bagsKeyDraft}
+                onChangeText={setBagsKeyDraft}
+                placeholder="Enter Bags API key..."
+                placeholderTextColor={C.sub}
+                autoCapitalize="none"
+                autoCorrect={false}
+                editable={!bagsKeySaving}
+              />
+              <View style={s.modalActions}>
+                <TouchableOpacity
+                  style={[s.modalCancel, { minHeight: 44, justifyContent: 'center' }]}
+                  onPress={() => { setBagsKeyModalVisible(false); setBagsKeyDraft(''); }}
+                  disabled={bagsKeySaving}
+                >
+                  <Text style={s.modalCancelText}>CANCEL</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[s.modalSave, { minHeight: 44, justifyContent: 'center' }, (!bagsKeyDraft.trim() || bagsKeySaving) && s.sendBtnDisabled]}
+                  disabled={!bagsKeyDraft.trim() || bagsKeySaving}
+                  onPress={async () => {
+                    setBagsKeySaving(true);
+                    try {
+                      await setBagsApiKey(bagsKeyDraft.trim());
+                      setBagsKeyModalVisible(false);
+                      setBagsKeyDraft('');
+                      Alert.alert('Saved', 'Bags API key updated. Try your request again.');
+                    } catch (e: any) {
+                      Alert.alert('Error', e?.message ?? 'Failed to save key.');
+                    } finally {
+                      setBagsKeySaving(false);
+                    }
+                  }}
+                >
+                  <Text style={s.modalSaveText}>{bagsKeySaving ? '...' : 'SAVE'}</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
-        </View>
+        </SafeAreaView>
       </Modal>
 
       {/* Text deliver modal */}
@@ -749,37 +752,39 @@ export function ChatScreen() {
         animationType="fade"
         onRequestClose={() => setTextDeliverVisible(false)}
       >
-        <View style={s.modalOverlay}>
-          <View style={s.modalCard}>
-            <Text style={s.modalTitle}>DELIVER RESULT</Text>
-            <TextInput
-              style={[s.modalInput, { minHeight: 80, textAlignVertical: 'top' }]}
-              value={textDeliverInput}
-              onChangeText={setTextDeliverInput}
-              placeholder="Enter your result..."
-              placeholderTextColor={C.sub}
-              autoCapitalize="none"
-              autoCorrect={false}
-              multiline
-              maxLength={2000}
-            />
-            <View style={s.modalActions}>
-              <TouchableOpacity
-                style={s.modalCancel}
-                onPress={() => { setTextDeliverVisible(false); setTextDeliverInput(''); }}
-              >
-                <Text style={s.modalCancelText}>CANCEL</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[s.modalSave, !textDeliverInput.trim() && s.sendBtnDisabled]}
-                disabled={!textDeliverInput.trim()}
-                onPress={submitTextDeliver}
-              >
-                <Text style={s.modalSaveText}>SEND</Text>
-              </TouchableOpacity>
+        <SafeAreaView style={{ flex: 1 }}>
+          <View style={s.modalOverlay}>
+            <View style={[s.modalCard, { paddingBottom: 32 }]}>
+              <Text style={s.modalTitle}>DELIVER RESULT</Text>
+              <TextInput
+                style={[s.modalInput, { minHeight: 80, textAlignVertical: 'top' }]}
+                value={textDeliverInput}
+                onChangeText={setTextDeliverInput}
+                placeholder="Enter your result..."
+                placeholderTextColor={C.sub}
+                autoCapitalize="none"
+                autoCorrect={false}
+                multiline
+                maxLength={2000}
+              />
+              <View style={s.modalActions}>
+                <TouchableOpacity
+                  style={[s.modalCancel, { minHeight: 44, justifyContent: 'center' }]}
+                  onPress={() => { setTextDeliverVisible(false); setTextDeliverInput(''); }}
+                >
+                  <Text style={s.modalCancelText}>CANCEL</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[s.modalSave, { minHeight: 44, justifyContent: 'center' }, !textDeliverInput.trim() && s.sendBtnDisabled]}
+                  disabled={!textDeliverInput.trim()}
+                  onPress={submitTextDeliver}
+                >
+                  <Text style={s.modalSaveText}>SEND</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
-        </View>
+        </SafeAreaView>
       </Modal>
 
       {/* Image preview modal */}
@@ -789,42 +794,44 @@ export function ChatScreen() {
         animationType="fade"
         onRequestClose={discardPendingImage}
       >
-        <View style={s.modalOverlay}>
-          <View style={s.imgPreviewCard}>
-            <Text style={s.imgPreviewTitle}>ATTACH IMAGE</Text>
-            {pendingImage && (
-              <Image
-                source={{ uri: pendingImage.uri }}
-                style={s.imgPreviewSquare}
-                resizeMode="cover"
+        <SafeAreaView style={{ flex: 1 }}>
+          <View style={s.modalOverlay}>
+            <View style={[s.imgPreviewCard, { paddingBottom: 32 }]}>
+              <Text style={s.imgPreviewTitle}>ATTACH IMAGE</Text>
+              {pendingImage && (
+                <Image
+                  source={{ uri: pendingImage.uri }}
+                  style={s.imgPreviewSquare}
+                  resizeMode="cover"
+                />
+              )}
+              <Text style={s.imgPreviewHint}>
+                Add a caption below, then tap SEND — or tap CANCEL to discard.
+              </Text>
+              <TextInput
+                style={s.modalInput}
+                value={draft}
+                onChangeText={setDraft}
+                placeholder="Optional caption..."
+                placeholderTextColor={C.sub}
+                multiline
+                maxLength={500}
               />
-            )}
-            <Text style={s.imgPreviewHint}>
-              Add a caption below, then tap SEND — or tap CANCEL to discard.
-            </Text>
-            <TextInput
-              style={s.modalInput}
-              value={draft}
-              onChangeText={setDraft}
-              placeholder="Optional caption..."
-              placeholderTextColor={C.sub}
-              multiline
-              maxLength={500}
-            />
-            <View style={s.modalActions}>
-              <TouchableOpacity style={s.modalCancel} onPress={discardPendingImage}>
-                <Text style={s.modalCancelText}>CANCEL</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[s.modalSave, (uploading || loading) && s.sendBtnDisabled]}
-                disabled={uploading || loading}
-                onPress={() => { confirmPendingImage(); handleSend(); }}
-              >
-                <Text style={s.modalSaveText}>{uploading ? '...' : 'SEND'}</Text>
-              </TouchableOpacity>
+              <View style={s.modalActions}>
+                <TouchableOpacity style={[s.modalCancel, { minHeight: 44, justifyContent: 'center' }]} onPress={discardPendingImage}>
+                  <Text style={s.modalCancelText}>CANCEL</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[s.modalSave, { minHeight: 44, justifyContent: 'center' }, (uploading || loading) && s.sendBtnDisabled]}
+                  disabled={uploading || loading}
+                  onPress={() => { confirmPendingImage(); handleSend(); }}
+                >
+                  <Text style={s.modalSaveText}>{uploading ? '...' : 'SEND'}</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
-        </View>
+        </SafeAreaView>
       </Modal>
 
       {/* Input row */}
