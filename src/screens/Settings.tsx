@@ -170,30 +170,32 @@ function HostBrowserSheet({
           {nodes.length === 0 ? (
             <Text style={s.sheetEmpty}>no hosts online</Text>
           ) : (
-            nodes.map(node => (
-              <TouchableOpacity
-                key={node.node_id}
-                style={s.hostRow}
-                onPress={() => handleConnect(node)}
-                disabled={connecting === node.node_id}
-                activeOpacity={0.7}
-              >
-                <View style={s.hostInfo}>
-                  <Text style={s.hostName}>
-                    {node.name || node.node_id.slice(0, 16)}
-                  </Text>
-                  <Text style={s.hostMeta}>
-                    {node.hosted_count} hosted
-                  </Text>
-                </View>
-                <View style={s.hostRight}>
-                  <View style={s.feeBadge}>
-                    <Text style={s.feeBadgeText}>{node.fee_bps} bps</Text>
+            <ScrollView>
+              {nodes.map(node => (
+                <TouchableOpacity
+                  key={node.node_id}
+                  style={s.hostRow}
+                  onPress={() => handleConnect(node)}
+                  disabled={connecting === node.node_id}
+                  activeOpacity={0.7}
+                >
+                  <View style={s.hostInfo}>
+                    <Text style={s.hostName}>
+                      {node.name || node.node_id.slice(0, 16)}
+                    </Text>
+                    <Text style={s.hostMeta}>
+                      {node.hosted_count} hosted
+                    </Text>
                   </View>
-                  <SignalBars rtt={node.rtt_ms} />
-                </View>
-              </TouchableOpacity>
-            ))
+                  <View style={s.hostRight}>
+                    <View style={s.feeBadge}>
+                      <Text style={s.feeBadgeText}>{node.fee_bps} bps</Text>
+                    </View>
+                    <SignalBars rtt={node.rtt_ms} />
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
           )}
         </View>
       </View>
@@ -1358,7 +1360,7 @@ export function SettingsScreen() {
   return (
     <KeyboardAvoidingView
       style={s.root}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
         <Text style={s.heading}>SETTINGS</Text>

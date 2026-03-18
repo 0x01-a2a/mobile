@@ -750,6 +750,10 @@ name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'w
                 "https://mainnet.helius-rpc.com/?api-key=${BuildConfig.HELIUS_API_KEY}"
                else
                 "https://api.mainnet-beta.solana.com"
+        val tradeRpcUrl  = if (BuildConfig.HELIUS_API_KEY.isNotBlank())
+                "https://mainnet.helius-rpc.com/?api-key=${BuildConfig.HELIUS_API_KEY}"
+               else
+                "https://api.mainnet-beta.solana.com"
         val bagsFeeBps   = if (intent?.hasExtra(EXTRA_BAGS_FEE_BPS) == true)
                                intent.getIntExtra(EXTRA_BAGS_FEE_BPS, 0) else 0
         val bagsWallet   = intent?.getStringExtra(EXTRA_BAGS_WALLET)
@@ -794,7 +798,7 @@ name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'w
             try {
                 val binary = prepareNodeBinary()
                 // MED-4: Replace recursive launchNode with iterative loop in separate job
-                launchNodeIterative(binary, relayAddr, fcmToken, agentName, rpcUrl, bagsFeeBps, bagsWallet, bagsApiKey, bagsPartnerKey, jupiterFeeAccount, launchlabShareFeeWallet)
+                launchNodeIterative(binary, relayAddr, fcmToken, agentName, rpcUrl, tradeRpcUrl, bagsFeeBps, bagsWallet, bagsApiKey, bagsPartnerKey, jupiterFeeAccount, launchlabShareFeeWallet)
             } catch (e: Exception) {
                 Log.e(TAG, "Node start failed: $e")
                 broadcastStatus(STATUS_ERROR, e.message ?: "unknown error")
@@ -928,6 +932,7 @@ name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'w
         fcmToken:    String?,
         agentName:   String,
         rpcUrl:      String,
+        tradeRpcUrl: String,
         bagsFeeBps:  Int,
         bagsWallet:  String?,
         bagsApiKey:  String?,
@@ -936,7 +941,7 @@ name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'w
         launchlabShareFeeWallet: String?,
     ) {
         while (coroutineContext.isActive) {
-            launchNode(binary, relayAddr, fcmToken, agentName, rpcUrl, bagsFeeBps, bagsWallet, bagsApiKey, bagsPartnerKey, jupiterFeeAccount, launchlabShareFeeWallet)
+            launchNode(binary, relayAddr, fcmToken, agentName, rpcUrl, tradeRpcUrl, bagsFeeBps, bagsWallet, bagsApiKey, bagsPartnerKey, jupiterFeeAccount, launchlabShareFeeWallet)
             if (!coroutineContext.isActive) break
             Log.i(TAG, "Restarting node in 5s…")
             updateNotification("Restarting…")
@@ -950,6 +955,7 @@ name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'w
         fcmToken:    String?,
         agentName:   String,
         rpcUrl:      String,
+        tradeRpcUrl: String,
         bagsFeeBps:  Int,
         bagsWallet:  String?,
         bagsApiKey:  String?,
@@ -982,6 +988,7 @@ name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'w
             "--keypair-path",  keypairPath.absolutePath,
             "--agent-name",    agentName,
             "--rpc-url",       effectiveRpcUrl,
+            "--trade-rpc-url", tradeRpcUrl,
             "--aggregator-url", aggregatorUrl,
             // --relay-server is a boolean flag; omit it (default is false)
         )
