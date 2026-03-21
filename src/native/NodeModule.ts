@@ -52,6 +52,10 @@ export interface NodeConfig {
   minReputation?: number;
   /** Auto-accept qualifying tasks without user approval. */
   autoAccept?: boolean;
+  /** Maximum agent tool invocations per hour (default 100). */
+  maxActionsPerHour?: number;
+  /** Maximum LLM spend per day in US cents (default 1000 = $10). */
+  maxCostPerDayCents?: number;
 
   // ── Bags fee-sharing ──────────────────────────────────────────────────────
   /** Fee in basis points to route to the Bags distribution contract (0 = off, max 500). */
@@ -131,6 +135,21 @@ export const NodeModule = {
     ZeroxNodeModule.saveLlmApiKey(key),
 
   /**
+   * Update the LLM provider/model/baseUrl in SharedPreferences so the next
+   * zeroclaw restart (including after reloadAgent) picks up the new values.
+   */
+  updateBrainConfig: (provider: string, model: string, baseUrl: string): Promise<void> =>
+    ZeroxNodeModule.updateBrainConfig(provider, model, baseUrl),
+
+  /**
+   * Reload the agent brain without a full node restart.
+   * Calls POST /agent/reload — the node SIGTERMs zeroclaw, then the restart
+   * loop rewrites config.toml with the latest key/provider from SharedPreferences.
+   */
+  reloadAgent: (): Promise<void> =>
+    ZeroxNodeModule.reloadAgent(),
+
+  /**
    * Upload a blob to the aggregator, signing the request with the agent's
    * Ed25519 identity key. Only works in local node mode (key is on device).
    *
@@ -170,6 +189,14 @@ export const NodeModule = {
    */
   getBridgeActivityLog: (limit: number = 50): Promise<string> =>
     ZeroxNodeModule.getBridgeActivityLog(limit),
+
+  /**
+   * Request that Android exempt the app from Doze / battery optimization.
+   * Shows the system "Allow unrestricted battery usage?" dialog.
+   * No-op if already exempted or on API < 23.
+   */
+  requestBatteryOptExemption: (): Promise<void> =>
+    ZeroxNodeModule.requestBatteryOptExemption(),
 
   /** Prevent screenshots and screen recording on the Activity window. Call with true before showing sensitive UI, false after. */
   setWindowSecure: (enabled: boolean): Promise<void> =>

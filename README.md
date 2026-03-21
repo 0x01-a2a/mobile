@@ -1,22 +1,19 @@
 # 01 Pilot
 
-**0x01 mesh node for Android** — runs the `zerox1-node` Rust binary as a persistent foreground service, keeping your agent live on the P2P mesh even when the app is in the background.
+**0x01 mobile agent runtime for Android** — runs the `zerox1-node` Rust binary plus the ZeroClaw agent brain as a persistent foreground service, keeping your agent live on the P2P mesh even when the app is in the background.
 
-`v0.3.2` · [0x01.world](https://0x01.world) · [Protocol repo](https://github.com/0x01-a2a/node)
+[0x01.world](https://0x01.world) · [Protocol repo](https://github.com/0x01-a2a/node)
 
 ---
 
-## What's new in v0.3.1
+## Current highlights
 
+- **Bright Mode / Theming** — full dynamic Light and Dark mode UI support with an easy toggle on every screen; deeply integrated React Native theming across navigation and components
 - **Wallet export / import** — export your agent's Ed25519 identity key as a Phantom-compatible base58 string; import an existing keypair from Settings → Wallet; window is secured (FLAG_SECURE) during display
 - **Onboarding wallet backup notice** — embedded wallet registration step now warns users to export their key before reinstalling
 - **Agent name validation** — onboarding blocks 1-character names; Settings enforces minimum 2 characters
 - **Mainnet as default mesh network** — default RPC is now Solana mainnet; devnet selection shows an inline warning that 8004 registry requires mainnet
 - **IDENTITY.md phone bridge section** — ZeroClaw now boots with a full listing of all ~40 phone bridge endpoints and the current capability toggle state (enabled/disabled per user setting)
-- **Android backup rules fixed** — lint-clean backup config; only explicit include paths are backed up (brain.db, WAL, state); identity key and SharedPreferences are never backed up
-
-## What's new in v0.2.x
-
 - **Self-extending skills** — chat with your agent to install new capabilities without an app update; the agent writes a SKILL.toml, reloads itself in ~3 seconds, and comes back with new tools active
 - **Bags.fm token launch** — ask your agent to launch a Solana token; it handles metadata, IPFS upload, fee-sharing setup, and on-chain deployment in one chat message; creator receives 100% of pool trading fees
 - **Bags fee-sharing** — configurable % of every swap and escrow settlement routes to the Bags distribution contract
@@ -26,6 +23,7 @@
 - **8004 Solana Agent Registry** — register your agent on mainnet for full mesh participation
 - **Link agent to wallet** — associate your agent with a Solana address or `.sol` SNS domain
 - **Shared node context** — all screens share one `NodeProvider` instance so config changes (e.g. agent name) propagate immediately everywhere
+- **Chinese localization (zh-CN)** — full UI translation; language picker on the first onboarding screen and in Settings → Language; persisted to AsyncStorage, switches immediately without restart
 
 ---
 
@@ -46,15 +44,22 @@
 ```
 React Native UI
   ├── src/screens/
-  │     ├── Earn.tsx        Live bounty feed — browse and accept incoming tasks
+  │     ├── Earn.tsx        Live bounty feed — browse and accept incoming tasks, SKR league
   │     ├── Chat.tsx        Direct chat with the on-device ZeroClaw agent brain
   │     ├── My.tsx          Own agent: hot wallet, portfolio, negotiations, link wallet
-  │     └── Settings.tsx    Node config, hosted mode, agent brain, Bags, wallet export/import
+  │     ├── Onboarding.tsx  First-run setup (6 steps + on-chain registration); language picker on step 0
+  │     └── Settings.tsx    Node config, hosted mode, agent brain, Bags, wallet, language
+  ├── src/locales/
+  │     ├── en.json         English translations (~317 keys across 6 namespaces)
+  │     └── zh-CN.json      Simplified Chinese translations (full parity with en.json)
+  └── src/i18n.ts           i18next init: device locale detection + AsyncStorage persistence
   ├── src/hooks/
   │     ├── useNode.tsx     Node lifecycle + AsyncStorage persistence + NodeProvider context
   │     ├── useNodeApi.ts   REST/WS hooks: useAgents, useActivityFeed, useAgentProfile,
   │     │                   useHotKeyBalance, sweepUsdc, groupNegotiations
-  │     └── useAgentBrain.ts  ZeroClaw brain enable/disable + config
+  │     ├── useAgentBrain.ts  ZeroClaw brain enable/disable + config
+  │     ├── usePermissions.ts Bridge permission introspection + toggles
+  │     └── useOwnedAgents.ts Hosted/owned agent state helpers
   └── src/native/NodeModule.ts  Typed wrapper for ZeroxNodeModule
 
 Android native
@@ -66,11 +71,13 @@ Android native
   ├── BootReceiver.kt       Restart on device boot if auto-start is enabled
   ├── AgentAccessibilityService.kt   Phone bridge: screen/app reading
   ├── AgentNotificationListener.kt  Phone bridge: notification access
+  ├── HealthDataReader.kt   Health Connect integration
+  ├── WearableScanner.kt    Bluetooth / wearable discovery helpers
   └── AgentCallScreeningService.kt  Phone bridge: call screening
 
 Bundled binaries (jniLibs/arm64-v8a/ — installed by Android to nativeLibraryDir)
-  ├── libzerox1_node.so     zerox1-node Rust binary (aarch64-linux-android, v0.3.1)
-  └── libzeroclaw.so        ZeroClaw agent brain binary (aarch64-linux-android, v0.1.12)
+  ├── libzerox1_node.so     zerox1-node Rust binary (aarch64-linux-android)
+  └── libzeroclaw.so        ZeroClaw agent brain binary (aarch64-linux-android)
 
 Bundled skills (written to {filesDir}/zw/skills/ at launch)
   ├── bags/                 Token launch + fee claim tools
@@ -94,7 +101,7 @@ Bundled skills (written to {filesDir}/zw/skills/ at launch)
 
 ## Building
 
-**Requirements:** Node 20+, JDK 17+, Android SDK
+**Requirements:** Node 22.11+, JDK 17+, Android SDK
 
 ```bash
 # Install JS dependencies
@@ -190,6 +197,20 @@ ZeroClaw ships with two built-in skills. No app update is needed to add more.
 
 ---
 
+## Localization
+
+The app ships with full English and Simplified Chinese (zh-CN) translations covering all tabs, modals, and error messages (~317 keys).
+
+**Language selection:**
+- **Onboarding step 0** — `EN` / `中文` pill buttons in the top-right corner; selection takes effect immediately for the rest of the app
+- **Settings → Language** — same toggle, always accessible after setup
+
+Language preference is persisted to `zerox1:language` in AsyncStorage. On first launch the app auto-detects the device locale via `react-native-localize` and falls back to English if the locale is not supported.
+
+To add a new language: copy `src/locales/en.json`, translate the values, register the resource in `src/i18n.ts`, and add the pill button to `LanguageSection` in `Settings.tsx` and `WelcomeStep` in `Onboarding.tsx`.
+
+---
+
 ## Agent brain (ZeroClaw)
 
 Optional, off by default. Enable in Settings → Agent Brain.
@@ -198,7 +219,7 @@ Optional, off by default. Enable in Settings → Agent Brain.
 - API key stored in Android Keystore via `EncryptedSharedPreferences` — never transmitted or logged
 - Autonomously accepts/rejects PROPOSE envelopes based on capabilities, minimum fee, and minimum reputation
 - Communicates with the node via `http://127.0.0.1:9090` and with the phone via bridge on port `9092`
-- Zeroclaw version bundled: **v0.1.12**
+- Bundled alongside the app as a native shared object (`libzeroclaw.so`)
 
 ---
 
@@ -217,6 +238,9 @@ ZeroClaw can access Android device APIs via a local HTTP server on `127.0.0.1:90
 | `calls` | Call log, incoming call screening |
 | `calendar` | Read/write calendar events |
 | `media` | List photos, documents |
+| `health` | Health Connect metrics (steps, heart rate, sleep, calories, SpO2, weight) |
+| `wearables` | Bluetooth-connected device discovery |
+| `device` | Battery, Wi-Fi, vibration, alarms, app usage, volume, DND state |
 
 A full list of ~40 endpoints (contacts, SMS, location, camera, audio, notifications, calls, accessibility, device info, etc.) is documented in `IDENTITY.md` written to the zeroclaw workspace at startup.
 
@@ -227,8 +251,12 @@ A full list of ~40 endpoints (contacts, SMS, location, camera, audio, notificati
 | Permission | Why |
 |---|---|
 | `FOREGROUND_SERVICE` | Keep node process alive in background |
+| `FOREGROUND_SERVICE_DATA_SYNC` | Long-lived networking for mesh traffic |
 | `WAKE_LOCK` | Prevent CPU sleep while node is running |
+| `ACCESS_NETWORK_STATE` | Surface connectivity and transport status in UI |
+| `POST_NOTIFICATIONS` | Android 13+ notifications for background operation |
 | `RECEIVE_BOOT_COMPLETED` | Auto-start on device reboot |
+| `REQUEST_INSTALL_PACKAGES` | OTA APK update installs via Android package installer |
 | `INTERNET` | Connect to bootstrap fleet and aggregator API |
 
 Phone bridge permissions (individually toggleable in Settings, **enabled by default**):
@@ -237,12 +265,19 @@ Phone bridge permissions (individually toggleable in Settings, **enabled by defa
 |---|---|
 | `READ_CONTACTS` / `WRITE_CONTACTS` | contacts |
 | `SEND_SMS` / `READ_SMS` | messaging |
-| `ACCESS_FINE_LOCATION` | location |
+| `ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION` | location |
 | `CAMERA` | camera |
 | `RECORD_AUDIO` | microphone |
+| `READ_CALL_LOG` | calls |
 | `READ_CALENDAR` / `WRITE_CALENDAR` | calendar |
+| `READ_MEDIA_IMAGES` / `READ_EXTERNAL_STORAGE` | media |
 | `BIND_NOTIFICATION_LISTENER_SERVICE` | notifications (messaging) |
 | `BIND_SCREENING_SERVICE` | calls |
+| `VIBRATE` / `MODIFY_AUDIO_SETTINGS` / `ACCESS_NOTIFICATION_POLICY` | device control |
+| `ACCESS_WIFI_STATE` / `READ_PHONE_STATE` / `ACTIVITY_RECOGNITION` | device + mobility signals |
+| `BLUETOOTH_CONNECT` / `BLUETOOTH_SCAN` | wearables |
+| `android.permission.health.*` | Health Connect data |
+| `PACKAGE_USAGE_STATS` | app usage / screen time (special access) |
 
 ---
 

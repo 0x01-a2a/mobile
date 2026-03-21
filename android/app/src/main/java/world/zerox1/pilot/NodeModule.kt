@@ -169,6 +169,59 @@ class NodeModule(private val ctx: ReactApplicationContext)
         }
     }
 
+    /**
+     * Update the LLM provider / model / base-url in SharedPreferences so that
+     * the next zeroclaw restart picks up the new values from the restart loop.
+     * Does not restart zeroclaw — call reloadAgent() afterwards to apply immediately.
+     */
+    @ReactMethod
+    fun updateBrainConfig(provider: String, model: String, baseUrl: String, promise: Promise) {
+        try {
+            ctx.getSharedPreferences("zerox1", Context.MODE_PRIVATE).edit().apply {
+                putString("llm_provider",  provider)
+                putString("llm_model",     model)
+                putString("llm_base_url",  baseUrl)
+                apply()
+            }
+            promise.resolve(null)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to update brain config in SharedPreferences: $e")
+            promise.reject("UPDATE_FAILED", e.message)
+        }
+    }
+
+    /**
+     * Reload the agent brain without a full node restart.
+     *
+     * Calls POST /agent/reload on the local node API.  The node SIGTERMs zeroclaw;
+     * the restart loop in NodeService then re-writes config.toml from SharedPreferences
+     * (picking up any key / provider changes) and launches zeroclaw again.
+     */
+    @ReactMethod
+    fun reloadAgent(promise: Promise) {
+        moduleScope.launch {
+            try {
+                val secret = securePrefs().getString(KEY_NODE_API_SECRET, null)
+                val conn = java.net.URL("http://127.0.0.1:9090/agent/reload")
+                    .openConnection() as java.net.HttpURLConnection
+                conn.requestMethod = "POST"
+                if (secret != null) conn.setRequestProperty("Authorization", "Bearer $secret")
+                conn.connectTimeout = 5_000
+                conn.readTimeout    = 5_000
+                val code = conn.responseCode
+                conn.disconnect()
+                if (code in 200..299) {
+                    promise.resolve(null)
+                } else {
+                    promise.reject("RELOAD_FAILED", "Node returned HTTP $code")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "reloadAgent failed: $e")
+                promise.reject("RELOAD_ERROR", e.message ?: "unknown error")
+            }
+        }
+    }
+
     @ReactMethod
     fun startNode(config: ReadableMap, promise: Promise) {
         try {
@@ -190,6 +243,8 @@ class NodeModule(private val ctx: ReactApplicationContext)
                 if (config.hasKey("minFeeUsdc"))       putExtra(NodeService.EXTRA_MIN_FEE,        config.getDouble("minFeeUsdc"))
                 if (config.hasKey("minReputation"))    putExtra(NodeService.EXTRA_MIN_REP,        config.getInt("minReputation"))
                 if (config.hasKey("autoAccept"))       putExtra(NodeService.EXTRA_AUTO_ACCEPT,    config.getBoolean("autoAccept"))
+                if (config.hasKey("maxActionsPerHour")) putExtra(NodeService.EXTRA_MAX_ACTIONS,  config.getInt("maxActionsPerHour"))
+                if (config.hasKey("maxCostPerDayCents")) putExtra(NodeService.EXTRA_MAX_COST,    config.getInt("maxCostPerDayCents"))
                 if (config.hasKey("agentBrainEnabled")) putExtra(NodeService.EXTRA_BRAIN_ENABLED, config.getBoolean("agentBrainEnabled"))
                 // Bags fee-sharing
                 if (config.hasKey("bagsFeesBps"))       putExtra(NodeService.EXTRA_BAGS_FEE_BPS,  config.getInt("bagsFeesBps"))
@@ -223,6 +278,8 @@ class NodeModule(private val ctx: ReactApplicationContext)
             config.getString("fcmToken")?.let   { prefs.putString("fcm_token",   it) }
             config.getString("rpcUrl")?.let     { prefs.putString("rpc_url",     it) }
             if (config.hasKey("agentBrainEnabled")) prefs.putBoolean("brain_enabled", config.getBoolean("agentBrainEnabled"))
+            if (config.hasKey("maxActionsPerHour"))  prefs.putInt("max_actions_per_hour",   config.getInt("maxActionsPerHour"))
+            if (config.hasKey("maxCostPerDayCents")) prefs.putInt("max_cost_per_day_cents", config.getInt("maxCostPerDayCents"))
             config.getString("llmProvider")?.let    { prefs.putString("llm_provider",  it) }
             config.getString("llmModel")?.let       { prefs.putString("llm_model",     it) }
             config.getString("llmBaseUrl")?.let     { prefs.putString("llm_base_url",  it) }
@@ -838,6 +895,37 @@ class NodeModule(private val ctx: ReactApplicationContext)
             } catch (e: Exception) {
                 promise.reject("DOWNLOAD_ERROR", e.message ?: "Download failed")
             }
+        }
+    }
+
+    /**
+     * Request that the system exempt this app from Doze / battery optimization.
+     * Shows the standard "Allow unrestricted battery usage?" system dialog.
+     * No-op if already exempted or on API < 23.
+     */
+    @ReactMethod
+    fun requestBatteryOptExemption(promise: Promise) {
+        try {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+                promise.resolve(null)
+                return
+            }
+            val pm = ctx.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+            if (pm.isIgnoringBatteryOptimizations(ctx.packageName)) {
+                promise.resolve(null)
+                return
+            }
+            val intent = android.content.Intent(
+                android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+            ).apply {
+                data = android.net.Uri.parse("package:${ctx.packageName}")
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            ctx.startActivity(intent)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            Log.e(TAG, "requestBatteryOptExemption failed: $e")
+            promise.reject("BATTERY_OPT_ERROR", e.message)
         }
     }
 

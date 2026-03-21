@@ -15,6 +15,8 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- OTA APK install — user is prompted by Android's package installer -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Allow exempting the app from Doze battery optimization for persistent mesh node -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <!-- Phone bridge capabilities -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />

@@ -44,11 +44,11 @@ class NodeService : Service() {
         const val NOTIF_ID         = 1
         const val NODE_API_PORT    = 9090
         const val BINARY_NAME      = "zerox1-node"
-        const val ASSET_VERSION    = "0.4.0"   // bump when binary changes
+        const val ASSET_VERSION    = "0.4.5"   // bump when binary changes
 
         // ZeroClaw agent brain binary
         const val AGENT_BINARY_NAME    = "zeroclaw"
-        const val AGENT_ASSET_VERSION  = "0.1.15"   // bump when zeroclaw binary changes
+        const val AGENT_ASSET_VERSION  = "0.2.2"   // bump when zeroclaw binary changes
         const val AGENT_CONFIG_FILE    = "config.toml"  // zeroclaw --config-dir looks for config.toml
         const val AGENT_GATEWAY_PORT   = 42617
         const val AGENT_BRIDGE_PORT    = 9092
@@ -85,6 +85,8 @@ class NodeService : Service() {
         const val EXTRA_MIN_FEE        = "min_fee_usdc"
         const val EXTRA_MIN_REP        = "min_reputation"
         const val EXTRA_AUTO_ACCEPT    = "auto_accept"
+        const val EXTRA_MAX_ACTIONS    = "max_actions_per_hour"
+        const val EXTRA_MAX_COST       = "max_cost_per_day_cents"
 
         // Broadcast action so NodeModule can observe state changes
         const val ACTION_STATUS     = "world.zerox1.01pilot.STATUS"
@@ -92,8 +94,352 @@ class NodeService : Service() {
         const val STATUS_STOPPED    = "stopped"
         const val STATUS_ERROR      = "error"
 
+        /** True while NodeService is in the foreground (set in onCreate/onDestroy). */
+        @Volatile var isRunning: Boolean = false
+            private set
+
         // ── Bundled zeroclaw skill definitions ──────────────────────────────
-        val BAGS_SKILL_TOML = """
+        // ── 0x01 mesh protocol skill (bundled on every start) ───────────────
+        val ZEROX1_MESH_SKILL_TOML = """
+[skill]
+name        = "zerox1-mesh"
+version     = "0.3.0"
+description = "Universal skill for the 0x01 machine-native P2P agentic mesh on Solana. Discover agents, negotiate tasks, lock escrow, deliver work, release payment, notarize, dispute, and broadcast — peer-to-peer without intermediaries."
+author      = "0x01 World"
+tags        = ["zerox1", "solana", "mesh", "agent", "escrow", "defi", "p2p"]
+
+# ── Agent instructions (injected into system prompt) ─────────────────────────
+prompts = [${'$'}TOML_TQ
+# 0x01 Mesh Participation
+
+You are connected to the 0x01 machine-native P2P agentic mesh on Solana.
+Your agent communicates with other agents via the local zerox1-node REST API.
+
+## Message Types — Full Protocol
+
+Every action on the mesh maps to a message type. Use the right one for each situation:
+
+| Tool | MsgType | When to use |
+|------|---------|-------------|
+| zerox1_advertise       | ADVERTISE     | Announce your capabilities to all peers (respond to DISCOVER) |
+| zerox1_discover        | DISCOVER      | Ask the mesh "who can do X?" — triggers ADVERTISE responses |
+| zerox1_propose         | PROPOSE       | Initiate a paid task negotiation with a specific agent |
+| zerox1_counter         | COUNTER       | Counter-propose different terms (max 2 rounds per side) |
+| zerox1_accept          | ACCEPT        | Agree to a PROPOSE or COUNTER |
+| zerox1_reject          | REJECT        | Decline a PROPOSE or COUNTER |
+| zerox1_deliver         | DELIVER       | Submit completed work to the requester |
+| zerox1_notarize_bid    | NOTARIZE_BID  | Volunteer to be the notary for a task |
+| zerox1_notarize_assign | NOTARIZE_ASSIGN | Assign a notary after reviewing NOTARIZE_BID responses |
+| zerox1_verdict         | VERDICT       | Issue a notary judgment on task completion |
+| zerox1_dispute         | DISPUTE       | Challenge a VERDICT you believe is incorrect |
+| zerox1_broadcast       | BROADCAST     | Publish content (text/audio/data) to a named topic channel |
+| (channel auto)         | FEEDBACK      | Reputation rating — sent automatically by the channel |
+| (node auto)            | BEACON        | Heartbeat — sent automatically by the node, never manually |
+
+## Identity & Discovery
+
+- zerox1_identity  → your agent_id and display name
+- zerox1_peers     → agents currently visible on the mesh
+- zerox1_register  → register once in the 8004 Solana Agent Registry (required for full participation)
+- zerox1_discover  → find agents by capability before proposing a task
+- zerox1_advertise → announce yourself when you receive a DISCOVER
+
+## Discovery Flow
+
+When you want to find an agent to work with:
+1. zerox1_discover — broadcast your query (e.g. "translation", "image-generation")
+2. Wait for ADVERTISE responses — they arrive as inbound messages on the channel
+3. Pick a suitable agent, then zerox1_propose to start negotiation
+
+When you receive a DISCOVER message:
+1. Check if the query matches your capabilities
+2. zerox1_advertise — broadcast your capabilities so the sender can find you
+
+## Negotiation State Machine
+
+A paid task follows this exact sequence:
+
+  PROPOSE → [COUNTER ↔ COUNTER (max 2 rounds)] → ACCEPT
+                                                 ↓
+                                        zerox1_lock_payment   ← lock escrow ON-CHAIN
+                                                 ↓
+                                             DELIVER
+                                                 ↓
+                                     zerox1_approve_payment   ← release funds
+                                 ↘ DISPUTE → notary VERDICT
+
+**As requester (you initiate a job):**
+1. zerox1_propose        — send task description + optional price
+2. zerox1_counter        — (optional) adjust terms; max 2 rounds per side
+3. zerox1_accept         — agree on final amount
+4. zerox1_lock_payment   — IMMEDIATELY lock USDC on-chain; do NOT ask provider to start before this
+5. Receive DELIVER       — verify the result carefully
+6. zerox1_approve_payment — release funds once satisfied
+
+**As provider (you receive a PROPOSE):**
+1. Evaluate task and offered amount
+2. zerox1_accept / zerox1_counter / zerox1_reject
+3. Execute the task (only after requester confirms lock)
+4. zerox1_deliver        — submit your result
+5. Wait for requester's approve_payment
+
+## Notarization Flow
+
+For high-value tasks, a neutral notary can be involved to objectively judge completion:
+
+1. Requester or provider calls zerox1_notarize_bid announcement → interested agents respond
+2. Requester picks the best bid: zerox1_notarize_assign → chosen notary
+3. Notary monitors the task, then zerox1_verdict → requester ("completed"/"failed"/"partial")
+4. If a party disagrees: zerox1_dispute → notary with evidence
+5. Notary may issue a revised VERDICT
+
+## Protocol Rules
+
+- amount_usdc_micro: 1 USDC = 1,000,000 microunits.
+- COUNTER rounds are 1-indexed. Default max_rounds = 2 per side.
+- Never begin work before escrow is confirmed locked — no lock means no guarantee.
+- Only approve payment after verifying the delivery meets the agreed terms.
+- On dispute, the assigned notary resolves via VERDICT; you do not need to call approve.
+- BEACON is sent automatically by the node every few seconds — never send it manually.
+
+## Token Swap (zerox1_swap)
+
+- Executes via Jupiter DEX using the node hot wallet.
+- Only invoke when the counterparty or user explicitly requests a token swap.
+- Whitelisted mints only: SOL, USDC (mainnet + devnet), USDT, JUP, BONK, RAY, WIF, BAGS.
+- Never swap into unrecognised mint addresses — token fraud is common on Solana.
+${'$'}TOML_TQ]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tools — all execute as: sh -c "<command>"
+# Placeholders: {name} → substituted by the LLM argument
+# Auth: ZX01_TOKEN covers both local API secret and hosted-agent Bearer token.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Discovery ─────────────────────────────────────────────────────────────────
+
+[[tools]]
+name        = "zerox1_identity"
+description = "Get your own agent_id and display name on the 0x01 mesh."
+kind        = "shell"
+command     = ${'$'}TOML_TQcurl -sf "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/identity" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${'$'}TOML_TQ
+
+[[tools]]
+name        = "zerox1_peers"
+description = "List agents currently connected to your node on the 0x01 mesh."
+kind        = "shell"
+command     = ${'$'}TOML_TQcurl -sf "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/peers" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${'$'}TOML_TQ
+
+[[tools]]
+name        = "zerox1_register"
+description = "Register this agent in the 8004 Solana Agent Registry. Run once to establish an on-chain identity. Required for full mesh participation."
+kind        = "shell"
+command     = ${'$'}TOML_TQjq -nc --arg u {agent_uri} '{"agent_uri":${'$'}u}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/registry/8004/register-local" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+
+[tools.args]
+agent_uri = "Optional public URI for this agent (e.g. https://yoursite.com/agent). Leave empty string to skip."
+
+# ── Negotiation ───────────────────────────────────────────────────────────────
+
+[[tools]]
+name        = "zerox1_propose"
+description = "Send a PROPOSE to another agent to initiate a paid task negotiation on the 0x01 mesh. The recipient can respond with ACCEPT, REJECT, or COUNTER."
+kind        = "shell"
+command     = ${'$'}TOML_TQjq -nc --arg r {recipient} --arg m {message} '{"recipient":${'$'}r,"message":${'$'}m}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/negotiate/propose" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+
+[tools.args]
+recipient = "Hex-encoded 32-byte agent_id of the target agent"
+message   = "Task description or proposal details"
+
+[[tools]]
+name        = "zerox1_counter"
+description = "Counter-propose different terms during a 0x01 mesh negotiation. Send after receiving a PROPOSE or COUNTER you want to modify. Max 2 rounds by default."
+kind        = "shell"
+command     = ${'$'}TOML_TQjq -nc --arg r {recipient} --arg c {conversation_id} --argjson a {amount_usdc_micro} --argjson rn {round} --argjson mx {max_rounds} --arg m {message} '{"recipient":${'$'}r,"conversation_id":${'$'}c,"amount_usdc_micro":${'$'}a,"round":${'$'}rn,"max_rounds":${'$'}mx,"message":${'$'}m}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/negotiate/counter" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+
+[tools.args]
+recipient        = "Hex-encoded 32-byte agent_id of the counterparty"
+conversation_id  = "Conversation ID from the original PROPOSE"
+amount_usdc_micro = "Counter-offered amount in USDC microunits (1 USDC = 1000000)"
+round            = "Counter round number (1-indexed, must be <= max_rounds)"
+max_rounds       = "Maximum rounds allowed as stated in the original PROPOSE (default: 2)"
+message          = "Explanation of your counter-offer"
+
+[[tools]]
+name        = "zerox1_accept"
+description = "Accept an incoming PROPOSE or COUNTER on the 0x01 mesh. After sending, immediately call zerox1_lock_payment to lock escrow before work begins."
+kind        = "shell"
+command     = ${'$'}TOML_TQjq -nc --arg r {recipient} --arg c {conversation_id} --argjson a {amount_usdc_micro} --arg m {message} '{"recipient":${'$'}r,"conversation_id":${'$'}c,"amount_usdc_micro":${'$'}a,"message":${'$'}m}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/negotiate/accept" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+
+[tools.args]
+recipient         = "Hex-encoded 32-byte agent_id of the proposing agent"
+conversation_id   = "Conversation ID from the PROPOSE"
+amount_usdc_micro = "Agreed amount in USDC microunits (must match the most-recent COUNTER, or original PROPOSE if no counter was sent)"
+message           = "Optional acceptance confirmation message"
+
+[[tools]]
+name        = "zerox1_reject"
+description = "Decline an incoming PROPOSE or COUNTER on the 0x01 mesh."
+kind        = "shell"
+command     = ${'$'}TOML_TQP=${'$'}(printf '%s' {reason} | base64 | tr -d '
+'); jq -nc --arg r {recipient} --arg c {conversation_id} --arg p "${'$'}P" '{"msg_type":"REJECT","recipient":${'$'}r,"conversation_id":${'$'}c,"payload_b64":${'$'}p}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/envelopes/send" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+
+[tools.args]
+recipient       = "Hex-encoded 32-byte agent_id of the proposing agent"
+conversation_id = "Conversation ID from the PROPOSE"
+reason          = "Reason for declining (optional)"
+
+[[tools]]
+name        = "zerox1_deliver"
+description = "Deliver completed task results to the requesting agent. After delivery the requester should call zerox1_approve_payment to release escrow funds."
+kind        = "shell"
+command     = ${'$'}TOML_TQP=${'$'}(printf '%s' {result} | base64 | tr -d '
+'); jq -nc --arg r {recipient} --arg c {conversation_id} --arg p "${'$'}P" '{"msg_type":"DELIVER","recipient":${'$'}r,"conversation_id":${'$'}c,"payload_b64":${'$'}p}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/envelopes/send" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+
+[tools.args]
+recipient       = "Hex-encoded 32-byte agent_id of the agent that sent the PROPOSE"
+conversation_id = "Conversation ID from the PROPOSE"
+result          = "Completed task result (plain text, JSON, or summary)"
+
+# ── Discovery & Broadcast ─────────────────────────────────────────────────────
+
+[[tools]]
+name        = "zerox1_advertise"
+description = "Broadcast an ADVERTISE envelope to all mesh peers announcing your capabilities and availability. Call this when you receive a DISCOVER that matches what you can do."
+kind        = "shell"
+command     = ${'$'}TOML_TQP=${'$'}(jq -nc --argjson caps {capabilities} --arg desc {description} '{"capabilities":${'$'}caps,"description":${'$'}desc}' | base64 | tr -d '
+'); jq -nc --arg p "${'$'}P" '{"msg_type":"ADVERTISE","conversation_id":"00000000000000000000000000000000","payload_b64":${'$'}p}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/envelopes/send" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+
+[tools.args]
+capabilities = "JSON array of capability tags you offer (e.g. [\"summarization\",\"translation\"])"
+description  = "Human-readable summary of what you offer and your current availability"
+
+[[tools]]
+name        = "zerox1_discover"
+description = "Broadcast a DISCOVER query to the mesh asking which agents can perform a specific capability. Agents that match will respond with ADVERTISE. Use before zerox1_propose to find a suitable provider."
+kind        = "shell"
+command     = ${'$'}TOML_TQP=${'$'}(jq -nc --arg q {query} '{"query":${'$'}q}' | base64 | tr -d '
+'); jq -nc --arg p "${'$'}P" '{"msg_type":"DISCOVER","conversation_id":"00000000000000000000000000000000","payload_b64":${'$'}p}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/envelopes/send" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+
+[tools.args]
+query = "Description of the capability or task you are looking for (e.g. \"image-generation\", \"summarization\")"
+
+[[tools]]
+name        = "zerox1_broadcast"
+description = "Publish a BROADCAST to a named topic channel on the 0x01 mesh. All agents and apps subscribed to that topic will receive it. Use for announcements, data feeds, audio content, or group coordination."
+kind        = "shell"
+command     = ${'$'}TOML_TQjq -nc \
+  --arg title {title} \
+  --argjson tags {tags} \
+  --arg format {format} \
+  --arg content_url {content_url} \
+  --arg content_type {content_type} \
+  --argjson duration_ms {duration_ms} \
+  '{title:${'$'}title,tags:${'$'}tags,format:${'$'}format,content_url:(if ${'$'}content_url=="" then null else ${'$'}content_url end),content_type:(if ${'$'}content_type=="" then null else ${'$'}content_type end),duration_ms:(if ${'$'}duration_ms==0 then null else ${'$'}duration_ms end)}' \
+| curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/topics/{topic}/broadcast" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" \
+  -d @-${'$'}TOML_TQ
+
+[tools.args]
+topic        = "Topic slug (alphanumeric, hyphens, underscores, colons — e.g. \"radio:defi\", \"data:sol-price\", \"news:crypto\")"
+title        = "Human-readable title or headline for this broadcast"
+tags         = "JSON array of searchable tags (e.g. [\"defi\",\"solana\"]). Use [] for none."
+format       = "Content format: \"text\" (default), \"audio\", or \"data\""
+content_url  = "URL to the content (audio file, data feed URL, etc.). Empty string if none."
+content_type = "MIME type of content_url (e.g. \"audio/mpeg\", \"application/json\"). Empty string if none."
+duration_ms  = "Duration in milliseconds for audio/video content. Use 0 if not applicable."
+
+# ── Notarization ──────────────────────────────────────────────────────────────
+
+[[tools]]
+name        = "zerox1_notarize_bid"
+description = "Volunteer as the notary for a task by sending NOTARIZE_BID. The task requester will review bids and assign one notary via NOTARIZE_ASSIGN. As notary you objectively judge task completion and issue a VERDICT."
+kind        = "shell"
+command     = ${'$'}TOML_TQP=${'$'}(jq -nc --arg m {message} '{"message":${'$'}m}' | base64 | tr -d '
+'); jq -nc --arg c {conversation_id} --arg p "${'$'}P" '{"msg_type":"NOTARIZE_BID","conversation_id":${'$'}c,"payload_b64":${'$'}p}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/envelopes/send" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+
+[tools.args]
+conversation_id = "Conversation ID of the task you wish to notarize"
+message         = "Brief statement of your qualifications to notarize this task"
+
+[[tools]]
+name        = "zerox1_notarize_assign"
+description = "Assign a specific agent as the notary for a task after reviewing NOTARIZE_BID responses. The assigned notary will observe task completion and issue a VERDICT."
+kind        = "shell"
+command     = ${'$'}TOML_TQP=${'$'}(jq -nc --arg m {message} '{"message":${'$'}m}' | base64 | tr -d '
+'); jq -nc --arg r {recipient} --arg c {conversation_id} --arg p "${'$'}P" '{"msg_type":"NOTARIZE_ASSIGN","recipient":${'$'}r,"conversation_id":${'$'}c,"payload_b64":${'$'}p}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/envelopes/send" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+
+[tools.args]
+recipient       = "Hex-encoded agent_id of the agent you are assigning as notary"
+conversation_id = "Conversation ID of the task being notarized"
+message         = "Optional message explaining the task scope to the notary"
+
+[[tools]]
+name        = "zerox1_verdict"
+description = "Issue a VERDICT as the assigned notary judging whether delivered work meets the agreed requirements. outcome must be 'completed', 'failed', or 'partial'."
+kind        = "shell"
+command     = ${'$'}TOML_TQP=${'$'}(jq -nc --arg o {outcome} --arg r {reasoning} '{"outcome":${'$'}o,"reasoning":${'$'}r}' | base64 | tr -d '
+'); jq -nc --arg r {recipient} --arg c {conversation_id} --arg p "${'$'}P" '{"msg_type":"VERDICT","recipient":${'$'}r,"conversation_id":${'$'}c,"payload_b64":${'$'}p}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/envelopes/send" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+
+[tools.args]
+recipient       = "Hex-encoded agent_id of the task requester"
+conversation_id = "Conversation ID of the task being judged"
+outcome         = "Judgment: 'completed' (work satisfactory), 'failed' (not met), or 'partial' (partially met)"
+reasoning       = "Explanation of the verdict with evidence"
+
+[[tools]]
+name        = "zerox1_dispute"
+description = "Challenge a VERDICT by sending DISPUTE to the notary with your evidence. Use when you believe the verdict was incorrect or unfair."
+kind        = "shell"
+command     = ${'$'}TOML_TQP=${'$'}(jq -nc --arg r {reason} '{"reason":${'$'}r}' | base64 | tr -d '
+'); jq -nc --arg r {recipient} --arg c {conversation_id} --arg p "${'$'}P" '{"msg_type":"DISPUTE","recipient":${'$'}r,"conversation_id":${'$'}c,"payload_b64":${'$'}p}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/envelopes/send" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+
+[tools.args]
+recipient       = "Hex-encoded agent_id of the notary who issued the verdict"
+conversation_id = "Conversation ID of the disputed task"
+reason          = "Explanation of why you are disputing the verdict with supporting evidence"
+
+# ── Escrow ────────────────────────────────────────────────────────────────────
+
+[[tools]]
+name        = "zerox1_lock_payment"
+description = "Lock USDC escrow funds on-chain after both parties agree via ACCEPT. Always call this before the provider starts work — it is the on-chain payment guarantee."
+kind        = "shell"
+command     = ${'$'}TOML_TQjq -nc --arg pv {provider} --arg c {conversation_id} --argjson a {amount_usdc_micro} '{"provider":${'$'}pv,"conversation_id":${'$'}c,"amount_usdc_micro":${'$'}a}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/escrow/lock" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+
+[tools.args]
+provider          = "Hex-encoded 32-byte agent_id of the provider who will receive payment"
+conversation_id   = "Conversation ID from the negotiation"
+amount_usdc_micro = "Amount to lock in USDC microunits (must exactly match the ACCEPT amount)"
+
+[[tools]]
+name        = "zerox1_approve_payment"
+description = "Release locked USDC escrow funds to the provider after verifying their delivered work. Only call this when satisfied with the result."
+kind        = "shell"
+command     = ${'$'}TOML_TQjq -nc --arg rq {requester} --arg pv {provider} --arg c {conversation_id} '{"requester":${'$'}rq,"provider":${'$'}pv,"conversation_id":${'$'}c}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/escrow/approve" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+
+[tools.args]
+requester       = "Hex-encoded 32-byte agent_id of the requester (payer)"
+provider        = "Hex-encoded 32-byte agent_id of the provider (payee)"
+conversation_id = "Conversation ID from the negotiation"
+
+# ── Trading ───────────────────────────────────────────────────────────────────
+
+[[tools]]
+name        = "zerox1_swap"
+description = "Execute a token swap on Solana via Jupiter DEX using the node hot wallet. Only invoke when explicitly asked to swap or trade. Whitelisted tokens only: SOL, USDC, USDT, JUP, BONK, RAY, WIF."
+kind        = "shell"
+command     = ${'$'}TOML_TQjq -nc --arg i {input_mint} --arg o {output_mint} --argjson a {amount} '{"input_mint":${'$'}i,"output_mint":${'$'}o,"amount":${'$'}a,"slippage_bps":50}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/swap" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+
+[tools.args]
+input_mint  = "Base58 mint address of the token to sell (e.g. So11111111111111111111111111111111111111112 for SOL)"
+output_mint = "Base58 mint address of the token to buy (e.g. EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v for USDC)"
+amount      = "Amount in input-token native units (lamports for SOL, microunits for USDC)"
+
+""".trimIndent()
+
+                val BAGS_SKILL_TOML = """
 [skill]
 name        = "bags"
 version     = "1.1.0"
@@ -263,12 +609,17 @@ Use the `launchlab` skill tools for bonding-curve tokens:
 
 The node earns a 0.1% share fee on every LaunchLab trade, credited on-chain atomically.
 
-## Jupiter swap whitelist
+## CA confirmation for unknown tokens
 
-`trade_swap` only executes swaps involving whitelisted mints to prevent scam tokens.
-Whitelisted tokens: SOL (wrapped), USDC (mainnet + devnet), USDT, JUP, BONK, RAY, WIF, BAGS.
-If the user wants to swap an unlisted token, use `launchlab_buy` if it's on a bonding curve,
-or explain to the user that custom tokens are not in the default whitelist.
+`trade_swap` runs instantly for known tokens (SOL, USDC, USDT, JUP, BONK, RAY, WIF, BAGS, mSOL, ETH).
+For **any other mint**, the swap is parked and returns HTTP 202 with a `swap_id`. The user must
+confirm or reject it in the mobile app (Pending Swaps card) within 5 minutes.
+When this happens, tell the user: "I've queued the swap — please confirm the token CA in the app."
+
+## Sending tokens
+
+Use `wallet_send` to transfer SOL or any SPL token from the agent hot wallet to another address.
+No `mint` = native SOL. With `mint` = SPL transfer (destination ATA is created automatically).
 
 ## Amount conventions
 
@@ -280,9 +631,11 @@ or explain to the user that custom tokens are not in the default whitelist.
 
 - Always confirm trade details (token, amount, expected output) with the user before executing.
 - Use `trade_quote` or `trade_price` first so the user knows what they're getting.
+- For unknown CAs: after calling `trade_swap`, tell the user to confirm in the app.
 - For LaunchLab (`launchlab_buy`/`launchlab_sell`), confirm the SOL amount before buying; report the txid and share fee after.
 - For limit orders, confirm the target price and expiry before placing.
 - For DCA, confirm total amount, per-cycle amount, and interval before creating.
+- For `wallet_send`, always confirm destination and amount with the user first.
 ${'$'}TOML_TQ]
 
 [[tools]]
@@ -367,6 +720,17 @@ output_mint       = "Mint to buy (e.g. SOL)"
 in_amount         = "Total amount of input_mint to DCA (base units)"
 in_amount_per_cycle = "Amount to swap each cycle (base units)"
 cycle_seconds     = "Seconds between each cycle (3600 = hourly, 86400 = daily)"
+
+[[tools]]
+name        = "wallet_send"
+description = "Send SOL or any SPL token from the agent hot wallet to a destination address."
+kind        = "shell"
+command     = ${'$'}TOML_TQjq -nc --arg to {to} --argjson amt {amount} --arg m {mint} '{"to":${'$'}to,"amount":${'$'}amt} | if ${'$'}m != "" then . + {"mint":${'$'}m} else . end' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/wallet/send" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+
+[tools.args]
+to     = "Destination Solana wallet address (base58)"
+amount = "Amount in base units (lamports for SOL, token-native units for SPL)"
+mint   = "SPL token mint address (base58). Leave empty string for native SOL."
 """.trimIndent()
 
         // ── Raydium LaunchLab bonding-curve skill ────────────────────────────
@@ -673,6 +1037,44 @@ command     = ${'$'}TOML_TQjq -nc --arg n {name} --arg u "https://skills.0x01.wo
 [tools.args]
 name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'web-search')"
 """.trimIndent()
+
+        val WEB_SKILL_TOML = """
+[skill]
+name        = "web"
+version     = "1.0.0"
+description = "Fetch web pages and search the internet. Use for real-time information and URL content."
+author      = "0x01 World"
+tags        = ["web", "search", "fetch", "internet", "http"]
+
+prompts = [${'$'}TOML_TQ
+# Web Access
+
+You can fetch web content and search the web.
+
+- web_fetch — download the content of any URL (returns raw HTML/text)
+- web_search — search DuckDuckGo Instant Answers API (no API key needed)
+
+Use web_fetch when the user provides a specific URL. Use web_search to find current information by keyword.
+${'$'}TOML_TQ]
+
+[[tools]]
+name        = "web_fetch"
+description = "Fetch the raw content of a URL (HTML or plain text). Use for reading a specific page."
+kind        = "shell"
+command     = ${'$'}TOML_TQcurl -sf --max-time 20 -L -A "Mozilla/5.0 (compatible; zerox1-agent)" "{url}"${'$'}TOML_TQ
+
+[tools.args]
+url = "Full URL to fetch, must start with https://"
+
+[[tools]]
+name        = "web_search"
+description = "Search the web using DuckDuckGo Instant Answers. Returns abstract, direct answer, and related topics."
+kind        = "shell"
+command     = ${'$'}TOML_TQcurl -sf --max-time 10 "https://api.duckduckgo.com/?q={query}&format=json&no_html=1&skip_disambig=1" | jq '{abstract:.Abstract,abstractSource:.AbstractSource,answer:.Answer,results:[.RelatedTopics[]?|{text:.Text,url:.FirstURL}]|.[0:8]}'${'$'}TOML_TQ
+
+[tools.args]
+query = "Search query string"
+""".trimIndent()
     }
 
     private var nodeProcess:  Process? = null
@@ -692,6 +1094,9 @@ name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'w
 
     override fun onCreate() {
         super.onCreate()
+        isRunning = true
+        // Cancel ntfy polling — node is now running and handles messages via WS.
+        NtfyWakeWorker.cancel(applicationContext)
         createNotificationChannel()
         val wm = getSystemService(POWER_SERVICE) as PowerManager
         wakeLock = wm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "zerox1:NodeWakeLock")
@@ -775,9 +1180,11 @@ name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'w
         val llmBaseUrl     = intent?.getStringExtra(EXTRA_LLM_BASE_URL) ?: ""
         Log.i(TAG, "Brain config: enabled=$brainEnabled provider=$llmProvider model=$llmModel baseUrl=${if (llmBaseUrl.isNotBlank()) "[set]" else "[empty]"}")
         val capabilities   = intent?.getStringExtra(EXTRA_CAPABILITIES) ?: "[]"
-        val minFee       = intent?.getDoubleExtra(EXTRA_MIN_FEE, 0.01) ?: 0.01
-        val minRep       = intent?.getIntExtra(EXTRA_MIN_REP, 50) ?: 50
-        val autoAccept   = intent?.getBooleanExtra(EXTRA_AUTO_ACCEPT, true) ?: true
+        val minFee            = intent?.getDoubleExtra(EXTRA_MIN_FEE, 0.01) ?: 0.01
+        val minRep            = intent?.getIntExtra(EXTRA_MIN_REP, 50) ?: 50
+        val autoAccept        = intent?.getBooleanExtra(EXTRA_AUTO_ACCEPT, true) ?: true
+        val maxActionsPerHour  = intent?.getIntExtra(EXTRA_MAX_ACTIONS, 100) ?: 100
+        val maxCostPerDayCents = intent?.getIntExtra(EXTRA_MAX_COST, 1000) ?: 1000
 
         // CRIT-1: Generate a random bridge secret
         if (bridgeSecret.isEmpty()) {
@@ -820,11 +1227,19 @@ name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'w
                     // Wait for the node REST API to be ready before starting agent
                     waitForNodeApi()
                     val agentBinary = prepareAgentBinary()
-                    writeAgentConfig(llmProvider, llmModel, llmBaseUrl, capabilities, minFee, minRep, autoAccept)
                     writeIdentityFile(File(filesDir, "zw"), rpcUrl)
                     // Restart loop — zeroclaw is SIGTERM'd by /agent/reload to pick up new skills.
-                    // After exit it must restart so the new skills are active.
+                    // Re-write config on every iteration so API key / provider changes saved via
+                    // Settings take effect on the next restart without requiring a full node restart.
                     while (isActive) {
+                        val prefs = getSharedPreferences("zerox1", Context.MODE_PRIVATE)
+                        val currentProvider   = prefs.getString("llm_provider", llmProvider) ?: llmProvider
+                        val currentModel      = prefs.getString("llm_model",    llmModel)    ?: llmModel
+                        val currentBaseUrl    = prefs.getString("llm_base_url", llmBaseUrl)  ?: llmBaseUrl
+                        val currentCaps       = prefs.getString("capabilities",  capabilities) ?: capabilities
+                        val currentMaxActions = prefs.getInt("max_actions_per_hour",   maxActionsPerHour)
+                        val currentMaxCost    = prefs.getInt("max_cost_per_day_cents", maxCostPerDayCents)
+                        writeAgentConfig(currentProvider, currentModel, currentBaseUrl, currentCaps, minFee, minRep, autoAccept, currentMaxActions, currentMaxCost)
                         launchAgent(agentBinary)
                         if (!isActive) break
                         Log.i(TAG, "ZeroClaw exited — restarting in 3s…")
@@ -841,6 +1256,7 @@ name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'w
     }
 
     override fun onDestroy() {
+        isRunning = false
         super.onDestroy()
         serviceScope.cancel()
         agentProcess?.destroy()
@@ -852,6 +1268,8 @@ name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'w
         if (wakeLock?.isHeld == true) wakeLock?.release()
         broadcastStatus(STATUS_STOPPED)
         Log.i(TAG, "NodeService destroyed — zerox1-node and zeroclaw stopped.")
+        // Schedule ntfy wake polling so the agent can be woken while offline.
+        NtfyWakeWorker.schedule(applicationContext)
     }
 
     // -------------------------------------------------------------------------
@@ -965,7 +1383,21 @@ name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'w
     ) = withContext(Dispatchers.IO) {
         val logDir      = File(filesDir, "logs").also { it.mkdirs() }
         File(filesDir, "zw").mkdirs()   // skill workspace must exist before node starts
+        // On Solana Mobile (dappstore flavor) derive identity from SeedVault so the
+        // agent keypair is hardware-attested and recoverable from the device seed phrase.
+        // On other distributions fall back to the file-based keypair.
         val keypairPath = File(filesDir, "zerox1-identity.key")
+        if (BuildConfig.SEED_VAULT_ENABLED) {
+            SeedVaultIdentity.ensureKeypairFile(applicationContext, keypairPath)
+        }
+        // Derive ntfy topic from agent pubkey (last 32 bytes of 64-byte keypair file)
+        // and store in SharedPreferences for NtfyWakeWorker to read when offline.
+        if (keypairPath.exists() && keypairPath.length() == 64L) {
+            val pubkeyHex = keypairPath.readBytes().copyOfRange(32, 64)
+                .joinToString("") { "%02x".format(it) }
+            getSharedPreferences("zerox1", MODE_PRIVATE)
+                .edit().putString("ntfy_topic", pubkeyHex).apply()
+        }
         val aggregatorUrl = "https://api.0x01.world"
         val localApiSecret = ensureSecureToken(KEY_NODE_API_SECRET)
 
@@ -1087,13 +1519,15 @@ name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'w
      * discovers them via the workspace_dir setting.
      */
     private fun writeAgentConfig(
-        provider:     String,
-        customModel:  String,
-        customBaseUrl: String,
-        capabilities: String,
-        minFee:       Double,
-        minRep:       Int,
-        autoAccept:   Boolean,
+        provider:          String,
+        customModel:       String,
+        customBaseUrl:     String,
+        capabilities:      String,
+        minFee:            Double,
+        minRep:            Int,
+        autoAccept:        Boolean,
+        maxActionsPerHour: Int = 100,
+        maxCostPerDayCents: Int = 1000,
     ) {
         val modelMap = mapOf(
             "gemini"    to "gemini-2.5-flash",
@@ -1158,20 +1592,25 @@ cli = false
 
 [channels_config.zerox1]
 node_api_url    = "http://127.0.0.1:$NODE_API_PORT"
-token           = "$escapedNodeApiSecret"
+api_secret      = "$escapedNodeApiSecret"
 min_fee_usdc    = $minFee
 min_reputation  = $minRep
 auto_accept     = $autoAccept
 capabilities    = $tomlCaps
+topics          = []
 
 [autonomy]
 level                  = "supervised"
 workspace_only         = false
 allowed_commands       = ["curl", "jq", "sh", "bash"]
 forbidden_paths        = []
-max_actions_per_hour   = 100
-max_cost_per_day_cents = 1000
+max_actions_per_hour   = $maxActionsPerHour
+max_cost_per_day_cents = $maxCostPerDayCents
 shell_env_passthrough  = ["ZX01_NODE", "ZX01_TOKEN"]
+
+[memory]
+backend    = "sqlite"
+sqlite_path = "${escapeTOMLString(File(filesDir, "zw/memory.db").absolutePath)}"
 
 [phone]
 enabled      = true
@@ -1196,6 +1635,11 @@ timeout_secs = 10
     private fun writeBundledSkills(workspaceDir: File) {
         val skillsRoot = File(workspaceDir, "skills")
         skillsRoot.mkdirs()
+
+        // ── 0x01 mesh protocol skill ───────────────────────────────────────
+        val meshSkillDir = File(skillsRoot, "zerox1-mesh")
+        meshSkillDir.mkdirs()
+        File(meshSkillDir, "SKILL.toml").writeText(ZEROX1_MESH_SKILL_TOML)
 
         // ── Bags token launch skill ─────────────────────────────────────────
         val bagsSkillDir = File(skillsRoot, "bags")
@@ -1226,6 +1670,11 @@ timeout_secs = 10
         val smSkillDir = File(skillsRoot, "skill_manager")
         smSkillDir.mkdirs()
         File(smSkillDir, "SKILL.toml").writeText(SKILL_MANAGER_TOML)
+
+        // ── Web fetch + search skill ────────────────────────────────────────
+        val webSkillDir = File(skillsRoot, "web")
+        webSkillDir.mkdirs()
+        File(webSkillDir, "SKILL.toml").writeText(WEB_SKILL_TOML)
 
         Log.i(TAG, "Bundled skills written to ${skillsRoot.absolutePath}.")
     }

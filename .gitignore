@@ -91,3 +91,4 @@ android/app/src/main/assets/zeroclaw-config.json
 
 # Bridge server token (generated at runtime)
 android/app/src/main/assets/bridge.token
+.claude/

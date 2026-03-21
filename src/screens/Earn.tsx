@@ -22,19 +22,22 @@ import {
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { launchImageLibrary, type ImagePickerResponse } from 'react-native-image-picker';
 import {
   useInbox, InboundEnvelope, sendEnvelope, executeJupiterSwap, useTradeQuote,
-  bagsLaunch, bagsClaim, useBagsPositions, useBagsConfig, usePhantomBalance,
+  bagsLaunch, bagsClaim, useBagsPositions, useBagsConfig,
   usePortfolioHistory, usePeers, PortfolioEvent,
-  BagsLaunchParams, BagsToken, use8004Badge,
+  BagsLaunchParams, BagsToken, use8004Badge, useSkrLeague,
 } from '../hooks/useNodeApi';
 import { useOwnedAgents, OwnedAgent } from '../hooks/useOwnedAgents';
 import { useNode } from '../hooks/useNode';
 import { useZeroclawChat } from '../hooks/useZeroclawChat';
 import { useAgentBrain } from '../hooks/useAgentBrain';
 import { NodeStatusBanner } from '../components/NodeStatusBanner';
+import { useTheme, ThemeColors } from '../theme/ThemeContext';
+import { ThemeToggle } from '../components/ThemeToggle';
 
 // ── Task tracking (AsyncStorage-backed) ──────────────────────────────────
 
@@ -60,19 +63,6 @@ async function loadTaskLog(): Promise<TaskEntry[]> {
 async function saveTaskLog(entries: TaskEntry[]): Promise<void> {
   await AsyncStorage.setItem(TASK_LOG_KEY, JSON.stringify(entries.slice(0, 100)));
 }
-
-const C = {
-  bg: '#050505',
-  card: '#0f0f0f',
-  border: '#1a1a1a',
-  green: '#00e676',
-  red: '#ff1744',
-  amber: '#ffc107',
-  text: '#ffffff',
-  sub: '#555555',
-  dim: '#333333',
-  blue: '#2979ff',
-};
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -105,21 +95,11 @@ interface Bounty {
   deadlineAt?: number; // ms epoch; undefined = no deadline
 }
 
-// ── Leaderboard types ─────────────────────────────────────────────────────
+// ── Token list (well-known tokens + user-added CAs) ───────────────────────
 
-interface LeaderboardToken {
-  mint: string;
-  name: string;
-  symbol: string;
-  priceUsd: number;
-  volume24h: number;
-  priceChange24h: number;
-  marketCap: number;
-}
+interface SwapToken { label: string; mint: string; decimals: number }
 
-// ── Token whitelist (mirrors node SWAP_WHITELIST) ─────────────────────────
-
-const SWAP_TOKENS = [
+const SWAP_TOKENS: SwapToken[] = [
   { label: 'SOL',  mint: 'So11111111111111111111111111111111111111112',   decimals: 9 },
   { label: 'USDC', mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', decimals: 6 },
   { label: 'USDT', mint: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', decimals: 6 },
@@ -127,7 +107,9 @@ const SWAP_TOKENS = [
   { label: 'BONK', mint: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', decimals: 5 },
   { label: 'RAY',  mint: '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R',  decimals: 6 },
   { label: 'WIF',  mint: 'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm',  decimals: 6 },
-] as const;
+];
+
+const BASE58_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -220,11 +202,14 @@ function AgentPicker({
   onSelect: (a: OwnedAgent) => void;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   return (
     <Modal transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={s.overlay} onPress={onClose} />
       <View style={s.sheet}>
-        <Text style={s.sheetTitle}>ASSIGN TO AGENT</Text>
+        <Text style={s.sheetTitle}>{t('earn.assignToAgent')}</Text>
         {agents.map(a => (
           <TouchableOpacity
             key={a.id || a.mode}
@@ -234,11 +219,11 @@ function AgentPicker({
           >
             <View>
               <Text style={s.agentName}>{a.name}</Text>
-              <Text style={s.agentId}>{a.id ? shortId(a.id) : 'starting…'}</Text>
+              <Text style={s.agentId}>{a.id ? shortId(a.id) : t('earn.starting')}</Text>
             </View>
             <View style={[s.badge, a.mode === 'local' ? s.badgeLocal : s.badgeHosted]}>
               <Text style={s.badgeText}>
-                {a.mode === 'local' ? 'PHONE' : 'HOSTED'}
+                {a.mode === 'local' ? t('earn.phoneLabel') : t('earn.hostedLabel')}
               </Text>
             </View>
           </TouchableOpacity>
@@ -261,6 +246,9 @@ function BountyCard({
   onSkip: () => void;
   onReject: () => void;
 }) {
+  const { t } = useTranslation();
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   const senderRegistered = use8004Badge(bounty.sender);
   const [remaining, setRemaining] = useState<number | null>(
     bounty.deadlineAt ? Math.max(0, Math.floor((bounty.deadlineAt - Date.now()) / 1000)) : null,
@@ -280,15 +268,15 @@ function BountyCard({
     : `${remaining}s`;
 
   return (
-    <View style={[s.card, urgent && { borderColor: C.red }]}>
+    <View style={[s.card, urgent && { borderColor: colors.red }]}>
       <Text style={s.desc} numberOfLines={4}>
-        {bounty.terms.description ?? 'No description'}
+        {bounty.terms.description ?? t('earn.noDescription')}
       </Text>
       <View style={s.meta}>
         <Text style={s.reward}>{rewardLabel(bounty.terms)}</Text>
         <Text style={s.dot}> · </Text>
         <Text style={s.from}>
-          from {shortId(bounty.terms.from ?? bounty.sender)}
+          {t('earn.from')} {shortId(bounty.terms.from ?? bounty.sender)}
         </Text>
         {senderRegistered && (
           <View style={s.badge8004}>
@@ -300,19 +288,19 @@ function BountyCard({
         {remainStr !== null && (
           <>
             <Text style={s.dot}> · </Text>
-            <Text style={[s.time, urgent && { color: C.red }]}>{remainStr}</Text>
+            <Text style={[s.time, urgent && { color: colors.red }]}>{remainStr}</Text>
           </>
         )}
       </View>
       <View style={s.actions}>
         <TouchableOpacity style={s.skipBtn} onPress={onSkip} activeOpacity={0.7}>
-          <Text style={s.skipText}>SKIP</Text>
+          <Text style={s.skipText}>{t('earn.skip')}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={s.rejectBountyBtn} onPress={onReject} activeOpacity={0.7}>
-          <Text style={s.rejectBountyText}>REJECT</Text>
+          <Text style={s.rejectBountyText}>{t('earn.reject')}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={s.acceptBtn} onPress={onAccept} activeOpacity={0.8}>
-          <Text style={s.acceptText}>ACCEPT</Text>
+          <Text style={s.acceptText}>{t('earn.accept')}</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -340,18 +328,20 @@ function BagsField({
   maxLength?: number;
   keyboardType?: 'default' | 'decimal-pad';
 }) {
+  const { t } = useTranslation();
+  const { colors } = useTheme();
   return (
     <View style={{ marginBottom: 12 }}>
-      <Text style={{ fontSize: 9, color: C.sub, letterSpacing: 2, fontFamily: 'monospace', marginBottom: 4 }}>
-        {label}{optional ? ' (optional)' : ''}
+      <Text style={{ fontSize: 9, color: colors.sub, letterSpacing: 2, fontFamily: 'monospace', marginBottom: 4 }}>
+        {label}{optional ? ` ${t('earn.fieldOptional')}` : ''}
       </Text>
       <TextInput
         style={{
-          backgroundColor: C.bg,
+          backgroundColor: colors.bg,
           borderWidth: 1,
-          borderColor: C.dim,
+          borderColor: colors.border,
           borderRadius: 3,
-          color: C.text,
+          color: colors.text,
           fontFamily: 'monospace',
           fontSize: 13,
           paddingHorizontal: 10,
@@ -362,7 +352,7 @@ function BagsField({
         value={value}
         onChangeText={onChange}
         placeholder={placeholder}
-        placeholderTextColor={C.dim}
+        placeholderTextColor={colors.sub}
         autoCapitalize="none"
         autoCorrect={false}
         multiline={multiline}
@@ -376,6 +366,7 @@ function BagsField({
 // ── Main screen ───────────────────────────────────────────────────────────
 
 export function EarnScreen() {
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const agents = useOwnedAgents().filter(a => a.mode !== 'linked');
@@ -384,6 +375,8 @@ export function EarnScreen() {
   const [pickerTarget, setPickerTarget] = useState<Bounty | null>(null);
   const [activeTab, setActiveTab] = useState<'bounty' | 'trade' | 'leaderboard'>('bounty');
   const [bagsExpanded, setBagsExpanded] = useState(false);
+  const { colors } = useTheme();
+  const s = useStyles(colors);
 
   const { injectSystemMessage } = useZeroclawChat(agents[0]?.id);
 
@@ -449,9 +442,12 @@ export function EarnScreen() {
   // ── Trade tab ──────────────────────────────────────────────────────────────
   const [swapAmount, setSwapAmount] = useState('0.1');
   const [swapping, setSwapping] = useState(false);
-  const [inputIdx, setInputIdx] = useState(1);  // USDC
-  const [outputIdx, setOutputIdx] = useState(0); // SOL
+  const [inputToken,  setInputToken]  = useState<SwapToken>(SWAP_TOKENS[1]); // USDC
+  const [outputToken, setOutputToken] = useState<SwapToken>(SWAP_TOKENS[0]); // SOL
   const [pickerFor, setPickerFor] = useState<'input' | 'output' | null>(null);
+  const [customTokens, setCustomTokens] = useState<SwapToken[]>([]);
+  const [caInput, setCaInput] = useState('');
+  const [caDecimals, setCaDecimals] = useState('6');
 
   // ── Bags tab ───────────────────────────────────────────────────────────────
   const bagsConfig = useBagsConfig();
@@ -469,77 +465,9 @@ export function EarnScreen() {
   const [launchInitialBuy, setLaunchInitialBuy] = useState('');
   const bagsApiConfigured = bagsConfig !== null;
 
-  // ── Leaderboard ────────────────────────────────────────────────────────────
-  const phantom = usePhantomBalance();
-  const [leaderboardData, setLeaderboardData] = useState<LeaderboardToken[]>([]);
-  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
-  const [leaderboardSort, setLeaderboardSort] = useState<'volume' | 'change'>('volume');
-  const [leaderboardError, setLeaderboardError] = useState<string | null>(null);
+  // ── SKR League ─────────────────────────────────────────────────────────────
+  const skrLeague = useSkrLeague();
   const [bountyRefreshing, setBountyRefreshing] = useState(false);
-
-  // Merge mint sources: Phantom SPL holdings + Bags API positions (deduplicated).
-  // This way tokens show up even without a Bags API key configured.
-  const allMints = useMemo(() => {
-    const set = new Set<string>();
-    for (const t of phantom.splTokens) set.add(t.mint);
-    for (const t of bagsPositions) set.add(t.token_mint);
-    // Exclude stablecoins — they're not tradeable tokens for the leaderboard.
-    set.delete('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'); // USDC mainnet
-    set.delete('4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'); // USDC devnet
-    set.delete('Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB'); // USDT
-    return [...set];
-  }, [phantom.splTokens, bagsPositions]);
-
-  const fetchLeaderboard = useCallback(async (attempt = 0) => {
-    if (allMints.length === 0) {
-      setLeaderboardData([]);
-      return;
-    }
-    setLeaderboardLoading(true);
-    setLeaderboardError(null);
-    try {
-      const mints = allMints.join(',');
-      const res = await fetch(`https://api.dexscreener.com/tokens/v1/solana/${mints}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      if (!Array.isArray(data)) { setLeaderboardData([]); return; }
-      const byMint = new Map<string, LeaderboardToken>();
-      for (const pair of data) {
-        const mint: string = pair.baseToken?.address ?? '';
-        if (!mint) continue;
-        const entry: LeaderboardToken = {
-          mint,
-          name: pair.baseToken?.name ?? '',
-          symbol: pair.baseToken?.symbol ?? '',
-          priceUsd: parseFloat(pair.priceUsd ?? '0') || 0,
-          volume24h: pair.volume?.h24 ?? 0,
-          priceChange24h: pair.priceChange?.h24 ?? 0,
-          marketCap: pair.marketCap ?? 0,
-        };
-        const existing = byMint.get(mint);
-        if (!existing || entry.volume24h > existing.volume24h) byMint.set(mint, entry);
-      }
-      setLeaderboardData([...byMint.values()]);
-    } catch (e: any) {
-      if (attempt < 3) {
-        // Retry with backoff — don't surface error to user on transient failures.
-        setTimeout(() => fetchLeaderboard(attempt + 1), (attempt + 1) * 2_000);
-      } else {
-        setLeaderboardError(e?.message ?? 'Failed to load data. Pull to refresh.');
-        setLeaderboardData([]);
-      }
-    }
-    setLeaderboardLoading(false);
-  }, [allMints]);
-
-  // Re-fetch leaderboard when tab is active OR when allMints populates after RPC load.
-  useEffect(() => {
-    if (activeTab === 'leaderboard' && allMints.length > 0) fetchLeaderboard();
-  }, [activeTab, fetchLeaderboard, allMints]);
-
-  const sortedLeaderboard = [...leaderboardData].sort((a, b) =>
-    leaderboardSort === 'volume' ? b.volume24h - a.volume24h : b.priceChange24h - a.priceChange24h,
-  );
 
   const handlePickImage = useCallback(() => {
     launchImageLibrary(
@@ -556,16 +484,16 @@ export function EarnScreen() {
 
   const handleBagsLaunch = useCallback(async () => {
     if (!launchName.trim() || !launchSymbol.trim() || !launchDesc.trim()) {
-      Alert.alert('Missing Fields', 'Name, symbol and description are required.');
+      Alert.alert(t('earn.missingFields'), t('earn.missingFieldsBody'));
       return;
     }
     Alert.alert(
-      'Launch Token',
-      `Launch ${launchSymbol.toUpperCase()} on Bags.fm?\n\nThis will sign and broadcast transactions on Solana.`,
+      t('earn.launchTokenTitle'),
+      t('earn.launchTokenBody', { symbol: launchSymbol.toUpperCase() }),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'LAUNCH',
+          text: t('earn.launch'),
           onPress: async () => {
             setLaunching(true);
             try {
@@ -583,8 +511,8 @@ export function EarnScreen() {
               };
               const res = await bagsLaunch(params);
               Alert.alert(
-                'Token Launched',
-                `${launchSymbol.toUpperCase()} is live!\nMint: ${shortId(res.token_mint)}\nTx: ${shortId(res.txid)}`,
+                t('earn.launchSuccess'),
+                t('earn.launchSuccessBody', { symbol: launchSymbol.toUpperCase(), mint: shortId(res.token_mint), txid: shortId(res.txid) }),
               );
               // Reset form
               setLaunchName(''); setLaunchSymbol(''); setLaunchDesc('');
@@ -592,7 +520,7 @@ export function EarnScreen() {
               setLaunchWebUrl(''); setLaunchTwitter('');
               setLaunchTelegram(''); setLaunchInitialBuy('');
             } catch (e: any) {
-              Alert.alert('Launch Failed', e?.message ?? 'Unknown error');
+              Alert.alert(t('earn.launchFailed'), e?.message ?? t('common.error'));
             } finally {
               setLaunching(false);
             }
@@ -604,22 +532,22 @@ export function EarnScreen() {
 
   const handleBagsClaim = useCallback(async (token: BagsToken) => {
     Alert.alert(
-      'Claim Fees',
-      `Claim accumulated Bags pool fees for ${token.symbol}?`,
+      t('earn.claimFeesTitle'),
+      t('earn.claimFeesBody', { symbol: token.symbol }),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'CLAIM',
+          text: t('earn.claim'),
           onPress: async () => {
             setClaiming(token.token_mint);
             try {
               const res = await bagsClaim(token.token_mint);
               Alert.alert(
-                'Claimed',
-                `${res.claimed_txs} transaction${res.claimed_txs !== 1 ? 's' : ''} submitted.\n~${(res.total_claimed_usdc / 1e6).toFixed(4)} USDC claimed.`,
+                t('earn.claimed'),
+                t('earn.claimedBody', { count: res.claimed_txs, s: res.claimed_txs !== 1 ? 's' : '', amount: (res.total_claimed_usdc / 1e6).toFixed(4) }),
               );
             } catch (e: any) {
-              Alert.alert('Claim Failed', e?.message ?? 'Unknown error');
+              Alert.alert(t('earn.claimFailed'), e?.message ?? t('common.error'));
             } finally {
               setClaiming(null);
             }
@@ -629,8 +557,7 @@ export function EarnScreen() {
     );
   }, []);
 
-  const inputToken  = SWAP_TOKENS[inputIdx];
-  const outputToken = SWAP_TOKENS[outputIdx];
+  const allTokens = [...SWAP_TOKENS, ...customTokens];
 
   const { quote, loading: quoteLoading } = useTradeQuote({
     inputMint:  inputToken.mint,
@@ -642,12 +569,12 @@ export function EarnScreen() {
     if (!swapAmount || isNaN(Number(swapAmount)) || !quote) return;
     const outAmount = parseFloat(quote.outAmount) / 10 ** outputToken.decimals;
     Alert.alert(
-      'Confirm Swap',
-      `Swap ${swapAmount} ${inputToken.label} for ~${outAmount.toFixed(6)} ${outputToken.label}?`,
+      t('earn.confirmSwapTitle'),
+      t('earn.confirmSwapBody', { amount: swapAmount, input: inputToken.label, output: outAmount.toFixed(6), outputLabel: outputToken.label }),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'SWAP',
+          text: t('earn.swap'),
           onPress: async () => {
             setSwapping(true);
             const res = await executeJupiterSwap({
@@ -662,7 +589,7 @@ export function EarnScreen() {
               );
               navigation.navigate('Chat');
             } else {
-              Alert.alert('Swap Failed', 'Execution failed. Check your balance for gas or Kora status.');
+              Alert.alert(t('earn.swapFailed'), t('earn.swapFailedBody'));
             }
           },
         },
@@ -724,7 +651,7 @@ export function EarnScreen() {
       payload_b64: '',
     });
     if (!ok) {
-      Alert.alert('Error', 'Failed to send ACCEPT. Check node connection and try again.');
+      Alert.alert(t('common.error'), t('earn.errorAccept'));
       return;
     }
     setBounties(prev => prev.filter(b => b.conversationId !== bounty.conversationId));
@@ -779,12 +706,12 @@ export function EarnScreen() {
 
   const handleAbandonTask = useCallback((task: TaskEntry) => {
     Alert.alert(
-      'Give up task?',
-      'This will send REJECT to the requester and remove the task from your active list.',
+      t('earn.giveUpTitle'),
+      t('earn.giveUpBody'),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'GIVE UP',
+          text: t('earn.giveUp'),
           style: 'destructive',
           onPress: async () => {
             await sendEnvelope({
@@ -811,24 +738,25 @@ export function EarnScreen() {
       <NodeStatusBanner />
       {/* Tab Header */}
       <View style={[s.header, { paddingTop: insets.top + 16 }]}>
+        <View style={{ position: 'absolute', top: insets.top + 16, right: 20, zIndex: 10 }}><ThemeToggle /></View>
         <View style={s.tabRow}>
           <TouchableOpacity
             style={[s.tabBtn, activeTab === 'bounty' && s.tabActive]}
             onPress={() => setActiveTab('bounty')}
           >
-            <Text style={[s.tabText, activeTab === 'bounty' && s.tabTextActive]}>BOUNTY</Text>
+            <Text style={[s.tabText, activeTab === 'bounty' && s.tabTextActive]}>{t('earn.tabBounty')}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[s.tabBtn, activeTab === 'trade' && s.tabActive]}
             onPress={() => setActiveTab('trade')}
           >
-            <Text style={[s.tabText, activeTab === 'trade' && s.tabTextActive]}>TRADE</Text>
+            <Text style={[s.tabText, activeTab === 'trade' && s.tabTextActive]}>{t('earn.tabTrade')}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[s.tabBtn, activeTab === 'leaderboard' && s.tabActive]}
             onPress={() => setActiveTab('leaderboard')}
           >
-            <Text style={[s.tabText, activeTab === 'leaderboard' && s.tabTextActive]}>TOP</Text>
+            <Text style={[s.tabText, activeTab === 'leaderboard' && s.tabTextActive]}>{t('earn.tabTop')}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -844,17 +772,17 @@ export function EarnScreen() {
                   ? earningsSummary.totalUsdc.toFixed(2)
                   : earningsSummary.totalUsdc.toFixed(4)}
               </Text>
-              <Text style={s.earningLabel}>EARNED</Text>
+              <Text style={s.earningLabel}>{t('earn.earned')}</Text>
             </View>
             <View style={s.earningDivider} />
             <View style={s.earningStat}>
               <Text style={s.earningVal}>{activeTasks.length}</Text>
-              <Text style={s.earningLabel}>ACTIVE</Text>
+              <Text style={s.earningLabel}>{t('earn.active')}</Text>
             </View>
             <View style={s.earningDivider} />
             <View style={s.earningStat}>
               <Text style={s.earningVal}>{earningsSummary.bountyCount}</Text>
-              <Text style={s.earningLabel}>COMPLETED</Text>
+              <Text style={s.earningLabel}>{t('earn.completed')}</Text>
             </View>
           </View>
 
@@ -866,13 +794,13 @@ export function EarnScreen() {
               activeOpacity={0.7}
             >
               <Text style={[s.autoAcceptText, autoAcceptOn && s.autoAcceptTextOn]}>
-                AUTO-ACCEPT {autoAcceptOn ? 'ON' : 'OFF'}
+                {autoAcceptOn ? t('earn.autoAcceptOn') : t('earn.autoAcceptOff')}
               </Text>
             </TouchableOpacity>
             <Text style={s.sub}>
               {isRunning
-                ? `${peers.length} peer${peers.length !== 1 ? 's' : ''} · ${bounties.length > 0 ? `${bounties.length} pending` : 'listening…'}`
-                : 'node offline'}
+                ? `${t('earn.listeningPeers', { count: peers.length })} · ${bounties.length > 0 ? t('earn.pendingBounties', { count: bounties.length }) : t('earn.listening')}`
+                : t('earn.nodeOffline')}
             </Text>
           </View>
 
@@ -883,23 +811,21 @@ export function EarnScreen() {
               <RefreshControl
                 refreshing={bountyRefreshing}
                 onRefresh={refreshBountyTab}
-                tintColor={C.green}
-                colors={[C.green]}
+                tintColor={colors.green}
+                colors={[colors.green]}
               />
             }
           >
             {/* ── Context-aware empty / node start ─────────────────── */}
             {!isRunning && bounties.length === 0 && activeTasks.length === 0 && completedTasks.length === 0 && (
               <View style={s.emptyInline}>
-                <Text style={s.emptyText}>
-                  Your node is offline.{'\n'}Start it to receive bounties from the mesh.
-                </Text>
+                <Text style={s.emptyText}>{t('earn.nodeOfflineMsg')}</Text>
                 <TouchableOpacity
                   style={s.inlineStartBtn}
                   onPress={() => start()}
                   activeOpacity={0.8}
                 >
-                  <Text style={s.acceptText}>START NODE</Text>
+                  <Text style={s.acceptText}>{t('common.startNode')}</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -907,8 +833,7 @@ export function EarnScreen() {
             {isRunning && bounties.length === 0 && activeTasks.length === 0 && completedTasks.length === 0 && (
               <View style={s.emptyInline}>
                 <Text style={s.emptyText}>
-                  Listening for bounties…{'\n\n'}Tasks from agents on the mesh will appear here.
-                  {autoAcceptOn ? '\nAuto-accept is on — matching tasks will be taken automatically.' : ''}
+                  {t('earn.listeningMsg')}{autoAcceptOn ? t('earn.autoAcceptMsg') : ''}
                 </Text>
               </View>
             )}
@@ -916,41 +841,41 @@ export function EarnScreen() {
             {/* ── Active tasks ──────────────────────────────────────── */}
             {activeTasks.length > 0 && (
               <>
-                <Text style={s.sectionLabel}>ACTIVE TASKS</Text>
-                {activeTasks.map(t => (
-                  <View key={t.conversationId} style={[s.card, s.activeTaskCard]}>
+                <Text style={s.sectionLabel}>{t('earn.activeTasks')}</Text>
+                {activeTasks.map(task => (
+                  <View key={task.conversationId} style={[s.card, s.activeTaskCard]}>
                     <View style={s.taskStatusRow}>
                       <View style={s.taskStatusDot} />
                       <Text style={s.taskStatusText}>
-                        {t.status === 'delivered' ? 'DELIVERED — awaiting payment' : 'IN PROGRESS'}
+                        {task.status === 'delivered' ? t('earn.deliveredStatus') : t('earn.inProgress')}
                       </Text>
                     </View>
-                    <Text style={s.desc} numberOfLines={2}>{t.description}</Text>
+                    <Text style={s.desc} numberOfLines={2}>{task.description}</Text>
                     <View style={s.meta}>
-                      <Text style={s.reward}>{t.reward}</Text>
+                      <Text style={s.reward}>{task.reward}</Text>
                       <Text style={s.dot}> · </Text>
-                      <Text style={s.from}>from {shortId(t.fromAgent)}</Text>
+                      <Text style={s.from}>{t('earn.from')} {shortId(task.fromAgent)}</Text>
                       <Text style={s.dot}> · </Text>
-                      <Text style={s.time}>{timeAgo(t.acceptedAt)}</Text>
+                      <Text style={s.time}>{timeAgo(task.acceptedAt)}</Text>
                     </View>
                     <View style={s.activeTaskActions}>
                       <TouchableOpacity
                         style={s.resumeBtn}
                         onPress={() => navigation.navigate('Chat', {
-                          conversationId: t.conversationId,
-                          task: { description: t.description, reward: t.reward, fromAgent: t.fromAgent } as BountyTask,
+                          conversationId: task.conversationId,
+                          task: { description: task.description, reward: task.reward, fromAgent: task.fromAgent } as BountyTask,
                         })}
                         activeOpacity={0.7}
                       >
-                        <Text style={s.resumeText}>RESUME</Text>
+                        <Text style={s.resumeText}>{t('earn.resume')}</Text>
                       </TouchableOpacity>
-                      {t.status !== 'delivered' && (
+                      {task.status !== 'delivered' && (
                         <TouchableOpacity
                           style={s.giveUpBtn}
-                          onPress={() => handleAbandonTask(t)}
+                          onPress={() => handleAbandonTask(task)}
                           activeOpacity={0.7}
                         >
-                          <Text style={s.giveUpText}>GIVE UP</Text>
+                          <Text style={s.giveUpText}>{t('earn.giveUp')}</Text>
                         </TouchableOpacity>
                       )}
                     </View>
@@ -962,7 +887,7 @@ export function EarnScreen() {
             {/* ── Pending bounties ──────────────────────────────────── */}
             {bounties.length > 0 && (
               <>
-                <Text style={[s.sectionLabel, activeTasks.length > 0 && { marginTop: 20 }]}>INCOMING BOUNTIES</Text>
+                <Text style={[s.sectionLabel, activeTasks.length > 0 && { marginTop: 20 }]}>{t('earn.incomingBounties')}</Text>
                 <FlatList
                   data={bounties}
                   keyExtractor={item => item.conversationId}
@@ -982,16 +907,16 @@ export function EarnScreen() {
             {/* ── Completed tasks ───────────────────────────────────── */}
             {completedTasks.length > 0 && (
               <>
-                <Text style={[s.sectionLabel, { marginTop: 20 }]}>COMPLETED</Text>
-                {completedTasks.map(t => (
-                  <View key={t.conversationId} style={[s.card, { marginBottom: 8, opacity: 0.7 }]}>
-                    <Text style={s.desc} numberOfLines={1}>{t.description}</Text>
+                <Text style={[s.sectionLabel, { marginTop: 20 }]}>{t('earn.completedSection')}</Text>
+                {completedTasks.map(task => (
+                  <View key={task.conversationId} style={[s.card, { marginBottom: 8, opacity: 0.7 }]}>
+                    <Text style={s.desc} numberOfLines={1}>{task.description}</Text>
                     <View style={s.meta}>
-                      <Text style={s.reward}>{t.reward}</Text>
+                      <Text style={s.reward}>{task.reward}</Text>
                       <Text style={s.dot}> · </Text>
-                      <Text style={s.from}>from {shortId(t.fromAgent)}</Text>
+                      <Text style={s.from}>{t('earn.from')} {shortId(task.fromAgent)}</Text>
                       <Text style={s.dot}> · </Text>
-                      <Text style={[s.time, { color: C.green }]}>done</Text>
+                      <Text style={[s.time, { color: colors.green }]}>{t('earn.done')}</Text>
                     </View>
                   </View>
                 ))}
@@ -1012,12 +937,12 @@ export function EarnScreen() {
       {/* Trade Tab */}
       {activeTab === 'trade' && (
         <ScrollView style={s.tradeRoot} contentContainerStyle={s.tradeContent}>
-          <Text style={s.sectionLabel}>JUPITER SWAP</Text>
+          <Text style={s.sectionLabel}>{t('earn.jupiterSwap')}</Text>
           <View style={s.card}>
-            <Text style={s.sub}>Swap using your agent's hot wallet. Whitelisted tokens only.</Text>
+            <Text style={s.sub}>{t('earn.swapHint')}</Text>
 
             <View style={s.swapBox}>
-              <Text style={s.tradeLabel}>From:</Text>
+              <Text style={s.tradeLabel}>{t('earn.swapFrom')}</Text>
               <View style={[s.tradeInputRow, { paddingVertical: 8 }]}>
                 <TouchableOpacity onPress={() => setPickerFor('input')} activeOpacity={0.7}>
                   <Text style={[s.tradeTokenBadge, s.tradeTokenTap]}>{inputToken.label} ▾</Text>
@@ -1028,7 +953,7 @@ export function EarnScreen() {
                   value={swapAmount}
                   onChangeText={setSwapAmount}
                   placeholder="0.00"
-                  placeholderTextColor={C.dim}
+                  placeholderTextColor={colors.dim}
                 />
               </View>
 
@@ -1036,34 +961,35 @@ export function EarnScreen() {
                 <TouchableOpacity
                   activeOpacity={0.7}
                   onPress={() => {
-                    setInputIdx(outputIdx);
-                    setOutputIdx(inputIdx);
+                    const prev = inputToken;
+                    setInputToken(outputToken);
+                    setOutputToken(prev);
                   }}
                 >
                   <Text style={s.swapIcon}>⇅</Text>
                 </TouchableOpacity>
               </View>
 
-              <Text style={s.tradeLabel}>To:</Text>
+              <Text style={s.tradeLabel}>{t('earn.swapTo')}</Text>
               <View style={[s.tradeInputRow, { paddingVertical: 14 }]}>
                 <TouchableOpacity onPress={() => setPickerFor('output')} activeOpacity={0.7}>
                   <Text style={[s.tradeTokenBadge, s.tradeTokenTap]}>{outputToken.label} ▾</Text>
                 </TouchableOpacity>
                 {quoteLoading ? (
-                  <ActivityIndicator size="small" color={C.green} />
+                  <ActivityIndicator size="small" color={colors.green} />
                 ) : quote ? (
                   <Text style={s.tradeInputVal}>
                     {(parseFloat(quote.outAmount) / 10 ** outputToken.decimals).toFixed(6)}
                   </Text>
                 ) : (
-                  <Text style={[s.tradeInputVal, { color: C.dim }]}>—</Text>
+                  <Text style={[s.tradeInputVal, { color: colors.dim }]}>—</Text>
                 )}
               </View>
 
               {quote && quote.priceImpactPct !== undefined && (
                 <View style={s.impactRow}>
-                  <Text style={s.impactLabel}>Price Impact:</Text>
-                  <Text style={[s.impactVal, quote.priceImpactPct > 1 ? { color: C.red } : { color: C.green }]}>
+                  <Text style={s.impactLabel}>{t('earn.priceImpact')}</Text>
+                  <Text style={[s.impactVal, quote.priceImpactPct > 1 ? { color: colors.red } : { color: colors.green }]}>
                     {quote.priceImpactPct.toFixed(2)}%
                   </Text>
                 </View>
@@ -1076,7 +1002,7 @@ export function EarnScreen() {
               onPress={handleSwap}
               disabled={swapping || !quote || inputToken.mint === outputToken.mint}
             >
-              <Text style={s.swapBtnText}>{swapping ? 'SWAPPING…' : 'SWAP'}</Text>
+              <Text style={s.swapBtnText}>{swapping ? t('earn.swapping') : t('earn.swap')}</Text>
             </TouchableOpacity>
           </View>
 
@@ -1086,69 +1012,67 @@ export function EarnScreen() {
             activeOpacity={0.7}
             onPress={() => setBagsExpanded(e => !e)}
           >
-            <Text style={s.sectionLabel}>BAGS.FM</Text>
+            <Text style={s.sectionLabel}>{t('earn.bagsFm')}</Text>
             <Text style={s.toggleChevron}>{bagsExpanded ? '▲' : '▼'}</Text>
           </TouchableOpacity>
 
           {bagsExpanded && (
             !bagsApiConfigured ? (
               <View style={s.bagsNotConfigured}>
-                <Text style={s.emptyText}>
-                  {'Set a Bags API key in Settings to\nlaunch and manage tokens.'}
-                </Text>
+                <Text style={s.emptyText}>{t('earn.bagsNotConfigured')}</Text>
                 <TouchableOpacity
                   style={[s.settingsBtn, { marginTop: 12 }]}
                   onPress={() => navigation.navigate('Settings')}
                 >
-                  <Text style={s.acceptText}>GO TO SETTINGS</Text>
+                  <Text style={s.acceptText}>{t('earn.goToSettings')}</Text>
                 </TouchableOpacity>
               </View>
             ) : (
               <>
                 {/* Launch form */}
-                <Text style={[s.sectionLabel, { marginTop: 12, marginBottom: 8 }]}>LAUNCH TOKEN</Text>
+                <Text style={[s.sectionLabel, { marginTop: 12, marginBottom: 8 }]}>{t('earn.launchToken')}</Text>
                 <View style={s.card}>
-                  <BagsField label="NAME" value={launchName} onChange={setLaunchName} placeholder="My Token" />
-                  <BagsField label="SYMBOL" value={launchSymbol} onChange={v => setLaunchSymbol(v.toUpperCase())} placeholder="TKN" maxLength={10} />
-                  <BagsField label="DESCRIPTION" value={launchDesc} onChange={setLaunchDesc} placeholder="A token for…" multiline />
+                  <BagsField label={t('earn.fieldName')} value={launchName} onChange={setLaunchName} placeholder="My Token" />
+                  <BagsField label={t('earn.fieldSymbol')} value={launchSymbol} onChange={v => setLaunchSymbol(v.toUpperCase())} placeholder="TKN" maxLength={10} />
+                  <BagsField label={t('earn.fieldDescription')} value={launchDesc} onChange={setLaunchDesc} placeholder="A token for…" multiline />
                   {/* Image picker */}
                   <View style={{ marginBottom: 12 }}>
-                    <Text style={{ fontSize: 9, color: C.sub, letterSpacing: 2, fontFamily: 'monospace', marginBottom: 4 }}>
-                      IMAGE (optional)
+                    <Text style={{ fontSize: 9, color: colors.sub, letterSpacing: 2, fontFamily: 'monospace', marginBottom: 4 }}>
+                      {t('earn.imageOptional')}
                     </Text>
                     <TouchableOpacity
-                      style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: C.bg, borderWidth: 1, borderColor: C.dim, borderRadius: 3, paddingHorizontal: 10, paddingVertical: 8, gap: 8 }}
+                      style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.dim, borderRadius: 3, paddingHorizontal: 10, paddingVertical: 8, gap: 8 }}
                       onPress={handlePickImage}
                       activeOpacity={0.7}
                     >
-                      <Text style={{ fontSize: 13, color: launchImageBytes ? C.green : C.dim, fontFamily: 'monospace', flex: 1 }} numberOfLines={1}>
-                        {launchImageName ?? 'Tap to pick image…'}
+                      <Text style={{ fontSize: 13, color: launchImageBytes ? colors.green : colors.dim, fontFamily: 'monospace', flex: 1 }} numberOfLines={1}>
+                        {launchImageName ?? t('earn.tapToPickImage')}
                       </Text>
                       {launchImageBytes && (
                         <TouchableOpacity onPress={() => { setLaunchImageBytes(null); setLaunchImageName(null); }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                          <Text style={{ fontSize: 11, color: C.red, fontFamily: 'monospace' }}>✕</Text>
+                          <Text style={{ fontSize: 11, color: colors.red, fontFamily: 'monospace' }}>✕</Text>
                         </TouchableOpacity>
                       )}
                     </TouchableOpacity>
                   </View>
-                  <BagsField label="WEBSITE" value={launchWebUrl} onChange={setLaunchWebUrl} placeholder="https://…" optional />
-                  <BagsField label="TWITTER" value={launchTwitter} onChange={setLaunchTwitter} placeholder="https://x.com/…" optional />
-                  <BagsField label="TELEGRAM" value={launchTelegram} onChange={setLaunchTelegram} placeholder="https://t.me/…" optional />
-                  <BagsField label="INITIAL BUY (SOL)" value={launchInitialBuy} onChange={setLaunchInitialBuy} placeholder="0 (skip)" optional keyboardType="decimal-pad" />
+                  <BagsField label={t('earn.fieldWebsite')} value={launchWebUrl} onChange={setLaunchWebUrl} placeholder="https://…" optional />
+                  <BagsField label={t('earn.fieldTwitter')} value={launchTwitter} onChange={setLaunchTwitter} placeholder="https://x.com/…" optional />
+                  <BagsField label={t('earn.fieldTelegram')} value={launchTelegram} onChange={setLaunchTelegram} placeholder="https://t.me/…" optional />
+                  <BagsField label={t('earn.fieldInitialBuy')} value={launchInitialBuy} onChange={setLaunchInitialBuy} placeholder="0 (skip)" optional keyboardType="decimal-pad" />
                   <TouchableOpacity
                     style={[s.swapBtn, (launching || !launchName.trim() || !launchSymbol.trim() || !launchDesc.trim()) && { opacity: 0.4 }]}
                     activeOpacity={0.8}
                     onPress={handleBagsLaunch}
                     disabled={launching || !launchName.trim() || !launchSymbol.trim() || !launchDesc.trim()}
                   >
-                    <Text style={s.swapBtnText}>{launching ? 'LAUNCHING…' : 'LAUNCH ON BAGS.FM'}</Text>
+                    <Text style={s.swapBtnText}>{launching ? t('earn.launching') : t('earn.launchOnBags')}</Text>
                   </TouchableOpacity>
                 </View>
 
                 {/* Positions */}
                 {bagsPositions.length > 0 && (
                   <>
-                    <Text style={[s.sectionLabel, { marginTop: 20 }]}>MY TOKENS</Text>
+                    <Text style={[s.sectionLabel, { marginTop: 20 }]}>{t('earn.myTokens')}</Text>
                     {bagsPositions.map(token => (
                       <View key={token.token_mint} style={[s.card, { marginBottom: 10 }]}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1162,7 +1086,7 @@ export function EarnScreen() {
                             disabled={claiming === token.token_mint}
                             activeOpacity={0.8}
                           >
-                            <Text style={s.acceptText}>{claiming === token.token_mint ? '…' : 'CLAIM'}</Text>
+                            <Text style={s.acceptText}>{claiming === token.token_mint ? t('common.loading') : t('earn.claim')}</Text>
                           </TouchableOpacity>
                         </View>
                       </View>
@@ -1182,95 +1106,116 @@ export function EarnScreen() {
           contentContainerStyle={s.tradeContent}
           refreshControl={
             <RefreshControl
-              refreshing={leaderboardLoading}
-              onRefresh={fetchLeaderboard}
-              tintColor={C.green}
-              colors={[C.green]}
+              refreshing={skrLeague.loading}
+              onRefresh={skrLeague.refresh}
+              tintColor={colors.green}
+              colors={[colors.green]}
             />
           }
         >
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <Text style={s.sectionLabel}>BAGS TOKEN RANKINGS</Text>
-            <TouchableOpacity onPress={() => fetchLeaderboard()} disabled={leaderboardLoading}>
-              <Text style={{ fontSize: 9, color: C.sub, fontFamily: 'monospace', letterSpacing: 2 }}>
-                {leaderboardLoading ? '…' : 'REFRESH'}
+            <Text style={s.sectionLabel}>{t('earn.skrLeague')}</Text>
+            <TouchableOpacity onPress={() => skrLeague.refresh()} disabled={skrLeague.loading}>
+              <Text style={{ fontSize: 9, color: colors.sub, fontFamily: 'monospace', letterSpacing: 2 }}>
+                {skrLeague.loading ? t('common.loading') : t('common.refresh')}
               </Text>
             </TouchableOpacity>
           </View>
 
-          {/* Sort toggles */}
-          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
-            {(['volume', 'change'] as const).map(mode => (
-              <TouchableOpacity
-                key={mode}
-                style={[s.sortBtn, leaderboardSort === mode && s.sortBtnActive]}
-                onPress={() => setLeaderboardSort(mode)}
-                activeOpacity={0.7}
-              >
-                <Text style={[s.sortBtnText, leaderboardSort === mode && s.sortBtnTextActive]}>
-                  {mode === 'volume' ? '24H VOL' : '24H CHANGE'}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          {leaderboardError ? (
-            <View style={{ backgroundColor: '#1a0505', borderWidth: 1, borderColor: C.red, borderRadius: 4, padding: 12, marginBottom: 12 }}>
-              <Text style={{ color: C.red, fontFamily: 'monospace', fontSize: 11 }}>{leaderboardError}</Text>
+          {skrLeague.error ? (
+            <View style={{ backgroundColor: '#1a0505', borderWidth: 1, borderColor: colors.red, borderRadius: 4, padding: 12, marginBottom: 12 }}>
+              <Text style={{ color: colors.red, fontFamily: 'monospace', fontSize: 11 }}>{skrLeague.error}</Text>
             </View>
           ) : null}
 
-          {leaderboardLoading && leaderboardData.length === 0 ? (
-            <ActivityIndicator color={C.green} style={{ marginTop: 40 }} />
+          {skrLeague.data && (
+            <View style={[s.card, { marginBottom: 12 }]}>
+              <Text style={s.desc}>{skrLeague.data.season}</Text>
+              <View style={s.meta}>
+                <Text style={s.reward}>{skrLeague.data.reward_pool_skr.toLocaleString()} SKR</Text>
+                <Text style={s.dot}> · </Text>
+                <Text style={s.from}>{t('earn.skrMin', { amount: skrLeague.data.min_skr.toLocaleString() })}</Text>
+                {skrLeague.data.wallet.rank ? (
+                  <>
+                    <Text style={s.dot}> · </Text>
+                    <Text style={s.from}>{t('earn.skrRank', { rank: skrLeague.data.wallet.rank })}</Text>
+                  </>
+                ) : null}
+              </View>
+              <Text style={[s.from, { marginTop: 8 }]}>
+                {t('earn.skrBalance', { amount: skrLeague.data.wallet.skr_balance.toLocaleString(undefined, { maximumFractionDigits: 2 }) })}
+              </Text>
+              <Text style={[s.from, { marginTop: 6 }]}>
+                {t('earn.skrEarnRate', {
+                  rate: `${skrLeague.data.wallet.earn_rate_pct >= 0 ? '+' : ''}${skrLeague.data.wallet.earn_rate_pct.toFixed(2)}`,
+                  trades: skrLeague.data.wallet.trade_count,
+                  days: skrLeague.data.wallet.active_days,
+                })}
+              </Text>
+              <Text style={[s.from, { marginTop: 6, color: colors.sub }]}>
+                {t('earn.skrBagsClaimed', {
+                  sol: skrLeague.data.wallet.bags_fee_score.toLocaleString(undefined, { maximumFractionDigits: 4 }),
+                  pts: skrLeague.data.wallet.points.toLocaleString(),
+                })}
+              </Text>
+              <Text style={[s.desc, { marginTop: 8, color: skrLeague.data.wallet.has_access ? colors.green : colors.amber }]}>
+                {!skrLeague.data.wallet.wallet
+                  ? t('earn.skrLinkWallet')
+                  : skrLeague.data.wallet.access_message}
+              </Text>
+              <View style={{ marginTop: 12 }}>
+                {skrLeague.data.scoring.map((line, idx) => (
+                  <Text key={`scoring-${idx}`} style={[s.from, { marginBottom: 4, color: colors.sub }]}>{line}</Text>
+                ))}
+              </View>
+              <View style={{ marginTop: 12 }}>
+                {skrLeague.data.rewards.map((reward, idx) => (
+                  <Text key={idx} style={[s.from, { marginBottom: 4 }]}>{reward}</Text>
+                ))}
+              </View>
+            </View>
+          )}
+
+          {skrLeague.loading && !skrLeague.data ? (
+            <ActivityIndicator color={colors.green} style={{ marginTop: 40 }} />
           ) : (
             <FlatList
-              data={sortedLeaderboard}
-              keyExtractor={item => item.mint}
+              data={skrLeague.data?.leaderboard ?? []}
+              keyExtractor={item => item.wallet}
               scrollEnabled={false}
               ListEmptyComponent={
                 <View style={s.empty}>
                   <Text style={s.emptyText}>
-                    {allMints.length === 0
-                      ? (phantom.address
-                        ? 'No tokens found in your wallet.\n\nLaunch a token in the TRADE tab.'
-                        : 'Connect Phantom in Settings to see your tokens.')
-                      : 'No data yet'}
+                    {skrLeague.data?.wallet.wallet
+                      ? t('earn.skrNoEntries')
+                      : t('earn.skrLinkWallet')}
                   </Text>
                 </View>
               }
-              renderItem={({ item: token, index: i }) => {
-                const changePos = token.priceChange24h >= 0;
-                const changeColor = changePos ? C.green : C.red;
+              renderItem={({ item }) => {
                 return (
-                  <View key={token.mint} style={[s.card, { marginBottom: 10 }]}>
+                  <View key={item.wallet} style={[s.card, { marginBottom: 10 }]}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                      <Text style={s.rankNum}>#{i + 1}</Text>
+                      <Text style={s.rankNum}>#{item.rank}</Text>
                       <View style={{ flex: 1 }}>
-                        <Text style={s.agentName}>{token.name || token.symbol}</Text>
-                        <Text style={s.agentId}>{token.symbol} · {shortId(token.mint)}</Text>
+                        <Text style={s.agentName}>{item.label}</Text>
+                        <Text style={s.agentId}>{shortId(item.wallet)}</Text>
                       </View>
                       <View style={{ alignItems: 'flex-end' }}>
-                        <Text style={[s.lbPrice, !token.priceUsd && { color: C.sub }]}>
-                          {token.priceUsd ? `$${token.priceUsd < 0.01 ? token.priceUsd.toExponential(2) : token.priceUsd.toFixed(4)}` : '—'}
-                        </Text>
-                        <Text style={[s.lbChange, { color: changeColor }]}>
-                          {token.priceChange24h !== 0 ? `${changePos ? '+' : ''}${token.priceChange24h.toFixed(2)}%` : '—'}
-                        </Text>
+                        <Text style={s.lbPrice}>{item.earn_rate_pct >= 0 ? '+' : ''}{item.earn_rate_pct.toFixed(2)}%</Text>
+                        <Text style={[s.lbChange, { color: item.earn_rate_pct >= 0 ? colors.green : colors.red }]}>{t('earn.skrEarnRateLabel')}</Text>
                       </View>
                     </View>
-                    {token.volume24h > 0 && (
-                      <View style={s.lbMetaRow}>
-                        <Text style={s.lbMetaLabel}>VOL 24H</Text>
-                        <Text style={s.lbMetaVal}>${token.volume24h >= 1000 ? `${(token.volume24h / 1000).toFixed(1)}K` : token.volume24h.toFixed(0)}</Text>
-                        {token.marketCap > 0 && (
-                          <>
-                            <Text style={s.lbMetaDot}> · </Text>
-                            <Text style={s.lbMetaLabel}>MCAP</Text>
-                            <Text style={s.lbMetaVal}>${token.marketCap >= 1e6 ? `${(token.marketCap / 1e6).toFixed(1)}M` : token.marketCap >= 1000 ? `${(token.marketCap / 1000).toFixed(1)}K` : token.marketCap.toFixed(0)}</Text>
-                          </>
-                        )}
-                      </View>
-                    )}
+                    <View style={s.lbMetaRow}>
+                      <Text style={s.lbMetaLabel}>{t('earn.skrTradesDaysPts', { trades: item.trade_count, days: item.active_days, pts: item.points })}</Text>
+                      <Text style={s.lbMetaDot}> · </Text>
+                      <Text style={s.lbMetaLabel}>{t('earn.skrBagsClaimedLabel')}</Text>
+                      <Text style={s.lbMetaVal}>{item.bags_fee_score.toLocaleString(undefined, { maximumFractionDigits: 4 })} SOL</Text>
+                    </View>
+                    <View style={[s.lbMetaRow, { marginTop: 4 }]}>
+                      <Text style={s.lbMetaLabel}>{t('earn.skrBalanceLabel')}</Text>
+                      <Text style={s.lbMetaVal}>{item.skr_balance.toLocaleString(undefined, { maximumFractionDigits: 2 })} SKR</Text>
+                    </View>
                   </View>
                 );
               }}
@@ -1284,30 +1229,78 @@ export function EarnScreen() {
         <Modal transparent animationType="slide" onRequestClose={() => setPickerFor(null)}>
           <Pressable style={s.overlay} onPress={() => setPickerFor(null)} />
           <View style={s.sheet}>
-            <Text style={s.sheetTitle}>SELECT TOKEN</Text>
-            {quoteLoading ? (
-              <ActivityIndicator color={C.green} style={{ marginVertical: 24 }} />
-            ) : (
-              SWAP_TOKENS.map((t, i) => {
-                const isOtherSide = pickerFor === 'input' ? i === outputIdx : i === inputIdx;
+            <Text style={s.sheetTitle}>{t('earn.selectToken')}</Text>
+            <ScrollView style={{ maxHeight: 320 }} keyboardShouldPersistTaps="handled">
+              {allTokens.map((tok) => {
+                const otherMint = pickerFor === 'input' ? outputToken.mint : inputToken.mint;
+                const isOtherSide = tok.mint === otherMint;
                 return (
                   <TouchableOpacity
-                    key={t.mint}
+                    key={tok.mint}
                     style={[s.agentRow, isOtherSide && { opacity: 0.3 }]}
                     onPress={() => {
                       if (isOtherSide) return;
-                      if (pickerFor === 'input') setInputIdx(i);
-                      else setOutputIdx(i);
+                      if (pickerFor === 'input') setInputToken(tok);
+                      else setOutputToken(tok);
                       setPickerFor(null);
+                      setCaInput('');
                     }}
                     activeOpacity={0.7}
                   >
-                    <Text style={s.agentName}>{t.label}</Text>
-                    <Text style={s.agentId}>{t.mint.slice(0, 8)}…</Text>
+                    <Text style={s.agentName}>{tok.label}</Text>
+                    <Text style={s.agentId}>{tok.mint.slice(0, 8)}…</Text>
                   </TouchableOpacity>
                 );
-              })
-            )}
+              })}
+            </ScrollView>
+
+            {/* Custom CA entry */}
+            <View style={{ marginTop: 12, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 12 }}>
+              <Text style={[s.tradeLabel, { marginBottom: 6 }]}>OR ENTER CONTRACT ADDRESS</Text>
+              <TextInput
+                style={[s.tradeInputVal, { flex: undefined, borderWidth: 1, borderColor: colors.border, borderRadius: 4, paddingHorizontal: 10, paddingVertical: 8, marginBottom: 6 }]}
+                value={caInput}
+                onChangeText={setCaInput}
+                placeholder="Mint address (base58)…"
+                placeholderTextColor={colors.dim}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                <Text style={{ color: colors.sub, fontSize: 12, fontFamily: 'monospace' }}>DECIMALS</Text>
+                <TextInput
+                  style={[s.tradeInputVal, { flex: undefined, width: 60, borderWidth: 1, borderColor: colors.border, borderRadius: 4, paddingHorizontal: 10, paddingVertical: 6, textAlign: 'center' }]}
+                  value={caDecimals}
+                  onChangeText={setCaDecimals}
+                  keyboardType="number-pad"
+                  placeholder="6"
+                  placeholderTextColor={colors.dim}
+                />
+                <TouchableOpacity
+                  style={[s.swapBtn, { flex: 1, paddingVertical: 8, marginBottom: 0 }, !BASE58_RE.test(caInput.trim()) && { opacity: 0.4 }]}
+                  activeOpacity={0.8}
+                  disabled={!BASE58_RE.test(caInput.trim())}
+                  onPress={() => {
+                    const mint = caInput.trim();
+                    const dec = parseInt(caDecimals, 10);
+                    if (!BASE58_RE.test(mint)) return;
+                    const decimals = isNaN(dec) ? 6 : Math.max(0, Math.min(18, dec));
+                    const label = mint.slice(0, 4) + '…' + mint.slice(-4);
+                    const tok: SwapToken = { label, mint, decimals };
+                    const already = allTokens.find(t => t.mint === mint);
+                    const resolved = already ?? tok;
+                    if (!already) setCustomTokens(prev => [...prev, tok]);
+                    if (pickerFor === 'input') setInputToken(resolved);
+                    else setOutputToken(resolved);
+                    setPickerFor(null);
+                    setCaInput('');
+                    setCaDecimals('6');
+                  }}
+                >
+                  <Text style={s.swapBtnText}>ADD</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
           </View>
         </Modal>
       )}
@@ -1318,109 +1311,111 @@ export function EarnScreen() {
 
 // ── Styles ────────────────────────────────────────────────────────────────
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: C.bg },
-  header: { paddingHorizontal: 20, paddingTop: 16, borderBottomWidth: 1, borderBottomColor: C.border },
+function useStyles(colors: ThemeColors) {
+  return React.useMemo(() => StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.bg },
+  header: { paddingHorizontal: 20, paddingTop: 16, borderBottomWidth: 1, borderBottomColor: colors.border },
   tabRow: { flexDirection: 'row', gap: 24, paddingBottom: 0 },
   tabBtn: { paddingBottom: 12, borderBottomWidth: 2, borderBottomColor: 'transparent' },
-  tabActive: { borderBottomColor: C.green },
-  tabText: { fontSize: 13, fontWeight: '700', color: C.dim, letterSpacing: 2, fontFamily: 'monospace' },
-  tabTextActive: { color: C.text },
+  tabActive: { borderBottomColor: colors.green },
+  tabText: { fontSize: 13, fontWeight: '700', color: colors.dim, letterSpacing: 2, fontFamily: 'monospace' },
+  tabTextActive: { color: colors.text },
   subHeader: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 4 },
-  title: { fontSize: 13, fontWeight: '700', color: C.text, letterSpacing: 3, fontFamily: 'monospace' },
-  sub: { fontSize: 11, color: C.sub, fontFamily: 'monospace' },
+  title: { fontSize: 13, fontWeight: '700', color: colors.text, letterSpacing: 3, fontFamily: 'monospace' },
+  sub: { fontSize: 11, color: colors.sub, fontFamily: 'monospace' },
   list: { padding: 16, gap: 12 },
-  card: { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, padding: 16 },
-  desc: { fontSize: 14, color: C.text, fontFamily: 'monospace', lineHeight: 20, marginBottom: 10 },
+  card: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 4, padding: 16 },
+  desc: { fontSize: 14, color: colors.text, fontFamily: 'monospace', lineHeight: 20, marginBottom: 10 },
   meta: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 },
-  reward: { fontSize: 11, color: C.green, fontFamily: 'monospace', fontWeight: '700' },
-  dot: { fontSize: 11, color: C.dim },
-  from: { fontSize: 11, color: C.sub, fontFamily: 'monospace' },
-  badge8004: { backgroundColor: '#00e67614', borderWidth: 1, borderColor: C.green + '50', borderRadius: 3, paddingHorizontal: 4, paddingVertical: 1, marginLeft: 5 },
-  badge8004Text: { fontSize: 8, color: C.green, fontFamily: 'monospace', fontWeight: '700', letterSpacing: 1 },
-  time: { fontSize: 11, color: C.sub, fontFamily: 'monospace' },
+  reward: { fontSize: 11, color: colors.green, fontFamily: 'monospace', fontWeight: '700' },
+  dot: { fontSize: 11, color: colors.dim },
+  from: { fontSize: 11, color: colors.sub, fontFamily: 'monospace' },
+  badge8004: { backgroundColor: '#00e67614', borderWidth: 1, borderColor: colors.green + '50', borderRadius: 3, paddingHorizontal: 4, paddingVertical: 1, marginLeft: 5 },
+  badge8004Text: { fontSize: 8, color: colors.green, fontFamily: 'monospace', fontWeight: '700', letterSpacing: 1 },
+  time: { fontSize: 11, color: colors.sub, fontFamily: 'monospace' },
   actions: { flexDirection: 'row', gap: 10 },
-  skipBtn: { flex: 1, borderWidth: 1, borderColor: C.dim, borderRadius: 3, paddingVertical: 9, alignItems: 'center' },
-  skipText: { fontSize: 11, color: C.sub, letterSpacing: 2, fontWeight: '700' },
-  rejectBountyBtn: { flex: 1, borderWidth: 1, borderColor: C.red + '60', borderRadius: 3, paddingVertical: 9, alignItems: 'center' },
-  rejectBountyText: { fontSize: 11, color: C.red, letterSpacing: 2, fontWeight: '700' },
-  acceptBtn: { flex: 2, backgroundColor: C.green, borderRadius: 3, paddingVertical: 9, alignItems: 'center' },
+  skipBtn: { flex: 1, borderWidth: 1, borderColor: colors.dim, borderRadius: 3, paddingVertical: 9, alignItems: 'center' },
+  skipText: { fontSize: 11, color: colors.sub, letterSpacing: 2, fontWeight: '700' },
+  rejectBountyBtn: { flex: 1, borderWidth: 1, borderColor: colors.red + '60', borderRadius: 3, paddingVertical: 9, alignItems: 'center' },
+  rejectBountyText: { fontSize: 11, color: colors.red, letterSpacing: 2, fontWeight: '700' },
+  acceptBtn: { flex: 2, backgroundColor: colors.green, borderRadius: 3, paddingVertical: 9, alignItems: 'center' },
   acceptText: { fontSize: 11, color: '#000', letterSpacing: 2, fontWeight: '700' },
-  settingsBtn: { backgroundColor: C.green, borderRadius: 3, paddingVertical: 10, paddingHorizontal: 28, alignItems: 'center', marginTop: 16 },
+  settingsBtn: { backgroundColor: colors.green, borderRadius: 3, paddingVertical: 10, paddingHorizontal: 28, alignItems: 'center', marginTop: 16 },
   empty: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 },
-  emptyText: { color: C.sub, fontFamily: 'monospace', textAlign: 'center', lineHeight: 22, fontSize: 13 },
+  emptyText: { color: colors.sub, fontFamily: 'monospace', textAlign: 'center', lineHeight: 22, fontSize: 13 },
   // agent picker
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)' },
-  sheet: { backgroundColor: '#111', borderTopWidth: 1, borderTopColor: C.border, padding: 24, gap: 4 },
-  sheetTitle: { fontSize: 11, color: C.sub, letterSpacing: 3, marginBottom: 12, fontFamily: 'monospace' },
-  agentRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.border },
-  agentName: { fontSize: 14, color: C.text, fontFamily: 'monospace', fontWeight: '700' },
-  agentId: { fontSize: 10, color: C.sub, fontFamily: 'monospace', marginTop: 2 },
+  sheet: { backgroundColor: colors.input, borderTopWidth: 1, borderTopColor: colors.border, padding: 24, gap: 4 },
+  sheetTitle: { fontSize: 11, color: colors.sub, letterSpacing: 3, marginBottom: 12, fontFamily: 'monospace' },
+  agentRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.border },
+  agentName: { fontSize: 14, color: colors.text, fontFamily: 'monospace', fontWeight: '700' },
+  agentId: { fontSize: 10, color: colors.sub, fontFamily: 'monospace', marginTop: 2 },
   badge: { borderRadius: 3, paddingHorizontal: 8, paddingVertical: 3 },
-  badgeLocal: { backgroundColor: C.green + '20', borderWidth: 1, borderColor: C.green + '60' },
-  badgeHosted: { backgroundColor: C.amber + '20', borderWidth: 1, borderColor: C.amber + '60' },
+  badgeLocal: { backgroundColor: colors.green + '20', borderWidth: 1, borderColor: colors.green + '60' },
+  badgeHosted: { backgroundColor: colors.amber + '20', borderWidth: 1, borderColor: colors.amber + '60' },
   badgeText: { fontSize: 9, fontWeight: '700', letterSpacing: 2 },
 
   // Trade TAB
   tradeRoot: { flex: 1 },
   tradeContent: { padding: 20 },
-  sectionLabel: { fontSize: 11, color: C.sub, letterSpacing: 3, marginBottom: 10, marginTop: 4, fontFamily: 'monospace' },
-  swapBox: { backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 4, padding: 14, marginTop: 16, marginBottom: 16 },
-  tradeLabel: { fontSize: 10, color: C.sub, fontFamily: 'monospace', letterSpacing: 1, marginBottom: 8 },
-  tradeInputRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#111', padding: 12, borderRadius: 3, borderWidth: 1, borderColor: C.dim },
-  tradeTokenBadge: { fontSize: 14, color: C.text, fontWeight: '700', fontFamily: 'monospace' },
-  tradeTokenTap: { color: C.green, borderWidth: 1, borderColor: C.green + '60', borderRadius: 3, paddingHorizontal: 8, paddingVertical: 4 },
-  tradeInputVal: { fontSize: 18, color: C.text, fontFamily: 'monospace' },
+  sectionLabel: { fontSize: 11, color: colors.sub, letterSpacing: 3, marginBottom: 10, marginTop: 4, fontFamily: 'monospace' },
+  swapBox: { backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border, borderRadius: 4, padding: 14, marginTop: 16, marginBottom: 16 },
+  tradeLabel: { fontSize: 10, color: colors.sub, fontFamily: 'monospace', letterSpacing: 1, marginBottom: 8 },
+  tradeInputRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.input, padding: 12, borderRadius: 3, borderWidth: 1, borderColor: colors.dim },
+  tradeTokenBadge: { fontSize: 14, color: colors.text, fontWeight: '700', fontFamily: 'monospace' },
+  tradeTokenTap: { color: colors.green, borderWidth: 1, borderColor: colors.green + '60', borderRadius: 3, paddingHorizontal: 8, paddingVertical: 4 },
+  tradeInputVal: { fontSize: 18, color: colors.text, fontFamily: 'monospace' },
   swapIconRow: { alignItems: 'center', paddingVertical: 8 },
-  swapIcon: { fontSize: 16, color: C.dim, fontFamily: 'monospace', fontWeight: '700' },
-  swapBtn: { backgroundColor: C.blue || '#2979ff', borderRadius: 4, paddingVertical: 14, alignItems: 'center' },
+  swapIcon: { fontSize: 16, color: colors.dim, fontFamily: 'monospace', fontWeight: '700' },
+  swapBtn: { backgroundColor: colors.blue || '#2979ff', borderRadius: 4, paddingVertical: 14, alignItems: 'center' },
   swapBtnText: { fontSize: 12, fontWeight: '700', color: '#fff', letterSpacing: 2, fontFamily: 'monospace' },
   impactRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12, paddingHorizontal: 4 },
-  impactLabel: { fontSize: 10, color: C.sub, fontFamily: 'monospace' },
+  impactLabel: { fontSize: 10, color: colors.sub, fontFamily: 'monospace' },
   impactVal: { fontSize: 10, fontWeight: '700', fontFamily: 'monospace' },
   // Leaderboard
-  rankNum: { fontSize: 16, color: C.sub, fontFamily: 'monospace', fontWeight: '700', width: 28 },
-  lbPrice: { fontSize: 13, color: C.text, fontFamily: 'monospace', fontWeight: '700' },
+  rankNum: { fontSize: 16, color: colors.sub, fontFamily: 'monospace', fontWeight: '700', width: 28 },
+  lbPrice: { fontSize: 13, color: colors.text, fontFamily: 'monospace', fontWeight: '700' },
   lbChange: { fontSize: 11, fontFamily: 'monospace', fontWeight: '700', marginTop: 2 },
-  lbMetaRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10, paddingTop: 8, borderTopWidth: 1, borderTopColor: C.border },
-  lbMetaLabel: { fontSize: 9, color: C.sub, letterSpacing: 2, fontFamily: 'monospace' },
-  lbMetaVal: { fontSize: 11, color: C.text, fontFamily: 'monospace', marginLeft: 4 },
-  lbMetaDot: { fontSize: 11, color: C.dim, marginHorizontal: 4 },
-  sortBtn: { paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: C.border, borderRadius: 3 },
-  sortBtnActive: { borderColor: C.green, backgroundColor: '#00e67615' },
-  sortBtnText: { fontSize: 9, color: C.sub, letterSpacing: 2, fontFamily: 'monospace', fontWeight: '700' },
-  sortBtnTextActive: { color: C.green },
+  lbMetaRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10, paddingTop: 8, borderTopWidth: 1, borderTopColor: colors.border },
+  lbMetaLabel: { fontSize: 9, color: colors.sub, letterSpacing: 2, fontFamily: 'monospace' },
+  lbMetaVal: { fontSize: 11, color: colors.text, fontFamily: 'monospace', marginLeft: 4 },
+  lbMetaDot: { fontSize: 11, color: colors.dim, marginHorizontal: 4 },
+  sortBtn: { paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: colors.border, borderRadius: 3 },
+  sortBtnActive: { borderColor: colors.green, backgroundColor: '#00e67615' },
+  sortBtnText: { fontSize: 9, color: colors.sub, letterSpacing: 2, fontFamily: 'monospace', fontWeight: '700' },
+  sortBtnTextActive: { color: colors.green },
   // Bags collapsible
   sectionToggle: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 24, marginBottom: 4 },
-  toggleChevron: { fontSize: 10, color: C.sub, fontFamily: 'monospace' },
-  bagsNotConfigured: { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, padding: 20, alignItems: 'center', marginTop: 8 },
+  toggleChevron: { fontSize: 10, color: colors.sub, fontFamily: 'monospace' },
+  bagsNotConfigured: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 4, padding: 20, alignItems: 'center', marginTop: 8 },
 
   // Earnings summary bar
-  earningsBar: { flexDirection: 'row', backgroundColor: C.card, borderBottomWidth: 1, borderBottomColor: C.border, paddingVertical: 12, paddingHorizontal: 16 },
+  earningsBar: { flexDirection: 'row', backgroundColor: colors.card, borderBottomWidth: 1, borderBottomColor: colors.border, paddingVertical: 12, paddingHorizontal: 16 },
   earningStat: { flex: 1, alignItems: 'center' },
-  earningVal: { fontSize: 16, fontWeight: '700', color: C.green, fontFamily: 'monospace' },
-  earningLabel: { fontSize: 8, color: C.sub, letterSpacing: 2, fontFamily: 'monospace', marginTop: 2 },
-  earningDivider: { width: 1, backgroundColor: C.border, marginVertical: 2 },
+  earningVal: { fontSize: 16, fontWeight: '700', color: colors.green, fontFamily: 'monospace' },
+  earningLabel: { fontSize: 8, color: colors.sub, letterSpacing: 2, fontFamily: 'monospace', marginTop: 2 },
+  earningDivider: { width: 1, backgroundColor: colors.border, marginVertical: 2 },
 
   // Auto-accept row
-  autoAcceptRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.border },
-  autoAcceptBtn: { borderWidth: 1, borderColor: C.dim, borderRadius: 3, paddingHorizontal: 10, paddingVertical: 4 },
-  autoAcceptBtnOn: { borderColor: C.green, backgroundColor: '#00e67615' },
-  autoAcceptText: { fontSize: 9, color: C.dim, letterSpacing: 2, fontFamily: 'monospace', fontWeight: '700' },
-  autoAcceptTextOn: { color: C.green },
+  autoAcceptRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border },
+  autoAcceptBtn: { borderWidth: 1, borderColor: colors.dim, borderRadius: 3, paddingHorizontal: 10, paddingVertical: 4 },
+  autoAcceptBtnOn: { borderColor: colors.green, backgroundColor: '#00e67615' },
+  autoAcceptText: { fontSize: 9, color: colors.dim, letterSpacing: 2, fontFamily: 'monospace', fontWeight: '700' },
+  autoAcceptTextOn: { color: colors.green },
 
   // Empty state (inline, not full-screen)
   emptyInline: { alignItems: 'center', paddingVertical: 40, paddingHorizontal: 20 },
-  inlineStartBtn: { backgroundColor: C.green, borderRadius: 4, paddingVertical: 12, paddingHorizontal: 32, marginTop: 16 },
+  inlineStartBtn: { backgroundColor: colors.green, borderRadius: 4, paddingVertical: 12, paddingHorizontal: 32, marginTop: 16 },
 
   // Active task card
-  activeTaskCard: { borderLeftWidth: 3, borderLeftColor: C.amber, marginBottom: 10 },
+  activeTaskCard: { borderLeftWidth: 3, borderLeftColor: colors.amber, marginBottom: 10 },
   taskStatusRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
-  taskStatusDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.amber, marginRight: 6 },
-  taskStatusText: { fontSize: 9, color: C.amber, letterSpacing: 2, fontFamily: 'monospace', fontWeight: '700' },
+  taskStatusDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.amber, marginRight: 6 },
+  taskStatusText: { fontSize: 9, color: colors.amber, letterSpacing: 2, fontFamily: 'monospace', fontWeight: '700' },
   activeTaskActions: { flexDirection: 'row', gap: 8, marginTop: 10 },
-  resumeBtn: { borderWidth: 1, borderColor: C.green + '80', borderRadius: 3, paddingHorizontal: 12, paddingVertical: 6 },
-  resumeText: { fontSize: 10, color: C.green, fontWeight: '700', letterSpacing: 2, fontFamily: 'monospace' },
-  giveUpBtn: { borderWidth: 1, borderColor: C.red + '60', borderRadius: 3, paddingHorizontal: 12, paddingVertical: 6 },
-  giveUpText: { fontSize: 10, color: C.red, fontWeight: '700', letterSpacing: 2, fontFamily: 'monospace' },
-});
+  resumeBtn: { borderWidth: 1, borderColor: colors.green + '80', borderRadius: 3, paddingHorizontal: 12, paddingVertical: 6 },
+  resumeText: { fontSize: 10, color: colors.green, fontWeight: '700', letterSpacing: 2, fontFamily: 'monospace' },
+  giveUpBtn: { borderWidth: 1, borderColor: colors.red + '60', borderRadius: 3, paddingHorizontal: 12, paddingVertical: 6 },
+  giveUpText: { fontSize: 10, color: colors.red, fontWeight: '700', letterSpacing: 2, fontFamily: 'monospace' },
+  }), [colors]);
+}

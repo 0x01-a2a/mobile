@@ -24,6 +24,15 @@ export type Capability =
   | 'code_review'
   | 'data_analysis';
 
+export const CAPABILITY_LABEL_KEYS: Record<Capability, string> = {
+  summarization: 'common.capSummarization',
+  qa: 'common.capQa',
+  translation: 'common.capTranslation',
+  code_review: 'common.capCodeReview',
+  data_analysis: 'common.capDataAnalysis',
+};
+
+// Kept for backwards compat — prefer using CAPABILITY_LABEL_KEYS + t()
 export const CAPABILITY_LABELS: Record<Capability, string> = {
   summarization: 'Summarization',
   qa: 'Q & A',
@@ -58,6 +67,10 @@ export interface AgentBrainConfig {
   minFeeUsdc: number;
   minReputation: number;
   autoAccept: boolean;
+  /** Maximum agent tool invocations per hour. */
+  maxActionsPerHour: number;
+  /** Maximum LLM spend per day in US cents (e.g. 1000 = $10). */
+  maxCostPerDayCents: number;
   /** True when an API key is stored in the keychain. Never store the key here. */
   apiKeySet: boolean;
   customModel?: string;
@@ -71,6 +84,8 @@ const DEFAULT_CONFIG: AgentBrainConfig = {
   minFeeUsdc: 0.01,
   minReputation: 50,
   autoAccept: true,
+  maxActionsPerHour: 100,
+  maxCostPerDayCents: 1000,
   apiKeySet: false,
   customModel: '',
   customBaseUrl: '',
