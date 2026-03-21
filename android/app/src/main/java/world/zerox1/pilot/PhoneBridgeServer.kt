@@ -418,6 +418,41 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
                 else -> handleA11yTree()  // autonomy reads tree as foundation
             }
 
+            // Reliable UI automation — wait + scroll-find + tap-text + type
+            method == "POST" && path == "/phone/a11y/wait_for" -> when {
+                !isCapEnabled("screen_act") -> capDisabled("screen_act")
+                !isActAllowed()             -> policyBlocked("action_not_allowed_in_${BuildConfig.POLICY_MODE}")
+                else -> {
+                    val desc = "Wait for element: ${body?.optString("text") ?: body?.optString("view_id") ?: "?"}"
+                    requireAssistedApproval(path, desc) ?: handleA11yWaitFor(body)
+                }
+            }
+            method == "POST" && path == "/phone/a11y/scroll_find" -> when {
+                !isCapEnabled("screen_act") -> capDisabled("screen_act")
+                !isActAllowed()             -> policyBlocked("action_not_allowed_in_${BuildConfig.POLICY_MODE}")
+                else -> {
+                    val desc = "Scroll to find: ${body?.optString("text") ?: body?.optString("view_id") ?: "?"}"
+                    requireAssistedApproval(path, desc) ?: handleA11yScrollFind(body)
+                }
+            }
+            method == "POST" && path == "/phone/a11y/tap_text" -> when {
+                !isCapEnabled("screen_act") -> capDisabled("screen_act")
+                !isActAllowed()             -> policyBlocked("action_not_allowed_in_${BuildConfig.POLICY_MODE}")
+                else -> {
+                    val block = requireAssistedApproval(path, "Tap \"${body?.optString("text") ?: "?"}\"")
+                    block ?: handleA11yTapText(body)
+                }
+            }
+            method == "POST" && path == "/phone/a11y/type" -> when {
+                !isCapEnabled("screen_act") -> capDisabled("screen_act")
+                !isActAllowed()             -> policyBlocked("action_not_allowed_in_${BuildConfig.POLICY_MODE}")
+                else -> {
+                    val preview = body?.optString("text", "")?.take(30) ?: "?"
+                    val block = requireAssistedApproval(path, "Type \"$preview\"")
+                    block ?: handleA11yType(body)
+                }
+            }
+
             // ---- Notification Listener ----
             method == "GET"  && path == "/phone/notifications" -> when {
                 !isCapEnabled("notifications_read") -> capDisabled("notifications_read")
@@ -513,7 +548,11 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
         path == "/phone/a11y/action" -> "SCREEN" to "Performed UI action \"${body?.optString("action") ?: "?"}\""
         path == "/phone/a11y/click" -> "SCREEN" to "Tapped at (${body?.optInt("x") ?: "?"}, ${body?.optInt("y") ?: "?"})"
         path == "/phone/a11y/global" -> "SCREEN" to "Global action: ${body?.optString("action") ?: "?"}"
-        path == "/phone/a11y/screenshot" -> "SCREEN" to "Took screenshot"
+        path == "/phone/a11y/screenshot"  -> "SCREEN" to "Took screenshot"
+        path == "/phone/a11y/wait_for"    -> "SCREEN" to "Waited for element \"${body?.optString("text") ?: body?.optString("view_id") ?: "?"}\""
+        path == "/phone/a11y/scroll_find" -> "SCREEN" to "Scrolled to find \"${body?.optString("text") ?: body?.optString("view_id") ?: "?"}\""
+        path == "/phone/a11y/tap_text"    -> "SCREEN" to "Tapped by text \"${body?.optString("text") ?: "?"}\""
+        path == "/phone/a11y/type"        -> "SCREEN" to "Typed text (${body?.optString("text", "")?.take(20)?.let { "\"$it\"" } ?: "?"})"
         path == "/phone/notifications" -> "NOTIFICATIONS" to "Read active notifications"
         path == "/phone/notifications/history" -> "NOTIFICATIONS" to "Read notification history"
         path == "/phone/notifications/reply" -> "NOTIFICATIONS" to "Replied to notification from ${
@@ -1576,6 +1615,172 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
             put("format", "jpeg")
             put("data_base64", b64)
         })
+    }
+
+    // ── wait_for ─────────────────────────────────────────────────────────────
+
+    /**
+     * POST /phone/a11y/wait_for
+     * Body: {
+     *   "view_id"?:      "com.example:id/btn_ok",
+     *   "text"?:         "Submit",
+     *   "content_desc"?: "close button",
+     *   "class_name"?:   "android.widget.Button",
+     *   "exact_text"?:   false,
+     *   "timeout_ms"?:   5000,
+     *   "tap"?:          false
+     * }
+     * Waits up to timeout_ms for a matching element, optionally taps it.
+     * Returns { found: bool, tapped: bool, node?: {...} }
+     */
+    private fun handleA11yWaitFor(body: JSONObject?): BridgeResponse {
+        if (body == null) return jsonError("missing body", 400)
+        val svc = AgentAccessibilityService.instance
+            ?: return jsonError("accessibility service not connected", 503)
+
+        val sel = body.toSelector()
+        if (sel.isBlank()) return jsonError("at least one of: view_id, text, content_desc, class_name is required", 400)
+
+        val timeoutMs = body.optLong("timeout_ms", 5_000).coerceIn(100, 30_000)
+        val tap = body.optBoolean("tap", false)
+
+        val node = svc.waitForElement(sel, timeoutMs)
+        if (node == null) {
+            return jsonOk(JSONObject().apply {
+                put("found", false)
+                put("tapped", false)
+            })
+        }
+
+        var tapped = false
+        if (tap) {
+            tapped = node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
+        }
+        val nodeJson = node.toJson()
+        node.recycle()
+        return jsonOk(JSONObject().apply {
+            put("found", true)
+            put("tapped", tapped)
+            put("node", nodeJson)
+        })
+    }
+
+    // ── scroll_find ───────────────────────────────────────────────────────────
+
+    /**
+     * POST /phone/a11y/scroll_find
+     * Body: {
+     *   "view_id"?:           "...",
+     *   "text"?:              "...",
+     *   "content_desc"?:      "...",
+     *   "class_name"?:        "...",
+     *   "exact_text"?:        false,
+     *   "direction"?:         "down",    // "up"|"down"|"left"|"right"
+     *   "max_scrolls"?:       10,
+     *   "container_view_id"?: "...",     // which scrollable to scroll
+     *   "wait_after_ms"?:     400,
+     *   "tap"?:               true
+     * }
+     * Scrolls until the element appears, then optionally taps it.
+     * Returns { found: bool, tapped: bool }
+     */
+    private fun handleA11yScrollFind(body: JSONObject?): BridgeResponse {
+        if (body == null) return jsonError("missing body", 400)
+        val svc = AgentAccessibilityService.instance
+            ?: return jsonError("accessibility service not connected", 503)
+
+        val sel = body.toSelector()
+        if (sel.isBlank()) return jsonError("at least one of: view_id, text, content_desc, class_name is required", 400)
+
+        val direction        = body.optString("direction", "down")
+        val maxScrolls       = body.optInt("max_scrolls", 10).coerceIn(1, 50)
+        val containerViewId  = body.optString("container_view_id", "").ifBlank { null }
+        val waitAfterMs      = body.optLong("wait_after_ms", 400).coerceIn(100, 2_000)
+        val tap              = body.optBoolean("tap", true)
+
+        val found = svc.scrollToFind(
+            selector         = sel,
+            direction        = direction,
+            maxScrolls       = maxScrolls,
+            containerViewId  = containerViewId,
+            waitAfterScrollMs = waitAfterMs,
+            tapOnFind        = tap,
+        )
+        return jsonOk(JSONObject().apply {
+            put("found", found)
+            put("tapped", found && tap)
+        })
+    }
+
+    // ── tap_text ──────────────────────────────────────────────────────────────
+
+    /**
+     * POST /phone/a11y/tap_text
+     * Body: { "text": "Submit", "exact"?: false, "timeout_ms"?: 3000 }
+     * Finds the first element whose text matches and clicks it.
+     * Returns { success: bool }
+     */
+    private fun handleA11yTapText(body: JSONObject?): BridgeResponse {
+        if (body == null) return jsonError("missing body", 400)
+        val svc = AgentAccessibilityService.instance
+            ?: return jsonError("accessibility service not connected", 503)
+
+        val text = body.optString("text", "").ifBlank {
+            return jsonError("'text' is required", 400)
+        }
+        val exact     = body.optBoolean("exact", false)
+        val timeoutMs = body.optLong("timeout_ms", 3_000).coerceIn(100, 15_000)
+
+        val result = svc.tapByText(text, exact, timeoutMs)
+        return jsonOk(JSONObject().put("success", result))
+    }
+
+    // ── type ──────────────────────────────────────────────────────────────────
+
+    /**
+     * POST /phone/a11y/type
+     * Body: { "text": "hello world", "view_id"?: "com.example:id/input" }
+     * Types text into a field. Without view_id, targets the focused/first editable field.
+     * Returns { success: bool }
+     */
+    private fun handleA11yType(body: JSONObject?): BridgeResponse {
+        if (body == null) return jsonError("missing body", 400)
+        val svc = AgentAccessibilityService.instance
+            ?: return jsonError("accessibility service not connected", 503)
+
+        val text   = body.optString("text", "").let { if (it == "null") "" else it }
+        val viewId = body.optString("view_id", "").ifBlank { null }
+
+        val result = svc.typeInFocused(text, viewId)
+        return jsonOk(JSONObject().put("success", result))
+    }
+
+    // ── JSON extension helpers for selector + node serialisation ─────────────
+
+    private fun JSONObject.toSelector() = AgentAccessibilityService.ElementSelector(
+        viewId      = optString("view_id",      "").ifBlank { null },
+        text        = optString("text",          "").ifBlank { null },
+        contentDesc = optString("content_desc",  "").ifBlank { null },
+        className   = optString("class_name",    "").ifBlank { null },
+        exactText   = optBoolean("exact_text", false),
+    )
+
+    private fun android.view.accessibility.AccessibilityNodeInfo.toJson(): JSONObject {
+        val rect = android.graphics.Rect()
+        getBoundsInScreen(rect)
+        return JSONObject().apply {
+            put("className",         className?.toString() ?: "")
+            put("text",              text?.toString() ?: "")
+            put("contentDescription", contentDescription?.toString() ?: "")
+            put("viewId",            viewIdResourceName ?: "")
+            put("bounds", JSONObject().apply {
+                put("left", rect.left); put("top", rect.top)
+                put("right", rect.right); put("bottom", rect.bottom)
+            })
+            put("clickable",  isClickable)
+            put("editable",   isEditable)
+            put("enabled",    isEnabled)
+        }
     }
 
     // -------------------------------------------------------------------------
