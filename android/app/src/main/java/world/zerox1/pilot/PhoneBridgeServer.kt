@@ -57,6 +57,7 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.text.SimpleDateFormat
 import java.util.*
+import world.zerox1.pilot.BuildConfig
 
 /**
  * PhoneBridgeServer — local HTTP server on 127.0.0.1:9092
@@ -250,31 +251,26 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
 
     /**
      * Gate for action endpoints in ASSISTED mode.
-     * Blocks the IO thread and emits a 'screenActionPending' RN event.
-     * Returns null if approved (caller should proceed), or a [BridgeResponse] to return.
+     * No-op (returns null = proceed) in AUTONOMOUS. Blocks in ASSISTED until user decides.
+     * Returns a [BridgeResponse] to short-circuit if rejected or policy blocks.
      */
     private fun requireAssistedApproval(endpoint: String, description: String): BridgeResponse? {
-        if (!BuildConfig.ALLOW_AUTONOMOUS_UI_EXECUTION && BuildConfig.POLICY_MODE == "ASSISTED") {
-            // Find the next pending ID — emit before blocking so JS can show the modal.
-            val pendingId = java.util.UUID.randomUUID().toString()
-            // We inline the action into ScreenActionQueue with a known ID by using awaitApproval
-            // which generates its own UUID. Emit the event with the data, then defer to queue.
-            // Since we need the ID before enqueuing, we use a wrapper that pre-announces it.
-            val approved = awaitAssistedApproval(endpoint, description)
-            if (!approved) return policyBlocked("user_rejected_or_timeout")
-        }
-        return null
+        if (BuildConfig.POLICY_MODE != "ASSISTED") return null
+        val approved = awaitAssistedApproval(endpoint, description)
+        return if (approved) null else policyBlocked("user_rejected_or_timeout")
     }
 
     /**
-     * Suspend the calling thread while waiting for user confirmation.
-     * Emits the RN event before blocking so the UI can show the modal promptly.
+     * Race-free confirmation flow:
+     *  1. Register action in ScreenActionQueue.pending (so decide() never misses it).
+     *  2. Emit RN event (JS can now call confirmScreenAction immediately — safely).
+     *  3. Block on latch until user decides or 30 s timeout.
      */
     private fun awaitAssistedApproval(endpoint: String, description: String): Boolean {
-        // Build a PendingAction externally so we can emit its ID before blocking.
         val action = ScreenActionQueue.PendingAction(endpoint = endpoint, description = description)
-        NodeModule.emitScreenActionPending(action.id, endpoint, description)
-        return ScreenActionQueue.awaitApprovalWithAction(action)
+        ScreenActionQueue.register(action)                              // 1. register first
+        NodeModule.emitScreenActionPending(action.id, endpoint, description)  // 2. then emit
+        return ScreenActionQueue.awaitRegistered(action)                // 3. then block
     }
 
     private fun route(

@@ -9,12 +9,12 @@ import java.util.concurrent.TimeUnit
 /**
  * ScreenActionQueue — pending human-approval queue for ASSISTED-mode screen actions.
  *
- * When POLICY_MODE = "ASSISTED" and an action endpoint is called:
- *  1. A PendingAction is created and stored here.
- *  2. NodeModule emits a 'screenActionPending' RN event with the action details.
- *  3. The bridge handler blocks on [PendingAction.latch] (timeout: 30s).
- *  4. The user approves/rejects via NodeModule.confirmScreenAction() which calls [decide].
- *  5. The blocking handler wakes, checks [PendingAction.approved], and proceeds or rejects.
+ * Correct ordering (race-free):
+ *  1. Caller creates a [PendingAction] and calls [register] — action is in [pending] map.
+ *  2. Caller emits the RN 'screenActionPending' event (safe: action already registered).
+ *  3. Caller blocks on [awaitRegistered] — waits up to 30 s for a decision.
+ *  4. JS calls NodeModule.confirmScreenAction(id, approved) → [decide] is called.
+ *  5. [awaitRegistered] unblocks and returns the approval result.
  *
  * Thread safety: ConcurrentHashMap + CountDownLatch — no additional synchronisation needed.
  */
@@ -34,20 +34,20 @@ object ScreenActionQueue {
     private val pending = ConcurrentHashMap<String, PendingAction>()
 
     /**
-     * Enqueue a new pending action and block until the user decides (or timeout).
-     * @return true if approved, false if rejected or timed out.
+     * Register an action in the pending map BEFORE emitting the RN event.
+     * Guarantees that [decide] cannot miss the action even if JS responds immediately.
      */
-    fun awaitApproval(endpoint: String, description: String): Boolean =
-        awaitApprovalWithAction(PendingAction(endpoint = endpoint, description = description))
+    fun register(action: PendingAction) {
+        pending[action.id] = action
+        Log.i(TAG, "Registered action ${action.id}: ${action.description}")
+    }
 
     /**
-     * Enqueue a pre-built [PendingAction] (so the caller can emit its ID before blocking)
-     * and block until the user decides (or timeout).
+     * Block until the user decides on an already-[register]ed action (or timeout).
+     * Removes the action from the map when done.
+     * @return true if approved, false if rejected or timed out.
      */
-    fun awaitApprovalWithAction(action: PendingAction): Boolean {
-        pending[action.id] = action
-        Log.i(TAG, "Queued action ${action.id}: ${action.description}")
-
+    fun awaitRegistered(action: PendingAction): Boolean {
         val decided = action.latch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS)
         pending.remove(action.id)
 
@@ -58,6 +58,22 @@ object ScreenActionQueue {
             Log.w(TAG, "Action ${action.id} TIMED OUT after ${TIMEOUT_SECONDS}s — rejecting")
             false
         }
+    }
+
+    /**
+     * Convenience: register + emit-via-caller + await in one call.
+     * Use only when the caller does not need to emit an event before blocking.
+     */
+    fun awaitApproval(endpoint: String, description: String): Boolean {
+        val action = PendingAction(endpoint = endpoint, description = description)
+        register(action)
+        return awaitRegistered(action)
+    }
+
+    /** @deprecated Use register() + awaitRegistered() pair instead. */
+    fun awaitApprovalWithAction(action: PendingAction): Boolean {
+        register(action)
+        return awaitRegistered(action)
     }
 
     /**
