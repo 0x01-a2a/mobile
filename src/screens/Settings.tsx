@@ -2,6 +2,8 @@
  * Settings — node config (agent name, relay addr, RPC URL, host node URL)
  * and auto-start toggle.
  */
+import { useTheme, ThemeColors } from '../theme/ThemeContext';
+import { ThemeToggle } from '../components/ThemeToggle';
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
@@ -45,18 +47,7 @@ import {
 } from '../hooks/useAgentBrain';
 import { PermissionName, usePermissions } from '../hooks/usePermissions';
 
-const C = {
-  bg: '#050505',
-  card: '#0f0f0f',
-  border: '#1a1a1a',
-  green: '#00e676',
-  red: '#ff1744',
-  text: '#ffffff',
-  sub: '#555555',
-  amber: '#ffc107',
-  input: '#111111',
-  inputBorder: '#2a2a2a',
-};
+
 
 function Field({
   label,
@@ -69,6 +60,8 @@ function Field({
   onChange: (v: string) => void;
   placeholder?: string;
 }) {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   return (
     <View style={s.field}>
       <Text style={s.fieldLabel}>{label}</Text>
@@ -77,7 +70,7 @@ function Field({
         value={value}
         onChangeText={onChange}
         placeholder={placeholder}
-        placeholderTextColor={C.sub}
+        placeholderTextColor={colors.sub}
         autoCapitalize="none"
         autoCorrect={false}
         spellCheck={false}
@@ -98,6 +91,8 @@ function signalLevel(rtt: number | undefined): number {
 }
 
 function SignalBars({ rtt }: { rtt: number | undefined }) {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   if (rtt === undefined) {
     return <Text style={s.signalNull}>—</Text>;
   }
@@ -109,7 +104,7 @@ function SignalBars({ rtt }: { rtt: number | undefined }) {
           key={i}
           style={[
             s.bar,
-            { height: 4 + i * 3, backgroundColor: i <= level ? C.green : C.border },
+            { height: 4 + i * 3, backgroundColor: i <= level ? colors.green : colors.border },
           ]}
         />
       ))}
@@ -128,6 +123,8 @@ function HostBrowserSheet({
   onClose: () => void;
   onConnect: (nodeApiUrl: string) => void;
 }) {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   const nodes = useHostingNodes();
   const [connecting, setConnecting] = useState<string | null>(null);
 
@@ -208,6 +205,9 @@ function HostBrowserSheet({
 // ── Agent Brain section ───────────────────────────────────────────────────────
 
 function AgentBrainSection() {
+  const { colors } = useTheme();
+  const bs = useBs(colors);
+  const s = useStyles(colors);
   const { config, loading, save } = useAgentBrain();
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [newKey, setNewKey] = useState('');
@@ -273,8 +273,8 @@ function AgentBrainSection() {
           value={config.enabled && config.apiKeySet}
           onValueChange={toggleEnabled}
           disabled={!config.apiKeySet}
-          trackColor={{ false: C.border, true: C.green + '66' }}
-          thumbColor={config.enabled && config.apiKeySet ? C.green : '#333'}
+          trackColor={{ false: colors.border, true: colors.green + '66' }}
+          thumbColor={config.enabled && config.apiKeySet ? colors.green : colors.border}
         />
       </View>
 
@@ -289,7 +289,7 @@ function AgentBrainSection() {
         <View style={bs.rowBtns}>
           {config.apiKeySet && (
             <TouchableOpacity style={bs.miniBtn} onPress={handleClearKey} activeOpacity={0.8}>
-              <Text style={[bs.miniBtnText, { color: C.red }]}>CLEAR</Text>
+              <Text style={[bs.miniBtnText, { color: colors.red }]}>CLEAR</Text>
             </TouchableOpacity>
           )}
           <TouchableOpacity
@@ -309,7 +309,7 @@ function AgentBrainSection() {
             value={newKey}
             onChangeText={setNewKey}
             placeholder="paste API key…"
-            placeholderTextColor={C.sub}
+            placeholderTextColor={colors.sub}
             secureTextEntry
             autoCapitalize="none"
             autoCorrect={false}
@@ -348,7 +348,7 @@ function AgentBrainSection() {
               value={config.customBaseUrl || ''}
               onChangeText={v => saveAndDirty({ ...config, customBaseUrl: v })}
               placeholder="e.g. https://api.openai.com/v1"
-              placeholderTextColor={C.sub}
+              placeholderTextColor={colors.sub}
               autoCapitalize="none"
               autoCorrect={false}
               spellCheck={false}
@@ -361,7 +361,7 @@ function AgentBrainSection() {
               value={config.customModel || ''}
               onChangeText={v => saveAndDirty({ ...config, customModel: v })}
               placeholder="e.g. gpt-4, my-custom-model"
-              placeholderTextColor={C.sub}
+              placeholderTextColor={colors.sub}
               autoCapitalize="none"
               autoCorrect={false}
               spellCheck={false}
@@ -403,7 +403,7 @@ function AgentBrainSection() {
           value={String(config.minFeeUsdc)}
           onChangeText={v => saveAndDirty({ ...config, minFeeUsdc: parseFloat(v) || 0 })}
           keyboardType="decimal-pad"
-          placeholderTextColor={C.sub}
+          placeholderTextColor={colors.sub}
         />
       </View>
 
@@ -417,7 +417,35 @@ function AgentBrainSection() {
           value={String(config.minReputation)}
           onChangeText={v => saveAndDirty({ ...config, minReputation: parseInt(v, 10) || 0 })}
           keyboardType="number-pad"
-          placeholderTextColor={C.sub}
+          placeholderTextColor={colors.sub}
+        />
+      </View>
+
+      <View style={bs.row}>
+        <View style={bs.rowLeft}>
+          <Text style={bs.rowLabel}>MAX ACTIONS / HR</Text>
+          <Text style={bs.rowSub}>Tool calls per hour before the agent pauses</Text>
+        </View>
+        <TextInput
+          style={bs.ruleInput}
+          value={String(config.maxActionsPerHour ?? 100)}
+          onChangeText={v => saveAndDirty({ ...config, maxActionsPerHour: parseInt(v, 10) || 0 })}
+          keyboardType="number-pad"
+          placeholderTextColor={colors.sub}
+        />
+      </View>
+
+      <View style={bs.row}>
+        <View style={bs.rowLeft}>
+          <Text style={bs.rowLabel}>MAX SPEND / DAY</Text>
+          <Text style={bs.rowSub}>LLM spend cap in US cents (1000 = $10)</Text>
+        </View>
+        <TextInput
+          style={bs.ruleInput}
+          value={String(config.maxCostPerDayCents ?? 1000)}
+          onChangeText={v => saveAndDirty({ ...config, maxCostPerDayCents: parseInt(v, 10) || 0 })}
+          keyboardType="number-pad"
+          placeholderTextColor={colors.sub}
         />
       </View>
 
@@ -429,10 +457,23 @@ function AgentBrainSection() {
         <Switch
           value={config.autoAccept}
           onValueChange={v => saveAndDirty({ ...config, autoAccept: v })}
-          trackColor={{ false: C.border, true: C.green + '66' }}
-          thumbColor={config.autoAccept ? C.green : '#333'}
+          trackColor={{ false: colors.border, true: colors.green + '66' }}
+          thumbColor={config.autoAccept ? colors.green : colors.border}
         />
       </View>
+
+      {Platform.OS === 'android' && (
+        <TouchableOpacity
+          style={[bs.row, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }]}
+          onPress={() => NodeModule.requestBatteryOptExemption().catch(() => {})}
+        >
+          <View style={bs.rowLeft}>
+            <Text style={bs.rowLabel}>BATTERY OPTIMIZATION</Text>
+            <Text style={bs.rowSub}>Exempt from Doze so the node runs without interruption</Text>
+          </View>
+          <Text style={{ color: colors.accent, fontSize: 13 }}>Exempt →</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -451,6 +492,9 @@ const CAPABILITY_GROUPS: { label: string; perms: PermissionName[] }[] = [
 ];
 
 function PhoneCapabilitiesSection() {
+  const { colors } = useTheme();
+  const ps = usePs(colors);
+  const s = useStyles(colors);
   const { perms, request } = usePermissions();
 
   const handlePress = async (needed: PermissionName[]) => {
@@ -504,6 +548,9 @@ const CAPABILITY_INFO: Record<BridgeCapabilityKey, { label: string; desc: string
 };
 
 function AgentCapabilitiesSection() {
+  const { colors } = useTheme();
+  const cs = useCs(colors);
+  const s = useStyles(colors);
   const { caps, loading, toggle } = useBridgeCapabilities();
 
   if (loading) return null;
@@ -548,8 +595,8 @@ function AgentCapabilitiesSection() {
             <Switch
               value={enabled}
               onValueChange={(v) => toggle(key, v)}
-              trackColor={{ false: C.border, true: C.amber + '66' }}
-              thumbColor={enabled ? C.amber : '#333'}
+              trackColor={{ false: colors.border, true: colors.amber + '66' }}
+              thumbColor={enabled ? colors.amber : colors.border}
             />
           </View>
         );
@@ -584,6 +631,10 @@ const BUDGET_LEVELS: { label: string; pct: BudgetLevel; desc: string }[] = [
 ];
 
 function DataCollectionSection() {
+  const { colors } = useTheme();
+  const dcs = useDcs(colors);
+  const cs = useCs(colors);
+  const s = useStyles(colors);
   const [budget, setBudget] = useState<BudgetLevel>(100);
 
   useEffect(() => {
@@ -623,11 +674,12 @@ function DataCollectionSection() {
   );
 }
 
-const dcs = StyleSheet.create({
+function useDcs(colors: ThemeColors) {
+  return React.useMemo(() => StyleSheet.create({
   section: {
-    backgroundColor: C.card,
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: '#00bcd430',
+    borderColor: colors.blue + '30',
     borderRadius: 4,
     marginBottom: 16,
     overflow: 'hidden',
@@ -635,25 +687,26 @@ const dcs = StyleSheet.create({
   header: {
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: C.border,
-    backgroundColor: '#00080a',
+    borderBottomColor: colors.border,
+    backgroundColor: colors.card,
   },
-  title: { fontSize: 11, color: '#00bcd4', letterSpacing: 3, fontWeight: '700', fontFamily: 'monospace' },
-  subtitle: { fontSize: 10, color: C.sub, fontFamily: 'monospace', marginTop: 4, lineHeight: 14 },
+  title: { fontSize: 11, color: colors.blue, letterSpacing: 3, fontWeight: '700', fontFamily: 'monospace' },
+  subtitle: { fontSize: 10, color: colors.sub, fontFamily: 'monospace', marginTop: 4, lineHeight: 14 },
   levels: { flexDirection: 'row', padding: 12, gap: 8 },
   levelBtn: {
     flex: 1,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: colors.border,
     borderRadius: 3,
     paddingVertical: 10,
     alignItems: 'center',
   },
-  levelBtnActive: { borderColor: '#00bcd4', backgroundColor: '#00bcd418' },
-  levelLabel: { fontSize: 10, fontWeight: '700', color: C.sub, letterSpacing: 1, fontFamily: 'monospace' },
-  levelLabelActive: { color: '#00bcd4' },
-  levelDesc: { fontSize: 9, color: C.sub, fontFamily: 'monospace', marginTop: 3 },
-});
+  levelBtnActive: { borderColor: colors.blue, backgroundColor: colors.blue + '18' },
+  levelLabel: { fontSize: 10, fontWeight: '700', color: colors.sub, letterSpacing: 1, fontFamily: 'monospace' },
+  levelLabelActive: { color: colors.blue },
+  levelDesc: { fontSize: 9, color: colors.sub, fontFamily: 'monospace', marginTop: 3 },
+  }), [colors]);
+}
 
 // ── Bags Fee Sharing section ──────────────────────────────────────────────────
 
@@ -680,6 +733,9 @@ function BagsFeeSection({
   onBagsApiKeySave: (key: string) => Promise<void>;
   onBagsApiKeyClear: () => void;
 }) {
+  const { colors } = useTheme();
+  const bfs = useBfs(colors);
+  const s = useStyles(colors);
   const liveConfig = useBagsConfig();
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [keyDraft, setKeyDraft] = useState('');
@@ -698,8 +754,8 @@ function BagsFeeSection({
         <Switch
           value={bagsEnabled}
           onValueChange={onBagsEnabledChange}
-          trackColor={{ false: C.border, true: '#9c27b0' + '66' }}
-          thumbColor={bagsEnabled ? '#9c27b0' : '#333'}
+          trackColor={{ false: colors.border, true: '#9c27b0' + '66' }}
+          thumbColor={bagsEnabled ? '#9c27b0' : colors.border}
         />
       </View>
 
@@ -716,7 +772,7 @@ function BagsFeeSection({
               onChangeText={onBagsFeePercentChange}
               keyboardType="decimal-pad"
               placeholder="0.5"
-              placeholderTextColor={C.sub}
+              placeholderTextColor={colors.sub}
             />
           </View>
           <View style={[bfs.row, { borderBottomWidth: 0 }]}>
@@ -733,7 +789,7 @@ function BagsFeeSection({
               value={bagsWallet}
               onChangeText={onBagsWalletChange}
               placeholder="auto (from bags.fm)"
-              placeholderTextColor={C.sub}
+              placeholderTextColor={colors.sub}
               autoCapitalize="none"
               autoCorrect={false}
             />
@@ -765,7 +821,7 @@ function BagsFeeSection({
             value={keyDraft}
             onChangeText={setKeyDraft}
             placeholder="sk-bags-…"
-            placeholderTextColor={C.sub}
+            placeholderTextColor={colors.sub}
             autoCapitalize="none"
             autoCorrect={false}
             secureTextEntry
@@ -784,7 +840,7 @@ function BagsFeeSection({
             <Text style={bfs.miniBtnText}>SAVE</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[bfs.miniBtn, { backgroundColor: C.border }]}
+            style={[bfs.miniBtn, { backgroundColor: colors.border }]}
             onPress={() => { setShowKeyInput(false); setKeyDraft(''); }}
           >
             <Text style={bfs.miniBtnText}>CANCEL</Text>
@@ -792,7 +848,7 @@ function BagsFeeSection({
         </View>
       ) : (
         <View style={[bfs.row, { borderBottomWidth: 0, paddingTop: 0 }]}>
-          <Text style={[bfs.rowSub, { flex: 1, color: bagsApiKeySet ? C.text : C.sub }]}>
+          <Text style={[bfs.rowSub, { flex: 1, color: bagsApiKeySet ? colors.text : colors.sub }]}>
             {bagsApiKeySet ? '●●●●●●●● (keychain)' : 'not set'}
           </Text>
           <TouchableOpacity style={bfs.miniBtn} onPress={() => setShowKeyInput(true)}>
@@ -800,10 +856,10 @@ function BagsFeeSection({
           </TouchableOpacity>
           {bagsApiKeySet && (
             <TouchableOpacity
-              style={[bfs.miniBtn, { backgroundColor: '#1a0000', borderColor: C.red + '60', marginLeft: 6 }]}
+              style={[bfs.miniBtn, { backgroundColor: colors.card, borderColor: colors.red + '60', marginLeft: 6 }]}
               onPress={onBagsApiKeyClear}
             >
-              <Text style={[bfs.miniBtnText, { color: C.red }]}>CLEAR</Text>
+              <Text style={[bfs.miniBtnText, { color: colors.red }]}>CLEAR</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -812,9 +868,10 @@ function BagsFeeSection({
   );
 }
 
-const bfs = StyleSheet.create({
+function useBfs(colors: ThemeColors) {
+  return React.useMemo(() => StyleSheet.create({
   section: {
-    backgroundColor: C.card,
+    backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: '#9c27b030',
     borderRadius: 4,
@@ -826,8 +883,8 @@ const bfs = StyleSheet.create({
     alignItems: 'center',
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: C.border,
-    backgroundColor: '#0d000d',
+    borderBottomColor: colors.border,
+    backgroundColor: colors.card,
   },
   sectionTitle: {
     fontSize: 11,
@@ -838,7 +895,7 @@ const bfs = StyleSheet.create({
   },
   sectionSub: {
     fontSize: 10,
-    color: C.sub,
+    color: colors.sub,
     fontFamily: 'monospace',
     marginTop: 4,
   },
@@ -848,19 +905,19 @@ const bfs = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: C.border,
+    borderBottomColor: colors.border,
   },
   rowLeft: { flex: 1, marginRight: 12 },
   rowLabel: {
     fontSize: 10,
-    color: C.text,
+    color: colors.text,
     letterSpacing: 2,
     fontWeight: '700',
     fontFamily: 'monospace',
   },
-  rowSub: { fontSize: 10, color: C.sub, fontFamily: 'monospace', marginTop: 3, lineHeight: 14 },
+  rowSub: { fontSize: 10, color: colors.sub, fontFamily: 'monospace', marginTop: 3, lineHeight: 14 },
   feeInput: {
-    color: C.text,
+    color: colors.text,
     fontFamily: 'monospace',
     fontSize: 14,
     borderBottomWidth: 1,
@@ -876,21 +933,25 @@ const bfs = StyleSheet.create({
     paddingBottom: 10,
   },
   liveDot: { fontSize: 8, color: '#9c27b0', marginRight: 6 },
-  liveText: { fontSize: 10, color: C.sub, fontFamily: 'monospace' },
+  liveText: { fontSize: 10, color: colors.sub, fontFamily: 'monospace' },
   miniBtn: {
-    backgroundColor: '#1a1a1a',
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: '#333',
+    borderColor: colors.border,
     borderRadius: 3,
     paddingHorizontal: 10,
     paddingVertical: 5,
   },
-  miniBtnText: { fontSize: 9, fontWeight: '700', color: C.text, letterSpacing: 1, fontFamily: 'monospace' },
-});
+  miniBtnText: { fontSize: 9, fontWeight: '700', color: colors.text, letterSpacing: 1, fontFamily: 'monospace' },
+  }), [colors]);
+}
 
 // ── Wallet section ────────────────────────────────────────────────────────────
 
 function WalletSection() {
+  const { colors } = useTheme();
+  const wS = useWS(colors);
+  const s = useStyles(colors);
   const [showExportModal, setShowExportModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [exportedKey, setExportedKey] = useState('');
@@ -979,7 +1040,7 @@ function WalletSection() {
 
   return (
     <View style={s.section}>
-      <Text style={[s.sectionTitle, { color: C.amber }]}>WALLET</Text>
+      <Text style={[s.sectionTitle, { color: colors.amber }]}>WALLET</Text>
       <Text style={[s.toggleSub, { paddingHorizontal: 16, paddingBottom: 12 }]}>
         Your agent identity key. Export to back up or import to a new device.
       </Text>
@@ -1037,13 +1098,13 @@ function WalletSection() {
               value={importKey}
               onChangeText={setImportKey}
               placeholder="base58 private key..."
-              placeholderTextColor={C.sub}
+              placeholderTextColor={colors.sub}
               autoCapitalize="none"
               autoCorrect={false}
               secureTextEntry={true}
             />
-            <TouchableOpacity style={[wS.copyBtn, { backgroundColor: C.red + '22', borderColor: C.red + '60' }]} onPress={handleImport} disabled={loading || !importKey.trim()} activeOpacity={0.8}>
-              <Text style={[wS.copyBtnText, { color: C.red }]}>IMPORT & REPLACE</Text>
+            <TouchableOpacity style={[wS.copyBtn, { backgroundColor: colors.red + '22', borderColor: colors.red + '60' }]} onPress={handleImport} disabled={loading || !importKey.trim()} activeOpacity={0.8}>
+              <Text style={[wS.copyBtnText, { color: colors.red }]}>IMPORT & REPLACE</Text>
             </TouchableOpacity>
             <TouchableOpacity style={wS.closeBtn} onPress={() => { setShowImportModal(false); setImportKey(''); }} activeOpacity={0.8}>
               <Text style={wS.closeBtnText}>CANCEL</Text>
@@ -1055,19 +1116,21 @@ function WalletSection() {
   );
 }
 
-const wS = StyleSheet.create({
+function useWS(colors: ThemeColors) {
+  return React.useMemo(() => StyleSheet.create({
   overlay: { flex: 1, backgroundColor: '#000000cc', justifyContent: 'center', alignItems: 'center', padding: 24 },
-  modal:   { backgroundColor: '#0f0f0f', borderWidth: 1, borderColor: '#2a2a2a', borderRadius: 4, padding: 20, width: '100%' },
-  title:   { fontSize: 11, color: '#ffc107', letterSpacing: 3, fontWeight: '700', fontFamily: 'monospace', marginBottom: 12 },
-  warning: { fontSize: 10, color: '#ff1744', fontFamily: 'monospace', lineHeight: 15, marginBottom: 16 },
-  keyBox:  { backgroundColor: '#050505', borderWidth: 1, borderColor: '#2a2a2a', borderRadius: 3, padding: 12, marginBottom: 12 },
-  keyText: { fontSize: 10, color: '#ffffff', fontFamily: 'monospace', lineHeight: 16 },
-  copyBtn: { backgroundColor: '#00e67620', borderWidth: 1, borderColor: '#00e67640', borderRadius: 3, padding: 12, alignItems: 'center', marginBottom: 8 },
-  copyBtnText: { fontSize: 11, color: '#00e676', fontFamily: 'monospace', letterSpacing: 2, fontWeight: '700' },
+  modal:   { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 4, padding: 20, width: '100%' },
+  title:   { fontSize: 11, color: colors.amber, letterSpacing: 3, fontWeight: '700', fontFamily: 'monospace', marginBottom: 12 },
+  warning: { fontSize: 10, color: colors.red, fontFamily: 'monospace', lineHeight: 15, marginBottom: 16 },
+  keyBox:  { backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border, borderRadius: 3, padding: 12, marginBottom: 12 },
+  keyText: { fontSize: 10, color: colors.text, fontFamily: 'monospace', lineHeight: 16 },
+  copyBtn: { backgroundColor: colors.green + '20', borderWidth: 1, borderColor: colors.green + '40', borderRadius: 3, padding: 12, alignItems: 'center', marginBottom: 8 },
+  copyBtnText: { fontSize: 11, color: colors.green, fontFamily: 'monospace', letterSpacing: 2, fontWeight: '700' },
   closeBtn: { padding: 12, alignItems: 'center' },
-  closeBtnText: { fontSize: 11, color: '#555555', fontFamily: 'monospace', letterSpacing: 2 },
-  importInput: { backgroundColor: '#050505', borderWidth: 1, borderColor: '#2a2a2a', borderRadius: 3, padding: 12, color: '#ffffff', fontFamily: 'monospace', fontSize: 10, minHeight: 80, marginBottom: 12, textAlignVertical: 'top' },
-});
+  closeBtnText: { fontSize: 11, color: colors.sub, fontFamily: 'monospace', letterSpacing: 2 },
+  importInput: { backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border, borderRadius: 3, padding: 12, color: colors.text, fontFamily: 'monospace', fontSize: 10, minHeight: 80, marginBottom: 12, textAlignVertical: 'top' },
+  }), [colors]);
+}
 
 // ── Main screen ───────────────────────────────────────────────────────────────
 
@@ -1076,6 +1139,9 @@ const wS = StyleSheet.create({
 // ============================================================================
 
 function UpdateSection() {
+  const { colors } = useTheme();
+  const us = useUs(colors);
+  const s = useStyles(colors);
   const [checking, setChecking]     = useState(false);
   const [info, setInfo]             = useState<UpdateInfo | null>(null);
   const [error, setError]           = useState<string | null>(null);
@@ -1158,7 +1224,7 @@ function UpdateSection() {
               onPress={install}
               activeOpacity={0.7}
             >
-              <Text style={[us.btnText, { color: C.green }]}>
+              <Text style={[us.btnText, { color: colors.green }]}>
                 DOWNLOAD {info.latestVersion}
               </Text>
             </TouchableOpacity>
@@ -1175,29 +1241,33 @@ function UpdateSection() {
   );
 }
 
-const us = StyleSheet.create({
-  section:       { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, marginBottom: 16, overflow: 'hidden' },
-  header:        { padding: 16, borderBottomWidth: 1, borderBottomColor: C.border },
-  title:         { fontSize: 11, color: C.text, letterSpacing: 3, fontWeight: '700', fontFamily: 'monospace' },
-  sub:           { fontSize: 10, color: C.sub, fontFamily: 'monospace', marginTop: 4, letterSpacing: 1 },
-  error:         { fontSize: 10, color: C.red, fontFamily: 'monospace', margin: 14, letterSpacing: 1 },
+function useUs(colors: ThemeColors) {
+  return React.useMemo(() => StyleSheet.create({
+  section:       { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 4, marginBottom: 16, overflow: 'hidden' },
+  header:        { padding: 16, borderBottomWidth: 1, borderBottomColor: colors.border },
+  title:         { fontSize: 11, color: colors.text, letterSpacing: 3, fontWeight: '700', fontFamily: 'monospace' },
+  sub:           { fontSize: 10, color: colors.sub, fontFamily: 'monospace', marginTop: 4, letterSpacing: 1 },
+  error:         { fontSize: 10, color: colors.red, fontFamily: 'monospace', margin: 14, letterSpacing: 1 },
   actions:       { flexDirection: 'row', gap: 8, padding: 14, flexWrap: 'wrap' },
-  btn:           { borderWidth: 1, borderColor: C.border, borderRadius: 3, paddingHorizontal: 12, paddingVertical: 7 },
-  btnGreen:      { borderColor: C.green + '60' },
-  btnText:       { fontSize: 10, color: C.sub, fontFamily: 'monospace', fontWeight: '700', letterSpacing: 1 },
+  btn:           { borderWidth: 1, borderColor: colors.border, borderRadius: 3, paddingHorizontal: 12, paddingVertical: 7 },
+  btnGreen:      { borderColor: colors.green + '60' },
+  btnText:       { fontSize: 10, color: colors.sub, fontFamily: 'monospace', fontWeight: '700', letterSpacing: 1 },
   progressWrap:  { padding: 14 },
-  progressTrack: { height: 3, backgroundColor: C.border, borderRadius: 2, overflow: 'hidden' },
-  progressBar:   { height: 3, backgroundColor: C.green, borderRadius: 2 },
-  progressLabel: { fontSize: 10, color: C.sub, fontFamily: 'monospace', marginTop: 8, letterSpacing: 1 },
-  notes:         { maxHeight: 120, borderTopWidth: 1, borderTopColor: C.border },
-  notesText:     { fontSize: 10, color: C.sub, fontFamily: 'monospace', padding: 12, lineHeight: 16 },
-});
+  progressTrack: { height: 3, backgroundColor: colors.border, borderRadius: 2, overflow: 'hidden' },
+  progressBar:   { height: 3, backgroundColor: colors.green, borderRadius: 2 },
+  progressLabel: { fontSize: 10, color: colors.sub, fontFamily: 'monospace', marginTop: 8, letterSpacing: 1 },
+  notes:         { maxHeight: 120, borderTopWidth: 1, borderTopColor: colors.border },
+  notesText:     { fontSize: 10, color: colors.sub, fontFamily: 'monospace', padding: 12, lineHeight: 16 },
+  }), [colors]);
+}
 
 // ============================================================================
 // Main Settings screen
 // ============================================================================
 
 export function SettingsScreen() {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   const { config, autoStart, backgroundNode, saveConfig, setAutoStart, setBackgroundNode, status, start, stop } = useNode();
 
   const [agentName, setAgentName] = useState(config.agentName ?? '');
@@ -1399,15 +1469,15 @@ export function SettingsScreen() {
                 const res = await launchImageLibrary({ mediaType: 'photo', selectionLimit: 1 });
                 if (res?.assets?.[0]?.uri) setAgentAvatar(res.assets[0].uri);
               }}
-              style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: C.card, borderWidth: 1, borderColor: C.border, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', marginRight: 16 }}
+              style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', marginRight: 16 }}
             >
               {agentAvatar ? (
                 <Image source={{ uri: agentAvatar }} style={{ width: 64, height: 64 }} />
               ) : (
-                <Text style={{ color: C.sub, fontSize: 20 }}>+</Text>
+                <Text style={{ color: colors.sub, fontSize: 20 }}>+</Text>
               )}
             </TouchableOpacity>
-            <Text style={{ fontSize: 11, color: C.sub, letterSpacing: 2 }}>PROFILE PICTURE</Text>
+            <Text style={{ fontSize: 11, color: colors.sub, letterSpacing: 2 }}>PROFILE PICTURE</Text>
           </View>
           <Field
             label="AGENT NAME"
@@ -1458,7 +1528,7 @@ export function SettingsScreen() {
                 value={nodeApiUrl}
                 onChangeText={setNodeApiUrl}
                 placeholder="leave empty to run local node"
-                placeholderTextColor={C.sub}
+                placeholderTextColor={colors.sub}
                 autoCapitalize="none"
                 autoCorrect={false}
                 spellCheck={false}
@@ -1479,8 +1549,8 @@ export function SettingsScreen() {
         </TouchableOpacity>
 
         {savedBanner && (
-          <View style={{ backgroundColor: '#00e67620', borderWidth: 1, borderColor: '#00e67640', borderRadius: 4, padding: 10, marginBottom: 8, alignItems: 'center' }}>
-            <Text style={{ color: '#00e676', fontFamily: 'monospace', fontSize: 11, letterSpacing: 2 }}>SAVED</Text>
+          <View style={{ backgroundColor: colors.green + '20', borderWidth: 1, borderColor: colors.green + '40', borderRadius: 4, padding: 10, marginBottom: 8, alignItems: 'center' }}>
+            <Text style={{ color: colors.green, fontFamily: 'monospace', fontSize: 11, letterSpacing: 2 }}>SAVED</Text>
           </View>
         )}
 
@@ -1495,7 +1565,7 @@ export function SettingsScreen() {
               <Text style={s.toggleSub}>Register on Solana 8004 to enable tasks. Gas paid by Kora relay.</Text>
             </View>
             <TouchableOpacity
-              style={[s.nodeBtn, { margin: 0, paddingVertical: 10, paddingHorizontal: 14, borderColor: C.green + '60' }]}
+              style={[s.nodeBtn, { margin: 0, paddingVertical: 10, paddingHorizontal: 14, borderColor: colors.green + '60' }]}
               onPress={async () => {
                 const AsyncStorage = require('@react-native-async-storage/async-storage').default;
                 if (!running) {
@@ -1517,7 +1587,7 @@ export function SettingsScreen() {
               }}
               activeOpacity={0.8}
             >
-              <Text style={[s.nodeBtnText, { fontSize: 11, color: C.green }]}>REGISTER</Text>
+              <Text style={[s.nodeBtnText, { fontSize: 11, color: colors.green }]}>REGISTER</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1532,8 +1602,8 @@ export function SettingsScreen() {
             <Switch
               value={autoStart}
               onValueChange={setAutoStart}
-              trackColor={{ false: C.border, true: C.green + '66' }}
-              thumbColor={autoStart ? C.green : '#333'}
+              trackColor={{ false: colors.border, true: colors.green + '66' }}
+              thumbColor={autoStart ? colors.green : colors.border}
             />
           </View>
           <View style={s.toggleRow}>
@@ -1544,8 +1614,8 @@ export function SettingsScreen() {
             <Switch
               value={backgroundNode}
               onValueChange={setBackgroundNode}
-              trackColor={{ false: C.border, true: C.green + '66' }}
-              thumbColor={backgroundNode ? C.green : '#333'}
+              trackColor={{ false: colors.border, true: colors.green + '66' }}
+              thumbColor={backgroundNode ? colors.green : colors.border}
             />
           </View>
         </View>
@@ -1553,11 +1623,11 @@ export function SettingsScreen() {
         {/* Quick start/stop */}
         <View style={s.section}>
           <TouchableOpacity
-            style={[s.nodeBtn, { borderColor: running ? '#ff174440' : C.green + '40' }]}
+            style={[s.nodeBtn, { borderColor: running ? colors.red + '40' : colors.green + '40' }]}
             onPress={running ? stop : () => start()}
             activeOpacity={0.8}
           >
-            <Text style={[s.nodeBtnText, { color: running ? '#ff1744' : C.green }]}>
+            <Text style={[s.nodeBtnText, { color: running ? colors.red : colors.green }]}>
               {running ? 'STOP NODE' : 'START NODE'}
             </Text>
           </TouchableOpacity>
@@ -1578,63 +1648,66 @@ export function SettingsScreen() {
 }
 
 // Agent capabilities stylesheet
-const cs = StyleSheet.create({
-  section: { backgroundColor: C.card, borderWidth: 1, borderColor: C.amber + '30', borderRadius: 4, marginBottom: 16, overflow: 'hidden' },
-  header: { padding: 16, borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: '#1a1000' },
-  title: { fontSize: 11, color: C.amber, letterSpacing: 3, fontWeight: '700', fontFamily: 'monospace' },
-  subtitle: { fontSize: 10, color: C.sub, fontFamily: 'monospace', marginTop: 6, lineHeight: 15 },
+function useCs(colors: ThemeColors) {
+  return React.useMemo(() => StyleSheet.create({
+  section: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.amber + '30', borderRadius: 4, marginBottom: 16, overflow: 'hidden' },
+  header: { padding: 16, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.card },
+  title: { fontSize: 11, color: colors.amber, letterSpacing: 3, fontWeight: '700', fontFamily: 'monospace' },
+  subtitle: { fontSize: 10, color: colors.sub, fontFamily: 'monospace', marginTop: 6, lineHeight: 15 },
   row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12 },
-  rowBorder: { borderBottomWidth: 1, borderBottomColor: C.border },
+  rowBorder: { borderBottomWidth: 1, borderBottomColor: colors.border },
   rowText: { flex: 1, marginRight: 12 },
-  capLabel: { fontSize: 10, color: C.text, letterSpacing: 2, fontWeight: '700', fontFamily: 'monospace' },
-  capDesc: { fontSize: 10, color: C.sub, fontFamily: 'monospace', marginTop: 3, lineHeight: 15 },
-  permButtons: { paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 1, borderTopColor: C.border, gap: 8 },
-  permHint: { fontSize: 10, color: C.sub, fontFamily: 'monospace', marginBottom: 4 },
-  permBtn: { backgroundColor: '#0a0a0a', borderWidth: 1, borderColor: C.border, borderRadius: 4, paddingHorizontal: 12, paddingVertical: 8 },
-  permBtnText: { fontSize: 10, color: C.amber, fontFamily: 'monospace', fontWeight: '700', letterSpacing: 1 },
-  permBtnSub: { fontSize: 9, color: C.sub, fontFamily: 'monospace', marginTop: 2 },
-});
+  capLabel: { fontSize: 10, color: colors.text, letterSpacing: 2, fontWeight: '700', fontFamily: 'monospace' },
+  capDesc: { fontSize: 10, color: colors.sub, fontFamily: 'monospace', marginTop: 3, lineHeight: 15 },
+  permButtons: { paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 1, borderTopColor: colors.border, gap: 8 },
+  permHint: { fontSize: 10, color: colors.sub, fontFamily: 'monospace', marginBottom: 4 },
+  permBtn: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 4, paddingHorizontal: 12, paddingVertical: 8 },
+  permBtnText: { fontSize: 10, color: colors.amber, fontFamily: 'monospace', fontWeight: '700', letterSpacing: 1 },
+  permBtnSub: { fontSize: 9, color: colors.sub, fontFamily: 'monospace', marginTop: 2 },
+  }), [colors]);
+}
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: C.bg },
+function useStyles(colors: ThemeColors) {
+  return React.useMemo(() => StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.bg },
   content: { padding: 24 },
-  heading: { fontSize: 11, color: C.sub, letterSpacing: 4, marginBottom: 24 },
+  heading: { fontSize: 11, color: colors.sub, letterSpacing: 4, marginBottom: 24 },
   section: {
-    backgroundColor: C.card,
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: colors.border,
     borderRadius: 4,
     marginBottom: 16,
     overflow: 'hidden',
   },
-  field: { padding: 16, borderBottomWidth: 1, borderBottomColor: C.border },
-  fieldLabel: { fontSize: 10, color: C.sub, letterSpacing: 2, marginBottom: 8 },
+  field: { padding: 16, borderBottomWidth: 1, borderBottomColor: colors.border },
+  fieldLabel: { fontSize: 10, color: colors.sub, letterSpacing: 2, marginBottom: 8 },
   input: {
-    color: C.text,
+    color: colors.text,
     fontFamily: 'monospace',
     fontSize: 14,
     paddingVertical: 0,
   },
   netToggleRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
-  netBtn: { flex: 1, borderWidth: 1, borderColor: C.border, borderRadius: 3, paddingVertical: 8, alignItems: 'center' },
-  netBtnActive: { borderColor: C.green, backgroundColor: C.green + '18' },
-  netBtnText: { fontSize: 11, color: C.sub, letterSpacing: 2, fontWeight: '700', fontFamily: 'monospace' },
-  netBtnTextActive: { color: C.green },
-  devnetWarn: { marginHorizontal: 16, marginBottom: 8, fontSize: 11, color: '#ff8800', fontFamily: 'monospace', lineHeight: 16 },
-  tradingBadge: { marginHorizontal: 16, marginBottom: 12, borderWidth: 1, borderColor: '#ffc10730', borderRadius: 3, paddingVertical: 6, alignItems: 'center' },
-  tradingBadgeText: { fontSize: 9, color: C.amber, letterSpacing: 2, fontFamily: 'monospace' },
+  netBtn: { flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: 3, paddingVertical: 8, alignItems: 'center' },
+  netBtnActive: { borderColor: colors.green, backgroundColor: colors.green + '18' },
+  netBtnText: { fontSize: 11, color: colors.sub, letterSpacing: 2, fontWeight: '700', fontFamily: 'monospace' },
+  netBtnTextActive: { color: colors.green },
+  devnetWarn: { marginHorizontal: 16, marginBottom: 8, fontSize: 11, color: colors.amber, fontFamily: 'monospace', lineHeight: 16 },
+  tradingBadge: { marginHorizontal: 16, marginBottom: 12, borderWidth: 1, borderColor: colors.amber + '30', borderRadius: 3, paddingVertical: 6, alignItems: 'center' },
+  tradingBadgeText: { fontSize: 9, color: colors.amber, letterSpacing: 2, fontFamily: 'monospace' },
   hostFieldRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   hostUrlInput: { flex: 1 },
   browseBtn: {
     borderWidth: 1,
-    borderColor: C.green + '60',
+    borderColor: colors.green + '60',
     borderRadius: 3,
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
-  browseBtnText: { fontSize: 9, color: C.green, letterSpacing: 2, fontWeight: '700' },
+  browseBtnText: { fontSize: 9, color: colors.green, letterSpacing: 2, fontWeight: '700' },
   saveBtn: {
-    backgroundColor: C.green,
+    backgroundColor: colors.green,
     borderRadius: 4,
     paddingVertical: 16,
     alignItems: 'center',
@@ -1647,8 +1720,8 @@ const s = StyleSheet.create({
     alignItems: 'center',
     padding: 16,
   },
-  toggleLabel: { fontSize: 11, color: C.text, letterSpacing: 2, fontWeight: '600' },
-  toggleSub: { fontSize: 12, color: C.sub, marginTop: 4 },
+  toggleLabel: { fontSize: 11, color: colors.text, letterSpacing: 2, fontWeight: '600' },
+  toggleSub: { fontSize: 12, color: colors.sub, marginTop: 4 },
   nodeBtn: {
     margin: 16,
     borderWidth: 1,
@@ -1664,11 +1737,11 @@ const s = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   sheet: {
-    backgroundColor: C.card,
+    backgroundColor: colors.card,
     borderTopLeftRadius: 12,
     borderTopRightRadius: 12,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: colors.border,
     maxHeight: '70%',
     paddingBottom: 32,
   },
@@ -1678,84 +1751,89 @@ const s = StyleSheet.create({
     alignItems: 'center',
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: C.border,
+    borderBottomColor: colors.border,
   },
-  sheetTitle: { fontSize: 11, color: C.sub, letterSpacing: 3 },
-  sheetClose: { fontSize: 11, color: C.green, letterSpacing: 2 },
-  sheetEmpty: { padding: 24, color: C.sub, fontFamily: 'monospace', textAlign: 'center' },
+  sheetTitle: { fontSize: 11, color: colors.sub, letterSpacing: 3 },
+  sheetClose: { fontSize: 11, color: colors.green, letterSpacing: 2 },
+  sheetEmpty: { padding: 24, color: colors.sub, fontFamily: 'monospace', textAlign: 'center' },
   hostRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: C.border,
+    borderBottomColor: colors.border,
   },
   hostInfo: { flex: 1 },
-  hostName: { fontSize: 14, color: C.text, fontFamily: 'monospace', fontWeight: '600' },
-  hostMeta: { fontSize: 11, color: C.sub, marginTop: 2 },
+  hostName: { fontSize: 14, color: colors.text, fontFamily: 'monospace', fontWeight: '600' },
+  hostMeta: { fontSize: 11, color: colors.sub, marginTop: 2 },
   hostRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   feeBadge: {
     borderWidth: 1,
-    borderColor: C.amber + '60',
+    borderColor: colors.amber + '60',
     borderRadius: 3,
     paddingHorizontal: 6,
     paddingVertical: 2,
   },
-  feeBadgeText: { fontSize: 10, color: C.amber, letterSpacing: 1 },
+  feeBadgeText: { fontSize: 10, color: colors.amber, letterSpacing: 1 },
   barsRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 2 },
   bar: { width: 4, borderRadius: 1 },
-  signalNull: { fontSize: 14, color: C.sub },
-  miniBtn: { backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#333', borderRadius: 3, paddingHorizontal: 10, paddingVertical: 5, alignItems: 'center' },
-  miniBtnText: { fontSize: 9, fontWeight: '700', color: C.text, letterSpacing: 1, fontFamily: 'monospace' },
+  signalNull: { fontSize: 14, color: colors.sub },
+  miniBtn: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 3, paddingHorizontal: 10, paddingVertical: 5, alignItems: 'center' },
+  miniBtnText: { fontSize: 9, fontWeight: '700', color: colors.text, letterSpacing: 1, fontFamily: 'monospace' },
   sectionTitle: { fontSize: 11, fontWeight: '700', letterSpacing: 3, fontFamily: 'monospace', padding: 16, paddingBottom: 4 },
-});
+  }), [colors]);
+}
 
 // Phone Capabilities stylesheet
-const ps = StyleSheet.create({
-  section: { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, marginBottom: 16, overflow: 'hidden' },
-  headerRow: { padding: 16, borderBottomWidth: 1, borderBottomColor: C.border },
-  sectionTitle: { fontSize: 11, color: C.text, letterSpacing: 3, fontWeight: '700' },
-  sectionSub: { fontSize: 10, color: C.sub, letterSpacing: 1, marginTop: 2 },
+function usePs(colors: ThemeColors) {
+  return React.useMemo(() => StyleSheet.create({
+  section: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 4, marginBottom: 16, overflow: 'hidden' },
+  headerRow: { padding: 16, borderBottomWidth: 1, borderBottomColor: colors.border },
+  sectionTitle: { fontSize: 11, color: colors.text, letterSpacing: 3, fontWeight: '700' },
+  sectionSub: { fontSize: 10, color: colors.sub, letterSpacing: 1, marginTop: 2 },
   chipGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, padding: 14 },
-  chip: { borderWidth: 1, borderColor: C.border, borderRadius: 3, paddingHorizontal: 10, paddingVertical: 6 },
-  chipActive: { borderColor: C.green, backgroundColor: C.green + '18' },
-  chipText: { fontSize: 10, color: C.sub, fontFamily: 'monospace', letterSpacing: 1 },
-  chipTextActive: { color: C.green },
-});
+  chip: { borderWidth: 1, borderColor: colors.border, borderRadius: 3, paddingHorizontal: 10, paddingVertical: 6 },
+  chipActive: { borderColor: colors.green, backgroundColor: colors.green + '18' },
+  chipText: { fontSize: 10, color: colors.sub, fontFamily: 'monospace', letterSpacing: 1 },
+  chipTextActive: { color: colors.green },
+  }), [colors]);
+}
 
 // Agent Brain stylesheet
-const bs = StyleSheet.create({
-  section: { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, marginBottom: 16, overflow: 'hidden' },
-  restartBanner: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#1a1000', borderBottomWidth: 1, borderBottomColor: C.amber + '50', paddingHorizontal: 14, paddingVertical: 8 },
-  restartBannerText: { fontSize: 10, color: C.amber, fontFamily: 'monospace', letterSpacing: 1 },
-  restartBannerDismiss: { fontSize: 12, color: C.amber, fontFamily: 'monospace', paddingLeft: 12 },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: C.border },
-  sectionTitle: { fontSize: 11, color: C.text, letterSpacing: 3, fontWeight: '700' },
-  sectionSub: { fontSize: 10, color: C.sub, letterSpacing: 1, marginTop: 2 },
-  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14, borderBottomWidth: 1, borderBottomColor: C.border },
+function useBs(colors: ThemeColors) {
+  return React.useMemo(() => StyleSheet.create({
+  section: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 4, marginBottom: 16, overflow: 'hidden' },
+  restartBanner: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.card, borderBottomWidth: 1, borderBottomColor: colors.amber + '50', paddingHorizontal: 14, paddingVertical: 8 },
+  restartBannerText: { fontSize: 10, color: colors.amber, fontFamily: 'monospace', letterSpacing: 1 },
+  restartBannerDismiss: { fontSize: 12, color: colors.amber, fontFamily: 'monospace', paddingLeft: 12 },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: colors.border },
+  sectionTitle: { fontSize: 11, color: colors.text, letterSpacing: 3, fontWeight: '700' },
+  sectionSub: { fontSize: 10, color: colors.sub, letterSpacing: 1, marginTop: 2 },
+  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14, borderBottomWidth: 1, borderBottomColor: colors.border },
   rowLeft: { flex: 1, marginRight: 12 },
-  rowLabel: { fontSize: 10, color: C.sub, letterSpacing: 2 },
-  rowSub: { fontSize: 11, color: C.sub, marginTop: 3, opacity: 0.7 },
+  rowLabel: { fontSize: 10, color: colors.sub, letterSpacing: 2 },
+  rowSub: { fontSize: 11, color: colors.sub, marginTop: 3, opacity: 0.7 },
   rowBtns: { flexDirection: 'row', gap: 6 },
-  miniBtn: { borderWidth: 1, borderColor: C.border, borderRadius: 3, paddingHorizontal: 8, paddingVertical: 4 },
-  miniBtnText: { fontSize: 9, color: C.green, letterSpacing: 2, fontWeight: '700' },
-  keyInputWrap: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingBottom: 12, gap: 8, borderBottomWidth: 1, borderBottomColor: C.border },
-  keyInput: { flex: 1, color: C.text, fontFamily: 'monospace', fontSize: 13, backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 3, paddingHorizontal: 10, paddingVertical: 6 },
-  saveKeyBtn: { backgroundColor: C.green, borderRadius: 3, paddingHorizontal: 10, paddingVertical: 6 },
+  miniBtn: { borderWidth: 1, borderColor: colors.border, borderRadius: 3, paddingHorizontal: 8, paddingVertical: 4 },
+  miniBtnText: { fontSize: 9, color: colors.green, letterSpacing: 2, fontWeight: '700' },
+  keyInputWrap: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingBottom: 12, gap: 8, borderBottomWidth: 1, borderBottomColor: colors.border },
+  keyInput: { flex: 1, color: colors.text, fontFamily: 'monospace', fontSize: 13, backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border, borderRadius: 3, paddingHorizontal: 10, paddingVertical: 6 },
+  saveKeyBtn: { backgroundColor: colors.green, borderRadius: 3, paddingHorizontal: 10, paddingVertical: 6 },
   saveKeyBtnText: { fontSize: 10, fontWeight: '700', color: '#000', letterSpacing: 1 },
   providerRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
-  providerChip: { borderWidth: 1, borderColor: C.border, borderRadius: 3, paddingHorizontal: 8, paddingVertical: 4 },
-  providerChipActive: { borderColor: C.green, backgroundColor: C.green + '18' },
-  providerChipText: { fontSize: 10, color: C.sub, fontFamily: 'monospace', letterSpacing: 1 },
-  providerChipTextActive: { color: C.green },
+  providerChip: { borderWidth: 1, borderColor: colors.border, borderRadius: 3, paddingHorizontal: 8, paddingVertical: 4 },
+  providerChipActive: { borderColor: colors.green, backgroundColor: colors.green + '18' },
+  providerChipText: { fontSize: 10, color: colors.sub, fontFamily: 'monospace', letterSpacing: 1 },
+  providerChipTextActive: { color: colors.green },
   capWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  capChip: { borderWidth: 1, borderColor: C.border, borderRadius: 3, paddingHorizontal: 8, paddingVertical: 4 },
-  capChipActive: { borderColor: C.green + '80', backgroundColor: C.green + '12' },
-  capChipText: { fontSize: 10, color: C.sub, fontFamily: 'monospace' },
-  capChipTextActive: { color: C.green },
-  ruleInput: { color: C.green, fontFamily: 'monospace', fontSize: 15, fontWeight: '700', width: 56, textAlign: 'right' },
-  customField: { flex: 1, backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 4, padding: 10 },
-  customFieldLabel: { fontSize: 9, color: C.sub, letterSpacing: 1, marginBottom: 8, fontFamily: 'monospace' },
-  customFieldInput: { color: C.text, fontFamily: 'monospace', fontSize: 12, paddingVertical: 0 },
-});
+  capChip: { borderWidth: 1, borderColor: colors.border, borderRadius: 3, paddingHorizontal: 8, paddingVertical: 4 },
+  capChipActive: { borderColor: colors.green + '80', backgroundColor: colors.green + '12' },
+  capChipText: { fontSize: 10, color: colors.sub, fontFamily: 'monospace' },
+  capChipTextActive: { color: colors.green },
+  ruleInput: { color: colors.green, fontFamily: 'monospace', fontSize: 15, fontWeight: '700', width: 56, textAlign: 'right' },
+  customField: { flex: 1, backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border, borderRadius: 4, padding: 10 },
+  customFieldLabel: { fontSize: 9, color: colors.sub, letterSpacing: 1, marginBottom: 8, fontFamily: 'monospace' },
+  customFieldInput: { color: colors.text, fontFamily: 'monospace', fontSize: 12, paddingVertical: 0 },
+  }), [colors]);
+}

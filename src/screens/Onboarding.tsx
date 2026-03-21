@@ -12,6 +12,8 @@
  * On completion calls onDone(config) with the saved config,
  * or onDone(null) if the user skipped.
  */
+import { useTheme, ThemeColors } from '../theme/ThemeContext';
+import { ThemeToggle } from '../components/ThemeToggle';
 import React, { useState, useEffect } from 'react';
 import {
   Alert,
@@ -111,6 +113,8 @@ function StepShell({
   step: number;
   total?: number;
 }) {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   return (
     <KeyboardAvoidingView
       style={s.root}
@@ -134,10 +138,14 @@ function StepShell({
 }
 
 function Heading({ label }: { label: string }) {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   return <Text style={s.heading}>{label}</Text>;
 }
 
 function Sub({ children }: { children: React.ReactNode }) {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   return <Text style={s.sub}>{children}</Text>;
 }
 
@@ -150,6 +158,8 @@ function PrimaryBtn({
   onPress: () => void;
   disabled?: boolean;
 }) {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   return (
     <TouchableOpacity
       style={[s.primaryBtn, disabled && s.primaryBtnDisabled]}
@@ -165,6 +175,8 @@ function PrimaryBtn({
 }
 
 function GhostBtn({ label, onPress }: { label: string; onPress: () => void }) {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   return (
     <TouchableOpacity style={s.ghostBtn} onPress={onPress} activeOpacity={0.7}>
       <Text style={s.ghostBtnText}>{label}</Text>
@@ -173,6 +185,8 @@ function GhostBtn({ label, onPress }: { label: string; onPress: () => void }) {
 }
 
 function BackBtn({ onPress }: { onPress: () => void }) {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   return (
     <TouchableOpacity style={s.backBtn} onPress={onPress} activeOpacity={0.7}>
       <Text style={s.backBtnText}>← BACK</Text>
@@ -191,6 +205,8 @@ function WelcomeStep({
   onEnable: () => void;
   onSkip: () => void;
 }) {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   return (
     <StepShell step={0}>
       <Text style={s.logo}>[*]</Text>
@@ -241,6 +257,8 @@ function NameStep({
   onNext: () => void;
   onSkip: () => void;
 }) {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   return (
     <StepShell step={1}>
       <Heading label="NAME & AVATAR" />
@@ -263,9 +281,9 @@ function NameStep({
             width: 80,
             height: 80,
             borderRadius: 40,
-            backgroundColor: C.card,
+            backgroundColor: colors.card,
             borderWidth: 1,
-            borderColor: C.border,
+            borderColor: colors.border,
             alignItems: 'center',
             justifyContent: 'center',
             overflow: 'hidden',
@@ -277,7 +295,7 @@ function NameStep({
               style={{ width: 80, height: 80 }}
             />
           ) : (
-            <Text style={{ color: C.sub, fontSize: 24 }}>+</Text>
+            <Text style={{ color: colors.sub, fontSize: 24 }}>+</Text>
           )}
         </TouchableOpacity>
         <Text style={[s.keyLabel, { marginTop: 12 }]}>PROFILE PICTURE</Text>
@@ -290,7 +308,7 @@ function NameStep({
           value={agentName}
           onChangeText={onChangeName}
           placeholder="e.g. fast-eddie, databot-9"
-          placeholderTextColor={C.sub}
+          placeholderTextColor={colors.sub}
           autoCapitalize="none"
           autoCorrect={false}
           maxLength={32}
@@ -326,6 +344,8 @@ function ProviderStep({
   provider: LlmProvider;
   onSelect: (p: LlmProvider) => void;
 }) {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   return (
     <StepShell step={2}>
       <Heading label="CHOOSE LLM PROVIDER" />
@@ -386,6 +406,8 @@ function KeyStep({
   onBack: () => void;
   onNext: () => void;
 }) {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   const providerInfo = PROVIDERS.find(p => p.key === provider)!;
 
   const handleNext = () => {
@@ -415,7 +437,7 @@ function KeyStep({
           value={apiKey}
           onChangeText={onChangeKey}
           placeholder={`sk-...`}
-          placeholderTextColor={C.sub}
+          placeholderTextColor={colors.sub}
           secureTextEntry
           autoCapitalize="none"
           autoCorrect={false}
@@ -432,7 +454,7 @@ function KeyStep({
               value={customBaseUrl}
               onChangeText={onChangeUrl}
               placeholder="e.g. https://api.openai.com/v1"
-              placeholderTextColor={C.sub}
+              placeholderTextColor={colors.sub}
               autoCapitalize="none"
               autoCorrect={false}
               spellCheck={false}
@@ -445,7 +467,7 @@ function KeyStep({
               value={customModel}
               onChangeText={onChangeModel}
               placeholder="e.g. gpt-4, my-custom-model"
-              placeholderTextColor={C.sub}
+              placeholderTextColor={colors.sub}
               autoCapitalize="none"
               autoCorrect={false}
               spellCheck={false}
@@ -480,6 +502,8 @@ function CapabilitiesStep({
   onBack: () => void;
   onNext: () => void;
 }) {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   return (
     <StepShell step={4}>
       <BackBtn onPress={onBack} />
@@ -544,6 +568,8 @@ function RulesStep({
   onFinish: () => void;
   saving: boolean;
 }) {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   return (
     <StepShell step={5}>
       <BackBtn onPress={onBack} />
@@ -565,7 +591,7 @@ function RulesStep({
             onChangeText={onMinFee}
             keyboardType="decimal-pad"
             placeholder="0.01"
-            placeholderTextColor={C.sub}
+            placeholderTextColor={colors.sub}
           />
         </View>
 
@@ -582,7 +608,7 @@ function RulesStep({
             onChangeText={onMinRep}
             keyboardType="number-pad"
             placeholder="50"
-            placeholderTextColor={C.sub}
+            placeholderTextColor={colors.sub}
           />
         </View>
       </View>
@@ -599,8 +625,8 @@ function RulesStep({
         <Switch
           value={autoAccept}
           onValueChange={onAutoAccept}
-          trackColor={{ false: C.border, true: C.green + '66' }}
-          thumbColor={autoAccept ? C.green : '#333'}
+          trackColor={{ false: colors.border, true: colors.green + '66' }}
+          thumbColor={autoAccept ? colors.green : '#333'}
         />
       </View>
 
@@ -624,6 +650,8 @@ export function OnboardingScreen({
 }: {
   onDone: (config: AgentBrainConfig | null) => void;
 }) {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   const [step, setStep] = useState(0);
   const [agentName, setAgentName] = useState('');
   const [agentAvatar, setAgentAvatar] = useState('');
@@ -827,6 +855,8 @@ function OnchainRegistrationStep({
   config: AgentBrainConfig;
   onFinish: (config: AgentBrainConfig | null) => void;
 }) {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   const [registering, setRegistering] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Embedded node hot wallet address (base58)
@@ -1128,15 +1158,16 @@ function OnchainRegistrationStep({
 // Styles
 // ============================================================================
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: C.bg },
+function useStyles(colors: ThemeColors) {
+  return React.useMemo(() => StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.bg },
   content: { padding: 28, paddingTop: 56, paddingBottom: 48 },
   progressRow: { flexDirection: 'row', gap: 6, marginBottom: 36 },
-  pip: { height: 3, flex: 1, backgroundColor: C.border, borderRadius: 2 },
-  pipDone: { backgroundColor: C.green },
+  pip: { height: 3, flex: 1, backgroundColor: colors.border, borderRadius: 2 },
+  pipDone: { backgroundColor: colors.green },
   logo: {
     fontSize: 32,
-    color: C.green,
+    color: colors.green,
     fontFamily: 'monospace',
     fontWeight: '700',
     marginBottom: 20,
@@ -1144,41 +1175,41 @@ const s = StyleSheet.create({
   heading: {
     fontSize: 18,
     fontWeight: '700',
-    color: C.text,
+    color: colors.text,
     letterSpacing: 3,
     fontFamily: 'monospace',
     marginBottom: 16,
   },
-  sub: { fontSize: 13, color: C.sub, lineHeight: 20, marginBottom: 28 },
+  sub: { fontSize: 13, color: colors.sub, lineHeight: 20, marginBottom: 28 },
   featureList: { marginBottom: 32 },
   featureRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     marginBottom: 10,
   },
-  featureDot: { color: C.green, fontSize: 16, marginRight: 10, lineHeight: 20 },
-  featureText: { color: C.text, fontSize: 13, lineHeight: 20, flex: 1 },
+  featureDot: { color: colors.green, fontSize: 16, marginRight: 10, lineHeight: 20 },
+  featureText: { color: colors.text, fontSize: 13, lineHeight: 20, flex: 1 },
   primaryBtn: {
-    backgroundColor: C.green,
+    backgroundColor: colors.green,
     borderRadius: 4,
     paddingVertical: 16,
     alignItems: 'center',
     marginBottom: 12,
   },
-  primaryBtnDisabled: { backgroundColor: C.border },
+  primaryBtnDisabled: { backgroundColor: colors.border },
   primaryBtnText: {
     fontSize: 13,
     fontWeight: '700',
     letterSpacing: 3,
     color: '#000',
   },
-  primaryBtnTextDisabled: { color: C.sub },
+  primaryBtnTextDisabled: { color: colors.sub },
   ghostBtn: { alignItems: 'center', paddingVertical: 12 },
-  ghostBtnText: { fontSize: 12, color: C.sub, letterSpacing: 1 },
+  ghostBtnText: { fontSize: 12, color: colors.sub, letterSpacing: 1 },
   backBtn: { marginBottom: 24 },
   backBtnText: {
     fontSize: 11,
-    color: C.sub,
+    color: colors.sub,
     letterSpacing: 2,
     fontFamily: 'monospace',
   },
@@ -1191,34 +1222,34 @@ const s = StyleSheet.create({
   },
   providerCard: {
     width: Dimensions.get('window').width < 360 ? '100%' : '47%',
-    backgroundColor: C.card,
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: colors.border,
     borderRadius: 4,
     padding: 16,
   },
-  providerCardActive: { borderColor: C.green, backgroundColor: C.green + '12' },
+  providerCardActive: { borderColor: colors.green, backgroundColor: colors.green + '12' },
   providerLabel: {
     fontSize: 15,
     fontWeight: '700',
-    color: C.sub,
+    color: colors.sub,
     fontFamily: 'monospace',
     marginBottom: 4,
   },
-  providerLabelActive: { color: C.green },
-  providerModel: { fontSize: 10, color: C.sub, fontFamily: 'monospace' },
+  providerLabelActive: { color: colors.green },
+  providerModel: { fontSize: 10, color: colors.sub, fontFamily: 'monospace' },
   // API key
   keyCard: {
-    backgroundColor: C.card,
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: colors.border,
     borderRadius: 4,
     padding: 16,
     marginBottom: 12,
   },
-  keyLabel: { fontSize: 10, color: C.sub, letterSpacing: 2, marginBottom: 8 },
-  keyInput: { color: C.text, fontFamily: 'monospace', fontSize: 14 },
-  keyHint: { fontSize: 11, color: C.sub, marginBottom: 28 },
+  keyLabel: { fontSize: 10, color: colors.sub, letterSpacing: 2, marginBottom: 8 },
+  keyInput: { color: colors.text, fontFamily: 'monospace', fontSize: 14 },
+  keyHint: { fontSize: 11, color: colors.sub, marginBottom: 28 },
   // Capabilities
   capList: { marginBottom: 28 },
   capRow: {
@@ -1226,33 +1257,33 @@ const s = StyleSheet.create({
     alignItems: 'center',
     padding: 14,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: colors.border,
     borderRadius: 4,
     marginBottom: 8,
   },
   capRowActive: {
-    borderColor: C.green + '60',
-    backgroundColor: C.green + '08',
+    borderColor: colors.green + '60',
+    backgroundColor: colors.green + '08',
   },
   capCheck: {
     width: 20,
     height: 20,
     borderRadius: 3,
     borderWidth: 1,
-    borderColor: C.sub,
+    borderColor: colors.sub,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
   },
-  capCheckActive: { borderColor: C.green, backgroundColor: C.green },
+  capCheckActive: { borderColor: colors.green, backgroundColor: colors.green },
   capCheckMark: { fontSize: 12, color: '#000', fontWeight: '700' },
-  capLabel: { fontSize: 14, color: C.sub, fontFamily: 'monospace' },
-  capLabelActive: { color: C.text },
+  capLabel: { fontSize: 14, color: colors.sub, fontFamily: 'monospace' },
+  capLabelActive: { color: colors.text },
   // Rules
   ruleCard: {
-    backgroundColor: C.card,
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: colors.border,
     borderRadius: 4,
     marginBottom: 12,
     overflow: 'hidden',
@@ -1262,18 +1293,18 @@ const s = StyleSheet.create({
     alignItems: 'center',
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: C.border,
+    borderBottomColor: colors.border,
   },
   ruleLeft: { flex: 1 },
   ruleLabel: {
     fontSize: 11,
-    color: C.text,
+    color: colors.text,
     letterSpacing: 2,
     fontWeight: '600',
   },
-  ruleSub: { fontSize: 11, color: C.sub, marginTop: 3 },
+  ruleSub: { fontSize: 11, color: colors.sub, marginTop: 3 },
   ruleInput: {
-    color: C.green,
+    color: colors.green,
     fontFamily: 'monospace',
     fontSize: 16,
     fontWeight: '700',
@@ -1283,9 +1314,9 @@ const s = StyleSheet.create({
   toggleCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: C.card,
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: colors.border,
     borderRadius: 4,
     padding: 16,
     marginBottom: 28,
@@ -1293,23 +1324,23 @@ const s = StyleSheet.create({
   toggleLeft: { flex: 1, marginRight: 12 },
   // Wallet card (step 6)
   walletCard: {
-    backgroundColor: C.card,
+    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: C.green + '40',
+    borderColor: colors.green + '40',
     borderRadius: 4,
     padding: 16,
     marginBottom: 24,
   },
   walletLabel: {
     fontSize: 10,
-    color: C.green,
+    color: colors.green,
     letterSpacing: 2,
     fontFamily: 'monospace',
     marginBottom: 10,
   },
   walletAddress: {
     fontSize: 12,
-    color: C.text,
+    color: colors.text,
     fontFamily: 'monospace',
     lineHeight: 18,
     marginBottom: 10,
@@ -1317,20 +1348,21 @@ const s = StyleSheet.create({
   walletCopyBtn: { alignSelf: 'flex-start', marginBottom: 12, minWidth: 44, minHeight: 44, justifyContent: 'center' },
   walletCopyText: {
     fontSize: 10,
-    color: C.green,
+    color: colors.green,
     fontFamily: 'monospace',
     letterSpacing: 1,
   },
   walletLoading: {
     fontSize: 12,
-    color: C.sub,
+    color: colors.sub,
     fontFamily: 'monospace',
     marginBottom: 12,
   },
   walletHint: {
     fontSize: 11,
-    color: C.sub,
+    color: colors.sub,
     fontFamily: 'monospace',
     lineHeight: 16,
   },
-});
+  }), [colors]);
+}

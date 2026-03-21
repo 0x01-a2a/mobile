@@ -5,6 +5,8 @@
  * at the top with a DELIVER button. Agent selector pills are shown when
  * the user owns more than one agent.
  */
+import { useTheme, ThemeColors } from '../theme/ThemeContext';
+import { ThemeToggle } from '../components/ThemeToggle';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
@@ -72,18 +74,7 @@ async function markTaskAbandoned(conversationId: string) {
   } catch { /* silently ignore */ }
 }
 
-const C = {
-  bg: '#050505',
-  card: '#0f0f0f',
-  border: '#1a1a1a',
-  green: '#00e676',
-  dim: '#1a2e1a',
-  text: '#ffffff',
-  sub: '#555555',
-  red: '#ff1744',
-  amber: '#ffc107',
-  input: '#111111',
-};
+
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -107,6 +98,8 @@ function TaskBanner({
   onDeliver: () => void;
   onReject: () => void;
 }) {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   return (
     <View style={s.taskBanner}>
       <View style={s.taskBannerLeft}>
@@ -148,6 +141,8 @@ function AgentSelector({
   selectedId: string;
   onSelect: (a: OwnedAgent) => void;
 }) {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   if (agents.length <= 1) return null;
   return (
     <ScrollView
@@ -168,7 +163,7 @@ function AgentSelector({
             <Text style={[s.agentPillText, active && s.agentPillTextActive]}>
               {a.name}
             </Text>
-            <Text style={[s.agentPillBadge, { color: a.mode === 'local' ? C.green : C.amber }]}>
+            <Text style={[s.agentPillBadge, { color: a.mode === 'local' ? colors.green : colors.amber }]}>
               {a.mode === 'local' ? ' [L]' : ' [H]'}
             </Text>
           </TouchableOpacity>
@@ -201,6 +196,8 @@ function tryParseLaunchResult(text: string): LaunchResult | null {
 // ── Launch result card ────────────────────────────────────────────────────
 
 function LaunchResultCard({ result }: { result: LaunchResult }) {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   const shortMint = result.token_mint.length > 20
     ? `${result.token_mint.slice(0, 8)}…${result.token_mint.slice(-6)}`
     : result.token_mint;
@@ -230,6 +227,8 @@ function LaunchResultCard({ result }: { result: LaunchResult }) {
 // ── Message bubble ────────────────────────────────────────────────────────
 
 function Bubble({ msg }: { msg: ChatMessage }) {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   const isSystem = msg.role === 'system';
   if (isSystem) {
     return (
@@ -294,6 +293,8 @@ interface TaskEntry {
 }
 
 export function ChatScreen() {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   const route = useRoute();
   const navigation = useNavigation<any>();
   const params = (route.params ?? {}) as ChatRouteParams;
@@ -584,7 +585,7 @@ export function ChatScreen() {
       <View style={s.header}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           {config.agentAvatar && (
-            <Image source={{ uri: config.agentAvatar }} style={{ width: 24, height: 24, borderRadius: 12, marginRight: 8, borderWidth: 1, borderColor: C.border }} />
+            <Image source={{ uri: config.agentAvatar }} style={{ width: 24, height: 24, borderRadius: 12, marginRight: 8, borderWidth: 1, borderColor: colors.border }} />
           )}
           <Text style={s.headerTitle}>{(config.agentName || '01 PILOT').toUpperCase()}</Text>
         </View>
@@ -707,7 +708,7 @@ export function ChatScreen() {
                 value={bagsKeyDraft}
                 onChangeText={setBagsKeyDraft}
                 placeholder="Enter Bags API key..."
-                placeholderTextColor={C.sub}
+                placeholderTextColor={colors.sub}
                 autoCapitalize="none"
                 autoCorrect={false}
                 editable={!bagsKeySaving}
@@ -761,7 +762,7 @@ export function ChatScreen() {
                 value={textDeliverInput}
                 onChangeText={setTextDeliverInput}
                 placeholder="Enter your result..."
-                placeholderTextColor={C.sub}
+                placeholderTextColor={colors.sub}
                 autoCapitalize="none"
                 autoCorrect={false}
                 multiline
@@ -813,7 +814,7 @@ export function ChatScreen() {
                 value={draft}
                 onChangeText={setDraft}
                 placeholder="Optional caption..."
-                placeholderTextColor={C.sub}
+                placeholderTextColor={colors.sub}
                 multiline
                 maxLength={500}
               />
@@ -859,7 +860,7 @@ export function ChatScreen() {
             value={draft}
             onChangeText={setDraft}
             placeholder="Message 01 Pilot..."
-            placeholderTextColor={C.sub}
+            placeholderTextColor={colors.sub}
             multiline
             maxLength={4000}
             onSubmitEditing={handleSend}
@@ -881,98 +882,100 @@ export function ChatScreen() {
 
 // ── Styles ────────────────────────────────────────────────────────────────
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: C.bg },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 52, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.border },
-  headerTitle: { color: C.green, fontFamily: 'monospace', fontSize: 13, fontWeight: '700', letterSpacing: 2 },
+function useStyles(colors: ThemeColors) {
+  return React.useMemo(() => StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.bg },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 52, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: colors.border },
+  headerTitle: { color: colors.green, fontFamily: 'monospace', fontSize: 13, fontWeight: '700', letterSpacing: 2 },
   resetBtn: { paddingVertical: 4, paddingHorizontal: 8 },
-  resetBtnText: { color: C.sub, fontFamily: 'monospace', fontSize: 11 },
+  resetBtnText: { color: colors.sub, fontFamily: 'monospace', fontSize: 11 },
   // agent selector
-  agentBar: { maxHeight: 48, borderBottomWidth: 1, borderBottomColor: C.border },
+  agentBar: { maxHeight: 48, borderBottomWidth: 1, borderBottomColor: colors.border },
   agentBarContent: { paddingHorizontal: 12, paddingVertical: 8, gap: 8, flexDirection: 'row' },
-  agentPill: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: C.border, backgroundColor: C.card },
-  agentPillActive: { borderColor: C.green, backgroundColor: '#00e67615' },
-  agentPillText: { fontSize: 11, color: C.sub, fontFamily: 'monospace' },
-  agentPillTextActive: { color: C.green },
+  agentPill: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card },
+  agentPillActive: { borderColor: colors.green, backgroundColor: colors.green + '15' },
+  agentPillText: { fontSize: 11, color: colors.sub, fontFamily: 'monospace' },
+  agentPillTextActive: { color: colors.green },
   agentPillBadge: { fontSize: 11 },
   // task switcher
-  taskSwitcher: { maxHeight: 44, borderBottomWidth: 1, borderBottomColor: C.border },
+  taskSwitcher: { maxHeight: 44, borderBottomWidth: 1, borderBottomColor: colors.border },
   taskSwitcherContent: { paddingHorizontal: 10, paddingVertical: 6, gap: 6, flexDirection: 'row', alignItems: 'center' },
-  taskPill: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1, borderColor: C.border, backgroundColor: C.card, maxWidth: 160 },
-  taskPillActive: { borderColor: C.amber, backgroundColor: '#ffc10715' },
-  taskPillDelivered: { borderColor: C.green + '80' },
-  taskPillText: { fontSize: 10, color: C.sub, fontFamily: 'monospace' },
-  taskPillTextActive: { color: C.amber },
-  taskPillBadge: { fontSize: 10, color: C.green, marginLeft: 4 },
+  taskPill: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, maxWidth: 160 },
+  taskPillActive: { borderColor: colors.amber, backgroundColor: colors.amber + '15' },
+  taskPillDelivered: { borderColor: colors.green + '80' },
+  taskPillText: { fontSize: 10, color: colors.sub, fontFamily: 'monospace' },
+  taskPillTextActive: { color: colors.amber },
+  taskPillBadge: { fontSize: 10, color: colors.green, marginLeft: 4 },
   // task banner
-  taskBanner: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#0a1a0a', borderBottomWidth: 1, borderBottomColor: C.green + '40', paddingHorizontal: 16, paddingVertical: 12, gap: 12 },
+  taskBanner: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.card, borderBottomWidth: 1, borderBottomColor: colors.green + '40', paddingHorizontal: 16, paddingVertical: 12, gap: 12 },
   taskBannerLeft: { flex: 1 },
   taskBannerActions: { flexDirection: 'column', gap: 6 },
-  taskLabel: { fontSize: 9, color: C.green, letterSpacing: 3, fontWeight: '700', fontFamily: 'monospace', marginBottom: 3 },
-  taskDesc: { fontSize: 12, color: C.text, fontFamily: 'monospace', lineHeight: 17 },
-  taskMeta: { fontSize: 10, color: C.sub, fontFamily: 'monospace', marginTop: 4 },
-  deliverBtn: { backgroundColor: C.green, borderRadius: 3, paddingHorizontal: 12, paddingVertical: 8 },
-  deliverBtnBusy: { backgroundColor: C.sub },
+  taskLabel: { fontSize: 9, color: colors.green, letterSpacing: 3, fontWeight: '700', fontFamily: 'monospace', marginBottom: 3 },
+  taskDesc: { fontSize: 12, color: colors.text, fontFamily: 'monospace', lineHeight: 17 },
+  taskMeta: { fontSize: 10, color: colors.sub, fontFamily: 'monospace', marginTop: 4 },
+  deliverBtn: { backgroundColor: colors.green, borderRadius: 3, paddingHorizontal: 12, paddingVertical: 8 },
+  deliverBtnBusy: { backgroundColor: colors.sub },
   deliverText: { fontSize: 10, color: '#000', fontWeight: '700', letterSpacing: 2 },
-  rejectBtn: { borderWidth: 1, borderColor: C.red + '80', borderRadius: 3, paddingHorizontal: 12, paddingVertical: 6 },
-  rejectText: { fontSize: 10, color: C.red, fontWeight: '700', letterSpacing: 2, fontFamily: 'monospace' },
+  rejectBtn: { borderWidth: 1, borderColor: colors.red + '80', borderRadius: 3, paddingHorizontal: 12, paddingVertical: 6 },
+  rejectText: { fontSize: 10, color: colors.red, fontWeight: '700', letterSpacing: 2, fontFamily: 'monospace' },
   // messages
   listContent: { padding: 12, paddingBottom: 8, flexGrow: 1 },
   bubbleRow: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 10, gap: 6 },
   rowLeft: { justifyContent: 'flex-start' },
   rowRight: { justifyContent: 'flex-end' },
-  roleLabel: { color: C.sub, fontFamily: 'monospace', fontSize: 9, marginBottom: 2 },
+  roleLabel: { color: colors.sub, fontFamily: 'monospace', fontSize: 9, marginBottom: 2 },
   bubble: { maxWidth: '78%', borderRadius: 4, padding: 10 },
-  bubbleUser: { backgroundColor: C.dim, borderWidth: 1, borderColor: C.green },
-  bubbleAgent: { backgroundColor: C.card, borderWidth: 1, borderColor: C.border },
-  bubbleText: { color: C.text, fontFamily: 'monospace', fontSize: 13, lineHeight: 19 },
-  bubbleTextUser: { color: C.green },
+  bubbleUser: { backgroundColor: colors.green + '15', borderWidth: 1, borderColor: colors.green },
+  bubbleAgent: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
+  bubbleText: { color: colors.text, fontFamily: 'monospace', fontSize: 13, lineHeight: 19 },
+  bubbleTextUser: { color: colors.green },
   bubbleSystemRow: { alignItems: 'center', marginVertical: 12 },
-  bubbleSystemText: { color: C.green, fontFamily: 'monospace', fontSize: 11, textAlign: 'center', backgroundColor: '#00e67615', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 6, borderWidth: 1, borderColor: '#00e67640', overflow: 'hidden' },
+  bubbleSystemText: { color: colors.green, fontFamily: 'monospace', fontSize: 11, textAlign: 'center', backgroundColor: colors.green + '15', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 6, borderWidth: 1, borderColor: colors.green + '40', overflow: 'hidden' },
   thinkingWrap: { padding: 12 },
-  thinkingText: { color: C.sub, fontFamily: 'monospace', fontSize: 12 },
+  thinkingText: { color: colors.sub, fontFamily: 'monospace', fontSize: 12 },
   emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80 },
-  emptyLine: { color: C.sub, fontFamily: 'monospace', fontSize: 11, lineHeight: 17 },
-  emptyHint: { color: C.sub, fontFamily: 'monospace', fontSize: 12, textAlign: 'center' },
-  errorBanner: { backgroundColor: '#1a0505', borderTopWidth: 1, borderTopColor: C.red, padding: 12 },
-  errorText: { color: C.red, fontFamily: 'monospace', fontSize: 11, marginBottom: 2 },
-  errorHint: { color: C.sub, fontFamily: 'monospace', fontSize: 10 },
-  inputWrap: { borderTopWidth: 1, borderTopColor: C.border },
+  emptyLine: { color: colors.sub, fontFamily: 'monospace', fontSize: 11, lineHeight: 17 },
+  emptyHint: { color: colors.sub, fontFamily: 'monospace', fontSize: 12, textAlign: 'center' },
+  errorBanner: { backgroundColor: colors.card, borderTopWidth: 1, borderTopColor: colors.red, padding: 12 },
+  errorText: { color: colors.red, fontFamily: 'monospace', fontSize: 11, marginBottom: 2 },
+  errorHint: { color: colors.sub, fontFamily: 'monospace', fontSize: 10 },
+  inputWrap: { borderTopWidth: 1, borderTopColor: colors.border },
   inputRow: { flexDirection: 'row', alignItems: 'flex-end', padding: 12, gap: 8 },
-  input: { flex: 1, backgroundColor: C.input, borderWidth: 1, borderColor: C.border, borderRadius: 4, paddingHorizontal: 12, paddingVertical: 10, color: C.text, fontFamily: 'monospace', fontSize: 13, maxHeight: 120 },
-  attachBtn: { width: 44, height: 44, borderRadius: 4, alignItems: 'center', justifyContent: 'center', backgroundColor: C.card, borderWidth: 1, borderColor: C.border },
+  input: { flex: 1, backgroundColor: colors.input, borderWidth: 1, borderColor: colors.border, borderRadius: 4, paddingHorizontal: 12, paddingVertical: 10, color: colors.text, fontFamily: 'monospace', fontSize: 13, maxHeight: 120 },
+  attachBtn: { width: 44, height: 44, borderRadius: 4, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
   attachBtnText: { fontSize: 20 },
-  sendBtn: { backgroundColor: C.green, width: 44, height: 44, borderRadius: 4, alignItems: 'center', justifyContent: 'center' },
-  sendBtnDisabled: { backgroundColor: C.border },
+  sendBtn: { backgroundColor: colors.green, width: 44, height: 44, borderRadius: 4, alignItems: 'center', justifyContent: 'center' },
+  sendBtnDisabled: { backgroundColor: colors.border },
   sendBtnText: { color: '#000000', fontFamily: 'monospace', fontSize: 18, fontWeight: '700' },
   // pending image strip
   pendingImageStrip: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingTop: 8, gap: 8 },
-  pendingThumb: { width: 40, height: 40, borderRadius: 4, borderWidth: 1, borderColor: C.green },
-  pendingImageLabel: { flex: 1, color: C.green, fontFamily: 'monospace', fontSize: 11 },
+  pendingThumb: { width: 40, height: 40, borderRadius: 4, borderWidth: 1, borderColor: colors.green },
+  pendingImageLabel: { flex: 1, color: colors.green, fontFamily: 'monospace', fontSize: 11 },
   pendingRemoveBtn: { padding: 6 },
-  pendingRemoveText: { color: C.sub, fontFamily: 'monospace', fontSize: 14 },
+  pendingRemoveText: { color: colors.sub, fontFamily: 'monospace', fontSize: 14 },
   // bubble image thumbnail
-  bubbleThumb: { width: 180, height: 180, borderRadius: 4, marginBottom: 6, borderWidth: 1, borderColor: C.border },
+  bubbleThumb: { width: 180, height: 180, borderRadius: 4, marginBottom: 6, borderWidth: 1, borderColor: colors.border },
   // image preview modal
-  imgPreviewCard: { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 6, padding: 20, width: '100%' },
-  imgPreviewTitle: { color: C.green, fontFamily: 'monospace', fontSize: 11, fontWeight: '700', letterSpacing: 2, marginBottom: 12 },
-  imgPreviewSquare: { width: '100%', aspectRatio: 1, borderRadius: 4, borderWidth: 1, borderColor: C.border, marginBottom: 12 },
-  imgPreviewHint: { color: C.sub, fontFamily: 'monospace', fontSize: 11, lineHeight: 16, marginBottom: 10 },
+  imgPreviewCard: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 6, padding: 20, width: '100%' },
+  imgPreviewTitle: { color: colors.green, fontFamily: 'monospace', fontSize: 11, fontWeight: '700', letterSpacing: 2, marginBottom: 12 },
+  imgPreviewSquare: { width: '100%', aspectRatio: 1, borderRadius: 4, borderWidth: 1, borderColor: colors.border, marginBottom: 12 },
+  imgPreviewHint: { color: colors.sub, fontFamily: 'monospace', fontSize: 11, lineHeight: 16, marginBottom: 10 },
   // launch result card
-  launchCard: { marginTop: 8, backgroundColor: '#0a1a0a', borderWidth: 1, borderColor: C.green + '60', borderRadius: 4, padding: 10 },
-  launchCardLabel: { fontSize: 9, color: C.green, letterSpacing: 3, fontWeight: '700', fontFamily: 'monospace', marginBottom: 6 },
-  launchCardName: { fontSize: 13, color: C.text, fontFamily: 'monospace', fontWeight: '700', marginBottom: 6 },
-  launchCardField: { fontSize: 9, color: C.sub, letterSpacing: 2, fontFamily: 'monospace', marginTop: 4 },
-  launchCardValue: { fontSize: 11, color: C.green, fontFamily: 'monospace', marginTop: 2 },
+  launchCard: { marginTop: 8, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.green + '60', borderRadius: 4, padding: 10 },
+  launchCardLabel: { fontSize: 9, color: colors.green, letterSpacing: 3, fontWeight: '700', fontFamily: 'monospace', marginBottom: 6 },
+  launchCardName: { fontSize: 13, color: colors.text, fontFamily: 'monospace', fontWeight: '700', marginBottom: 6 },
+  launchCardField: { fontSize: 9, color: colors.sub, letterSpacing: 2, fontFamily: 'monospace', marginTop: 4 },
+  launchCardValue: { fontSize: 11, color: colors.green, fontFamily: 'monospace', marginTop: 2 },
   // bags rate-limit modal
   modalOverlay: { flex: 1, backgroundColor: '#000000cc', justifyContent: 'center', alignItems: 'center', padding: 24 },
-  modalCard: { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 6, padding: 20, width: '100%' },
-  modalTitle: { color: C.amber, fontFamily: 'monospace', fontSize: 11, fontWeight: '700', letterSpacing: 2, marginBottom: 10 },
-  modalBody: { color: C.sub, fontFamily: 'monospace', fontSize: 12, lineHeight: 18, marginBottom: 14 },
-  modalInput: { backgroundColor: C.input, borderWidth: 1, borderColor: C.border, borderRadius: 4, paddingHorizontal: 12, paddingVertical: 10, color: C.text, fontFamily: 'monospace', fontSize: 12, marginBottom: 16 },
+  modalCard: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 6, padding: 20, width: '100%' },
+  modalTitle: { color: colors.amber, fontFamily: 'monospace', fontSize: 11, fontWeight: '700', letterSpacing: 2, marginBottom: 10 },
+  modalBody: { color: colors.sub, fontFamily: 'monospace', fontSize: 12, lineHeight: 18, marginBottom: 14 },
+  modalInput: { backgroundColor: colors.input, borderWidth: 1, borderColor: colors.border, borderRadius: 4, paddingHorizontal: 12, paddingVertical: 10, color: colors.text, fontFamily: 'monospace', fontSize: 12, marginBottom: 16 },
   modalActions: { flexDirection: 'row', gap: 10, justifyContent: 'flex-end' },
   modalCancel: { paddingHorizontal: 14, paddingVertical: 10 },
-  modalCancelText: { color: C.sub, fontFamily: 'monospace', fontSize: 11 },
-  modalSave: { backgroundColor: C.green, borderRadius: 3, paddingHorizontal: 18, paddingVertical: 10 },
+  modalCancelText: { color: colors.sub, fontFamily: 'monospace', fontSize: 11 },
+  modalSave: { backgroundColor: colors.green, borderRadius: 3, paddingHorizontal: 18, paddingVertical: 10 },
   modalSaveText: { color: '#000', fontFamily: 'monospace', fontSize: 11, fontWeight: '700', letterSpacing: 1 },
-});
+  }), [colors]);
+}

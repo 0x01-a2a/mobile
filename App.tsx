@@ -14,6 +14,8 @@ import { AppNavigator } from './src/navigation/AppNavigator';
 import { OnboardingScreen, checkOnboardingDone } from './src/screens/Onboarding';
 import { AgentBrainConfig, useAgentBrain } from './src/hooks/useAgentBrain';
 import { NodeProvider } from './src/hooks/useNode';
+import { initI18n } from './src/i18n';
+import { ThemeProvider, useTheme } from './src/theme/ThemeContext';
 
 // Set SENTRY_DSN to your project's DSN from sentry.io to enable crash reporting.
 // Leave empty to disable (safe for dev builds).
@@ -61,11 +63,18 @@ class ErrorBoundary extends Component<{ children: ReactNode }, EBState> {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+function ThemedStatusBar() {
+  const { isDark, colors } = useTheme();
+  return <StatusBar barStyle={isDark ? "light-content" : "dark-content"} backgroundColor={colors.bg} />;
+}
+
 export default function App() {
   const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null);
+  const [i18nReady, setI18nReady] = useState(false);
   const { save: saveBrain } = useAgentBrain();
 
   useEffect(() => {
+    initI18n().then(() => setI18nReady(true)).catch(() => setI18nReady(true));
     checkOnboardingDone().then(done => setOnboardingDone(done));
   }, []);
 
@@ -75,31 +84,35 @@ export default function App() {
   };
 
   // Still checking — render nothing (avoids flash)
-  if (onboardingDone === null) {
+  if (onboardingDone === null || !i18nReady) {
     return <View style={s.splash} />;
   }
 
   if (!onboardingDone) {
     return (
       <ErrorBoundary>
-        <SafeAreaProvider>
-          <StatusBar barStyle="light-content" backgroundColor="#050505" />
-          <OnboardingScreen onDone={handleOnboardingDone} />
-        </SafeAreaProvider>
+        <ThemeProvider>
+          <SafeAreaProvider>
+            <ThemedStatusBar />
+            <OnboardingScreen onDone={handleOnboardingDone} />
+          </SafeAreaProvider>
+        </ThemeProvider>
       </ErrorBoundary>
     );
   }
 
   return (
     <ErrorBoundary>
-      <SafeAreaProvider>
-        <StatusBar barStyle="light-content" backgroundColor="#050505" />
-        <NavigationContainer>
-          <NodeProvider>
-            <AppNavigator />
-          </NodeProvider>
-        </NavigationContainer>
-      </SafeAreaProvider>
+      <ThemeProvider>
+        <SafeAreaProvider>
+          <ThemedStatusBar />
+          <NavigationContainer>
+            <NodeProvider>
+              <AppNavigator />
+            </NodeProvider>
+          </NavigationContainer>
+        </SafeAreaProvider>
+      </ThemeProvider>
     </ErrorBoundary>
   );
 }

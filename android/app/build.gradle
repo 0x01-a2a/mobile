@@ -118,16 +118,19 @@ android {
     productFlavors {
         full {
             dimension "distribution"
-            buildConfigField "String", "DISTRIBUTION", '"full"'
+            buildConfigField "String",  "DISTRIBUTION",       '"full"'
+            buildConfigField "boolean", "SEED_VAULT_ENABLED", "false"
         }
         dappstore {
             dimension "distribution"
             minSdkVersion 26
-            buildConfigField "String", "DISTRIBUTION", '"dappstore"'
+            buildConfigField "String",  "DISTRIBUTION",       '"dappstore"'
+            buildConfigField "boolean", "SEED_VAULT_ENABLED", "true"
         }
         googleplay {
             dimension "distribution"
-            buildConfigField "String", "DISTRIBUTION", '"googleplay"'
+            buildConfigField "String",  "DISTRIBUTION",       '"googleplay"'
+            buildConfigField "boolean", "SEED_VAULT_ENABLED", "false"
         }
     }
 }
@@ -141,6 +144,10 @@ dependencies {
     implementation("net.i2p.crypto:eddsa:0.3.0")
     // Health Connect — reads sleep, HR, HRV, steps, weight from wearables + apps
     implementation("androidx.health.connect:connect-client:1.1.0-rc01")
+    // SeedVault — Solana Mobile hardware key derivation (dappstore / Seeker only)
+    dappstoreImplementation("com.solanamobile:seed-vault-wallet-sdk-android:0.9.6")
+    // WorkManager — background polling for ntfy wake events when NodeService is stopped
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
 
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")

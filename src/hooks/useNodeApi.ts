@@ -1035,6 +1035,89 @@ export function usePhantomBalance(): PhantomBalance {
   return { address, sol, usdc, splTokens, loading };
 }
 
+export interface SkrLeagueEntry {
+  rank: number;
+  wallet: string;
+  label: string;
+  earn_rate_pct: number;
+  bags_fee_score: number;
+  points: number;
+  trade_count: number;
+  active_days: number;
+  skr_balance: number;
+}
+
+export interface SkrLeagueWalletView {
+  wallet: string | null;
+  skr_balance: number;
+  has_access: boolean;
+  rank: number | null;
+  earn_rate_pct: number;
+  bags_fee_score: number;
+  points: number;
+  trade_count: number;
+  active_days: number;
+  access_message: string;
+}
+
+export interface SkrLeagueSnapshot {
+  title: string;
+  season: string;
+  ends_at: number;
+  min_skr: number;
+  reward_pool_skr: number;
+  scoring: string[];
+  rewards: string[];
+  wallet: SkrLeagueWalletView;
+  leaderboard: SkrLeagueEntry[];
+}
+
+export function useSkrLeague(intervalMs = 60_000): {
+  data: SkrLeagueSnapshot | null;
+  loading: boolean;
+  error: string | null;
+  refresh: () => Promise<void>;
+} {
+  const [wallet, setWallet] = useState<string | null>(null);
+  const [data, setData] = useState<SkrLeagueSnapshot | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    AsyncStorage.getItem('zerox1:linked_wallet')
+      .then(a => setWallet(a ?? null))
+      .catch(() => setWallet(null));
+  }, []);
+
+  const refresh = useCallback(async () => {
+    if (!_appActive) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const linkedWallet = await AsyncStorage.getItem('zerox1:linked_wallet');
+      const activeWallet = linkedWallet ?? null;
+      if (activeWallet !== wallet) setWallet(activeWallet);
+      const qs = activeWallet ? `?wallet=${encodeURIComponent(activeWallet)}` : '';
+      const res = await fetch(`${AGGREGATOR_API}/league/current${qs}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      setData(json);
+    } catch (e: any) {
+      setError(e?.message ?? 'Failed to load SKR League');
+    } finally {
+      setLoading(false);
+    }
+  }, [wallet]);
+
+  useEffect(() => {
+    refresh();
+    const id = setInterval(refresh, intervalMs);
+    return () => clearInterval(id);
+  }, [refresh, intervalMs]);
+
+  return { data, loading, error, refresh };
+}
+
 export interface DexPrice {
   symbol: string;
   name: string;
@@ -1127,6 +1210,96 @@ export async function sweepUsdc(destination: string, amount?: number): Promise<S
     throw new Error(text || `HTTP ${res.status}`);
   }
   return res.json();
+}
+
+// ============================================================================
+// Wallet send (SOL / any SPL)
+// ============================================================================
+
+export interface WalletSendResult {
+  signature: string;
+  amount: number;
+  to: string;
+}
+
+/**
+ * Send SOL or any SPL token from the node's hot wallet.
+ * - No `mint`: native SOL transfer.
+ * - `mint` present: SPL token transfer (destination ATA created automatically).
+ */
+export async function walletSend(
+  to: string,
+  amount: number,
+  mint?: string,
+): Promise<WalletSendResult> {
+  const res = await fetch(`${_apiBase}/wallet/send`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ to, amount, mint }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+// ============================================================================
+// Pending swap CA confirmation
+// ============================================================================
+
+export interface PendingSwap {
+  swap_id: string;
+  input_mint: string;
+  output_mint: string;
+  amount: number;
+  slippage_bps: number;
+  created_at: number;
+  expires_at: number;
+}
+
+/** Poll GET /trade/swap/pending every 10 s. Returns [] when node is not local. */
+export function usePendingSwaps(): {
+  swaps: PendingSwap[];
+  refresh: () => void;
+  confirm: (swapId: string) => Promise<{ out_amount: number; txid: string }>;
+  reject: (swapId: string) => Promise<void>;
+} {
+  const [swaps, setSwaps] = useState<PendingSwap[]>([]);
+
+  const fetch_ = useCallback(async () => {
+    if (_isHostedMode) return; // pending swaps only exist on the local node
+    try {
+      const res = await fetch(`${_apiBase}/trade/swap/pending`);
+      if (res.ok) {
+        const data = await res.json();
+        setSwaps(data.pending ?? []);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    fetch_();
+    const id = setInterval(fetch_, 10_000);
+    return () => clearInterval(id);
+  }, [fetch_]);
+
+  const confirm = useCallback(async (swapId: string) => {
+    const res = await fetch(`${_apiBase}/trade/swap/confirm/${swapId}`, { method: 'POST' });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(text || `HTTP ${res.status}`);
+    }
+    await fetch_();
+    return res.json();
+  }, [fetch_]);
+
+  const reject = useCallback(async (swapId: string) => {
+    await fetch(`${_apiBase}/trade/swap/reject/${swapId}`, { method: 'POST' });
+    await fetch_();
+  }, [fetch_]);
+
+  return { swaps, refresh: fetch_, confirm, reject };
 }
 
 export interface QuotePreview {
@@ -1691,4 +1864,263 @@ export function useSolPrice(): number | null {
   }, []);
 
   return price;
+}
+
+// ============================================================================
+// MPP — Machine Payment Protocol helpers
+// ============================================================================
+
+const SPL_TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+
+/**
+ * Build a raw SPL Token Transfer instruction buffer.
+ *   instruction[0] = 3  (Transfer discriminant)
+ *   instruction[1..9]   = amount as little-endian u64
+ */
+function buildSplTransferData(amount: bigint): Uint8Array {
+  const buf = new Uint8Array(9);
+  buf[0] = 3; // Transfer
+  // Write amount as 8-byte little-endian
+  let remaining = amount;
+  for (let i = 1; i <= 8; i++) {
+    buf[i] = Number(remaining & BigInt(0xff));
+    remaining >>= BigInt(8);
+  }
+  return buf;
+}
+
+interface MppChallenge {
+  recipient: string;
+  amount: number;
+  mint: string;
+  reference: string;
+  expires_at: number;
+}
+
+/**
+ * Pay the hosting fee for a hosted agent.
+ *
+ * Flow:
+ *   1. GET <nodeApiUrl>/mpp/challenge          → challenge JSON
+ *   2. Build SPL Token Transfer tx with reference pubkey in accounts
+ *   3. Sign + sendTransaction via connection
+ *   4. POST <nodeApiUrl>/mpp/verify            → { paid_until }
+ *
+ * @param nodeApiUrl   Base URL of the host node API (e.g. "https://host.example.com:9091")
+ * @param authToken    Hosted session bearer token
+ * @param payerPublicKey   Agent's Solana public key
+ * @param payerSecretKey   Agent's Solana secret key bytes (64 bytes)
+ * @param connection   Solana web3.js Connection
+ * @param agentIdHex   Hex-encoded agent_id (64 hex chars)
+ */
+export async function payHostingFee(
+  nodeApiUrl: string,
+  authToken: string,
+  payerPublicKey: string,
+  payerSecretKey: Uint8Array,
+  connection: {
+    getRecentBlockhash: () => Promise<{ blockhash: string }>;
+    sendRawTransaction: (tx: Uint8Array) => Promise<string>;
+  },
+  agentIdHex: string,
+): Promise<{ paid_until: number }> {
+  // Step 1: Get challenge
+  const challengeRes = await fetch(`${nodeApiUrl}/mpp/challenge`, {
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!challengeRes.ok) {
+    throw new Error(`MPP challenge failed: ${challengeRes.status}`);
+  }
+  const challenge: MppChallenge = await challengeRes.json();
+
+  if (Date.now() / 1000 > challenge.expires_at) {
+    throw new Error('MPP challenge already expired');
+  }
+
+  // Step 2+3: Build, sign, and send
+  const { blockhash } = await connection.getRecentBlockhash();
+  const signedTx = await signTransaction(
+    null,
+    blockhash,
+    payerPublicKey,
+    payerSecretKey,
+    challenge.reference,
+    challenge.recipient,
+    BigInt(challenge.amount),
+  );
+  const txSig = await connection.sendRawTransaction(signedTx);
+
+  // Step 4: Verify
+  const verifyRes = await fetch(`${nodeApiUrl}/mpp/verify`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${authToken}`,
+    },
+    body: JSON.stringify({ tx_sig: txSig, reference: challenge.reference, agent_id: agentIdHex }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!verifyRes.ok) {
+    const err = await verifyRes.json().catch(() => ({}));
+    throw new Error(err?.error ?? `MPP verify failed: ${verifyRes.status}`);
+  }
+  return verifyRes.json();
+}
+
+/**
+ * Pay the protocol fee to the 0x01 aggregator.
+ *
+ * Flow:
+ *   1. GET <aggregatorUrl>/mpp/protocol-fee/challenge?kind=hosted  → challenge JSON
+ *   2. Build SPL Token Transfer tx with reference pubkey in accounts
+ *   3. Sign + sendTransaction via connection
+ *   4. POST <aggregatorUrl>/mpp/protocol-fee/verify               → { paid_until }
+ *
+ * @param aggregatorUrl    Aggregator base URL (e.g. "https://api.0x01.world")
+ * @param agentId          Agent ID (hex or base58)
+ * @param payerPublicKey   Agent's Solana public key (base58)
+ * @param payerSecretKey   Agent's Solana secret key bytes
+ * @param connection       Solana connection
+ * @param kind             'hosted' | 'self_hosted'
+ */
+export async function payProtocolFee(
+  aggregatorUrl: string,
+  agentId: string,
+  payerPublicKey: string,
+  payerSecretKey: Uint8Array,
+  connection: {
+    getRecentBlockhash: () => Promise<{ blockhash: string }>;
+    sendRawTransaction: (tx: Uint8Array) => Promise<string>;
+  },
+  kind: 'hosted' | 'self_hosted' = 'hosted',
+): Promise<{ paid_until: number }> {
+  // Step 1: Get challenge
+  const challengeRes = await fetch(
+    `${aggregatorUrl}/mpp/protocol-fee/challenge?kind=${kind}`,
+    { signal: AbortSignal.timeout(15_000) },
+  );
+  if (!challengeRes.ok) {
+    throw new Error(`MPP protocol-fee challenge failed: ${challengeRes.status}`);
+  }
+  const challenge: MppChallenge = await challengeRes.json();
+
+  if (Date.now() / 1000 > challenge.expires_at) {
+    throw new Error('MPP protocol-fee challenge already expired');
+  }
+
+  // Step 2: Build + sign + send tx
+  const { blockhash } = await connection.getRecentBlockhash();
+  const signedTx = await signTransaction(
+    null,
+    blockhash,
+    payerPublicKey,
+    payerSecretKey,
+    challenge.reference,
+    challenge.recipient,
+    BigInt(challenge.amount),
+  );
+  const txSig = await connection.sendRawTransaction(signedTx);
+
+  // Step 3: Verify
+  const verifyRes = await fetch(`${aggregatorUrl}/mpp/protocol-fee/verify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tx_sig: txSig, reference: challenge.reference, agent_id: agentId }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!verifyRes.ok) {
+    const err = await verifyRes.json().catch(() => ({}));
+    throw new Error(err?.error ?? `MPP protocol-fee verify failed: ${verifyRes.status}`);
+  }
+  return verifyRes.json();
+}
+
+/**
+ * Build and sign a Solana SPL Token Transfer transaction.
+ *
+ * The transaction includes:
+ *   - One SPL Token Transfer instruction (from payer's USDC ATA → recipient ATA)
+ *   - The reference pubkey as a read-only non-signer account
+ *     (this is how MPP makes transactions findable on-chain)
+ *
+ * Returns the serialised transaction bytes ready to send via sendRawTransaction.
+ */
+async function signTransaction(
+  _unusedTx: null,
+  blockhash: string,
+  payerPublicKey: string,
+  payerSecretKey: Uint8Array,
+  referencePubkey: string,
+  recipientAta?: string,
+  amount?: bigint,
+): Promise<Uint8Array> {
+  // Dynamically import @solana/web3.js to avoid bundling it unconditionally.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const web3 = require('@solana/web3.js');
+  const { Transaction, TransactionInstruction, PublicKey, AccountMeta } = web3;
+
+  const payer = new PublicKey(payerPublicKey);
+  const refKey = new PublicKey(referencePubkey);
+  const tokenProgram = new PublicKey(SPL_TOKEN_PROGRAM_ID);
+
+  if (!recipientAta || amount === undefined) {
+    throw new Error('recipient and amount required for MPP transaction');
+  }
+
+  const recipient = new PublicKey(recipientAta);
+
+  // Derive payer's USDC ATA (same formula as on-chain ATA derivation).
+  // For simplicity, the caller must ensure the payer ATA exists.
+  const payerAta = await deriveAta(payer, tokenProgram);
+
+  const data = buildSplTransferData(amount);
+
+  const keys: typeof AccountMeta[] = [
+    { pubkey: payerAta,    isSigner: false, isWritable: true },
+    { pubkey: recipient,   isSigner: false, isWritable: true },
+    { pubkey: payer,       isSigner: true,  isWritable: false },
+    // Reference pubkey — read-only, non-signer; makes this tx uniquely findable
+    { pubkey: refKey,      isSigner: false, isWritable: false },
+  ];
+
+  const ix = new TransactionInstruction({ keys, programId: tokenProgram, data });
+
+  const tx = new Transaction();
+  tx.recentBlockhash = blockhash;
+  tx.feePayer = payer;
+  tx.add(ix);
+
+  // Sign with payer secret key.
+  const keypair = web3.Keypair.fromSecretKey(payerSecretKey);
+  tx.sign(keypair);
+
+  return tx.serialize();
+}
+
+/**
+ * Derive the Associated Token Account for a given owner and the USDC mint.
+ * Returns the ATA PublicKey.
+ */
+async function deriveAta(owner: unknown, _tokenProgram: unknown): Promise<unknown> {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const web3 = require('@solana/web3.js');
+  const { PublicKey } = web3;
+  const ATA_PROGRAM_ID = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJe1bJo');
+  const SPL_TOKEN = new PublicKey(SPL_TOKEN_PROGRAM_ID);
+  // USDC devnet — caller selects the right network at a higher level.
+  const USDC_MINT = new PublicKey('4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU');
+  const [ata] = PublicKey.findProgramAddressSync(
+    [
+      (owner as { toBuffer: () => Uint8Array }).toBuffer(),
+      SPL_TOKEN.toBuffer(),
+      USDC_MINT.toBuffer(),
+    ],
+    ATA_PROGRAM_ID,
+  );
+  return ata;
+}
+
+/** @internal — exported for tests only */
+export function _buildSplTransferData(amount: bigint): Uint8Array {
+  return buildSplTransferData(amount);
 }

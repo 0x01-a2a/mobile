@@ -7,20 +7,15 @@ import React from 'react';
 import { StyleSheet, Text } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { useTranslation } from 'react-i18next';
 
 import { EarnScreen }     from '../screens/Earn';
 import { ChatScreen }     from '../screens/Chat';
 import { MyScreen }       from '../screens/My';
 import { SettingsScreen } from '../screens/Settings';
+import { useTheme, ThemeColors } from '../theme/ThemeContext';
 
 const Tab = createBottomTabNavigator();
-
-const C = {
-  bg:       '#0a0a0a',
-  border:   '#1a1a1a',
-  active:   '#00e676',
-  inactive: '#444444',
-};
 
 const ICONS: Record<string, string> = {
   Earn:     '[~]',
@@ -32,9 +27,9 @@ const ICONS: Record<string, string> = {
 // Stable per-tab icon renderers defined at module scope to avoid
 // re-creating inline components on every render (react/no-unstable-nested-components).
 function makeTabIcon(name: string) {
-  return function TabIconRenderer({ focused }: { focused: boolean }) {
+  return function TabIconRenderer({ focused, color }: { focused: boolean; color: string }) {
     return (
-      <Text style={[styles.icon, { color: focused ? C.active : C.inactive }]}>
+      <Text style={[staticStyles.icon, { color }]}>
         {ICONS[name]}
       </Text>
     );
@@ -52,35 +47,43 @@ const SCREEN_OPTIONS = {
 
 export function AppNavigator() {
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
+  const { colors } = useTheme();
+  const styles = useStyles(colors);
+  
   const bottomPad = insets.bottom || 8;
   const tabBarStyle = [styles.tabBar, { paddingBottom: bottomPad, height: 72 + (insets.bottom || 0) }];
 
   return (
-    <Tab.Navigator
-      screenOptions={{
-        ...SCREEN_OPTIONS,
-        tabBarStyle,
-        tabBarActiveTintColor:   C.active,
-        tabBarInactiveTintColor: C.inactive,
-        tabBarLabelStyle: styles.label,
-      }}
-    >
-      <Tab.Screen name="Earn"     component={EarnScreen}     options={{ tabBarIcon: EarnIcon }}     />
-      <Tab.Screen name="Chat"     component={ChatScreen}     options={{ tabBarIcon: ChatIcon }}     />
-      <Tab.Screen name="My"       component={MyScreen}       options={{ tabBarIcon: MyIcon }}       />
-      <Tab.Screen name="Settings" component={SettingsScreen} options={{ tabBarIcon: SettingsIcon }} />
+      <Tab.Navigator
+        screenOptions={{
+          ...SCREEN_OPTIONS,
+          tabBarStyle,
+          tabBarActiveTintColor:   colors.green,
+          tabBarInactiveTintColor: colors.sub,
+          tabBarLabelStyle: staticStyles.label,
+        }}
+      >
+      <Tab.Screen name="Earn"     component={EarnScreen}     options={{ tabBarLabel: t('nav.earn'), tabBarIcon: EarnIcon }}     />
+      <Tab.Screen name="Chat"     component={ChatScreen}     options={{ tabBarLabel: t('nav.chat'), tabBarIcon: ChatIcon }}     />
+      <Tab.Screen name="My"       component={MyScreen}       options={{ tabBarLabel: t('nav.my'), tabBarIcon: MyIcon }}       />
+      <Tab.Screen name="Settings" component={SettingsScreen} options={{ tabBarLabel: t('nav.settings'), tabBarIcon: SettingsIcon }} />
     </Tab.Navigator>
   );
 }
 
-const styles = StyleSheet.create({
-  tabBar: {
-    backgroundColor: C.bg,
-    borderTopColor:  C.border,
-    borderTopWidth:  1,
-    paddingTop: 6,
-    height: 72,
-  },
+function useStyles(colors: ThemeColors) {
+  return React.useMemo(() => StyleSheet.create({
+    tabBar: {
+      backgroundColor: colors.bg,
+      borderTopColor:  colors.border,
+      borderTopWidth:  1,
+      paddingTop: 6,
+    },
+  }), [colors]);
+}
+
+const staticStyles = StyleSheet.create({
   label: {
     fontSize: 10,
     letterSpacing: 1,

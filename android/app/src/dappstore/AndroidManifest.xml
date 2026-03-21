@@ -1,6 +1,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
           xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- SeedVault — declares this as a native Solana Mobile dApp for Seeker/Saga.
+         Enables hardware-attested agent identity via SeedVault BIP44 key derivation. -->
+    <uses-feature
+        android:name="com.solanamobile.seedvault"
+        android:required="false" />
+
     <!-- Strip SMS — requires being default SMS app -->
     <uses-permission android:name="android.permission.READ_SMS" tools:node="remove" />
     <uses-permission android:name="android.permission.SEND_SMS" tools:node="remove" />

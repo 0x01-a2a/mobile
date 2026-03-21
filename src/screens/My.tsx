@@ -5,6 +5,8 @@
  *   Agents — all owned agents with status, reputation, location badge.
  *   Node   — local node controls, hosted banner, reputation detail, inbox.
  */
+import { useTheme, ThemeColors } from '../theme/ThemeContext';
+import { ThemeToggle } from '../components/ThemeToggle';
 import React, { Component, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -56,17 +58,7 @@ const BRIDGE_LABELS: Record<string, string> = {
   calls: 'CALLS', calendar: 'CAL', media: 'MEDIA', motion: 'MOTION',
 };
 
-const C = {
-  bg: '#050505',
-  card: '#0f0f0f',
-  border: '#1a1a1a',
-  green: '#00e676',
-  red: '#ff1744',
-  amber: '#ffc107',
-  blue: '#2979ff',
-  text: '#ffffff',
-  sub: '#555555',
-};
+
 
 // ── Error boundary ────────────────────────────────────────────────────────
 
@@ -84,7 +76,7 @@ class ErrorBoundary extends Component<{ children: React.ReactNode }, ErrorBounda
     if (this.state.hasError) {
       return (
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32 }}>
-          <Text style={{ color: C.red, fontFamily: 'monospace', fontSize: 11, textAlign: 'center' }}>
+          <Text style={{ color: '#ff1744', fontFamily: 'monospace', fontSize: 11, textAlign: 'center' }}>
             {'Something went wrong.\n'}{this.state.message}
           </Text>
         </View>
@@ -100,10 +92,10 @@ function shortId(id: string): string {
   return id.length > 16 ? `${id.slice(0, 8)}…${id.slice(-6)}` : id;
 }
 
-function trendColor(trend: string) {
-  if (trend === 'rising') return C.green;
-  if (trend === 'falling') return C.red;
-  return C.sub;
+function trendColor(trend: string, colors: ThemeColors) {
+  if (trend === 'rising') return colors.green;
+  if (trend === 'falling') return colors.red;
+  return colors.sub;
 }
 
 function trendArrow(trend: string) {
@@ -124,6 +116,8 @@ function signalLevel(rtt: number | null): number {
 }
 
 function SignalBars({ rtt }: { rtt: number | null }) {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   const level = signalLevel(rtt);
   if (rtt === null) return <Text style={s.signalNull}>—</Text>;
   return (
@@ -131,7 +125,7 @@ function SignalBars({ rtt }: { rtt: number | null }) {
       {[1, 2, 3, 4, 5].map(i => (
         <View
           key={i}
-          style={[s.bar, { height: 4 + i * 3, backgroundColor: i <= level ? C.green : C.border }]}
+          style={[s.bar, { height: 4 + i * 3, backgroundColor: i <= level ? colors.green : colors.border }]}
         />
       ))}
     </View>
@@ -148,6 +142,8 @@ interface AgentCardProps {
 }
 
 function AgentCard({ agent, brainSkills, bridgeCaps, bridgeLoading }: AgentCardProps) {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   const rep = useOwnReputation(agent.id || null, 60_000);
   // For local/hosted agents: read from AsyncStorage (set during onboarding registration).
   // For linked agents: query 8004 by their agent ID.
@@ -159,9 +155,9 @@ function AgentCard({ agent, brainSkills, bridgeCaps, bridgeLoading }: AgentCardP
   }, [agent.mode]);
   const linkedRegistered = use8004Badge(agent.mode === 'linked' ? (agent.id ?? null) : null);
   const verified = agent.mode === 'linked' ? linkedRegistered : ownRegistered;
-  const dotColor = agent.status === 'running' ? C.green : C.sub;
+  const dotColor = agent.status === 'running' ? colors.green : colors.sub;
   const badgeStyle = agent.mode === 'local' ? s.badgeLocal : agent.mode === 'hosted' ? s.badgeHosted : s.badgeLinked;
-  const badgeColor = agent.mode === 'local' ? C.green : agent.mode === 'hosted' ? C.amber : C.blue;
+  const badgeColor = agent.mode === 'local' ? colors.green : agent.mode === 'hosted' ? colors.amber : colors.blue;
   const badgeLabel = agent.mode === 'local' ? 'PHONE' : agent.mode === 'hosted' ? 'HOSTED' : 'LINKED';
 
   // Collect active capabilities as skill badges.
@@ -204,12 +200,12 @@ function AgentCard({ agent, brainSkills, bridgeCaps, bridgeLoading }: AgentCardP
       </View>
       {rep && (
         <View style={s.agentCardStats}>
-          <Text style={[s.agentScore, { color: rep.total_score >= 0 ? C.green : C.red }]}>
+          <Text style={[s.agentScore, { color: rep.total_score >= 0 ? colors.green : colors.red }]}>
             {rep.total_score > 0 ? '+' : ''}{rep.total_score}
           </Text>
           <Text style={s.agentScoreLabel}> REP</Text>
           <Text style={s.agentDot}> · </Text>
-          <Text style={[s.agentTrend, { color: trendColor(rep.trend) }]}>
+          <Text style={[s.agentTrend, { color: trendColor(rep.trend, colors) }]}>
             {trendArrow(rep.trend)} {rep.trend}
           </Text>
         </View>
@@ -235,6 +231,8 @@ type LinkPreview = { agentId: string; ownerWallet: string; ownerStatus: 'claimed
 type WalletAgent = { agent_id: string; name?: string };
 
 function LinkAgentSection() {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   const [expanded, setExpanded] = useState(false);
   const [inputId, setInputId] = useState('');
   const [fetching, setFetching] = useState(false);
@@ -396,7 +394,7 @@ function LinkAgentSection() {
             value={inputId}
             onChangeText={text => { setInputId(text); resetState(); }}
             placeholder="agent id / wallet / name.sol"
-            placeholderTextColor={C.sub}
+            placeholderTextColor={colors.sub}
             autoCapitalize="none"
             autoCorrect={false}
           />
@@ -469,6 +467,8 @@ function LinkAgentSection() {
 }
 
 function AgentsSubtab() {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   const agents = useOwnedAgents();
   const [refreshing, setRefreshing] = useState(false);
   const { config: brainConfig } = useAgentBrain();
@@ -524,6 +524,8 @@ function HostedHeader({
   hostUrl: string;
   onDisconnect: () => void;
 }) {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   const [rtt, setRtt] = useState<number | null>(null);
 
   useEffect(() => {
@@ -559,6 +561,8 @@ function HostedHeader({
 }
 
 function StatCard({ label, value, color }: { label: string; value: string | number; color?: string }) {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   return (
     <View style={s.statCard}>
       <Text style={[s.statVal, color ? { color } : undefined]}>{value}</Text>
@@ -567,6 +571,8 @@ function StatCard({ label, value, color }: { label: string; value: string | numb
   );
 }
 function NodeSubtab() {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   const { status, loading, start, stop, config, saveConfig } = useNode();
   const identity = useIdentity();
   const rep = useOwnReputation(identity?.agent_id ?? null);
@@ -627,8 +633,8 @@ function NodeSubtab() {
 
   const running = status === 'running';
   const isError = status === 'error';
-  const dotColor = running ? C.green : isError ? C.amber : C.red;
-  const scoreColor = rep && rep.total_score >= 0 ? C.green : C.red;
+  const dotColor = running ? colors.green : isError ? colors.amber : colors.red;
+  const scoreColor = rep && rep.total_score >= 0 ? colors.green : colors.red;
   const displayId = isHosted ? hostedAgentId : identity?.agent_id ?? null;
   const displayName = isHosted
     ? (hostedAgentId ? `hosted:${hostedAgentId.slice(0, 8)}` : 'hosted agent')
@@ -637,7 +643,7 @@ function NodeSubtab() {
   if (loading) {
     return (
       <View style={[s.subtabRoot, { justifyContent: 'center', alignItems: 'center' }]}>
-        <ActivityIndicator color={C.green} size="large" />
+        <ActivityIndicator color={colors.green} size="large" />
       </View>
     );
   }
@@ -665,11 +671,11 @@ function NodeSubtab() {
         </View>
         {!isHosted && (
           <TouchableOpacity
-            style={[s.btn, { backgroundColor: running ? C.red : C.green }]}
+            style={[s.btn, { backgroundColor: running ? colors.red : colors.green }]}
             onPress={running ? stop : () => start()}
             activeOpacity={0.8}
           >
-            <Text style={[s.btnText, { color: running ? C.text : '#000' }]}>
+            <Text style={[s.btnText, { color: running ? colors.text : '#000' }]}>
               {running ? 'STOP NODE' : 'START NODE'}
             </Text>
           </TouchableOpacity>
@@ -683,14 +689,14 @@ function NodeSubtab() {
             <View style={s.statsGrid}>
               <StatCard label="SCORE" value={(rep.total_score > 0 ? '+' : '') + rep.total_score} color={scoreColor} />
               <StatCard label="VERDICTS" value={rep.verdict_count} />
-              <StatCard label="POSITIVE" value={rep.positive_count} color={C.green} />
-              <StatCard label="NEGATIVE" value={rep.negative_count} color={C.red} />
+              <StatCard label="POSITIVE" value={rep.positive_count} color={colors.green} />
+              <StatCard label="NEGATIVE" value={rep.negative_count} color={colors.red} />
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12 }}>
-              <Text style={[{ fontSize: 18, fontWeight: '700' }, { color: trendColor(rep.trend) }]}>
+              <Text style={[{ fontSize: 18, fontWeight: '700' }, { color: trendColor(rep.trend, colors) }]}>
                 {trendArrow(rep.trend)}
               </Text>
-              <Text style={{ fontSize: 12, color: C.sub, fontFamily: 'monospace' }}> {rep.trend}</Text>
+              <Text style={{ fontSize: 12, color: colors.sub, fontFamily: 'monospace' }}> {rep.trend}</Text>
             </View>
           </>
         ) : (
@@ -735,14 +741,14 @@ function NodeSubtab() {
   );
 }
 
-function statusColor(status: string): string {
+function statusColor(status: string, colors: ThemeColors): string {
   switch (status) {
-    case 'PROPOSE': return C.blue;
-    case 'COUNTER': return C.amber;
-    case 'ACCEPT':  return C.green;
-    case 'REJECT':  return C.red;
+    case 'PROPOSE': return colors.blue;
+    case 'COUNTER': return colors.amber;
+    case 'ACCEPT':  return colors.green;
+    case 'REJECT':  return colors.red;
     case 'DELIVER': return '#a259f7';
-    default:        return C.sub;
+    default:        return colors.sub;
   }
 }
 
@@ -751,9 +757,11 @@ function formatUsdc(microunits: number): string {
 }
 
 function NegotiationCard({ thread }: { thread: NegotiationThread }) {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   const [expanded, setExpanded] = useState(false);
   const short = (id: string) => id.length > 16 ? `${id.slice(0, 6)}…${id.slice(-6)}` : id;
-  const color = statusColor(thread.latestStatus);
+  const color = statusColor(thread.latestStatus, colors);
   return (
     <TouchableOpacity
       style={s.negCard}
@@ -775,9 +783,9 @@ function NegotiationCard({ thread }: { thread: NegotiationThread }) {
         <View style={s.negTimeline}>
           {thread.messages.map((msg, i) => (
             <View key={i} style={s.negTimelineRow}>
-              <View style={[s.negDot, { backgroundColor: statusColor(msg.msg_type) }]} />
+              <View style={[s.negDot, { backgroundColor: statusColor(msg.msg_type, colors) }]} />
               <View style={{ flex: 1 }}>
-                <Text style={[s.negTimelineType, { color: statusColor(msg.msg_type) }]}>
+                <Text style={[s.negTimelineType, { color: statusColor(msg.msg_type, colors) }]}>
                   {msg.msg_type}
                   {msg.round !== undefined ? ` (round ${msg.round}/${msg.maxRounds ?? '?'})` : ''}
                   {msg.amount !== undefined ? `  ${formatUsdc(msg.amount)}` : ''}
@@ -795,6 +803,8 @@ function NegotiationCard({ thread }: { thread: NegotiationThread }) {
 }
 
 function InboxRow({ env }: { env: InboundEnvelope }) {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   let displayFrom = env.sender ?? '';
   if (displayFrom.length > 16) {
     displayFrom = `${displayFrom.slice(0, 6)}…${displayFrom.slice(-6)}`;
@@ -819,10 +829,12 @@ const USDC_MINTS = new Set([
 ]);
 
 function TokenRow({ token, solPrice }: { token: TokenBalance; solPrice: number | null }) {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   const isSol = token.mint === SOL_MINT;
   const isUsdc = USDC_MINTS.has(token.mint);
   const symbol = isSol ? 'SOL' : isUsdc ? 'USDC' : shortId(token.mint);
-  const color = isSol ? '#B351DF' : isUsdc ? C.amber : C.text;
+  const color = isSol ? '#B351DF' : isUsdc ? colors.amber : colors.text;
   const usdValue = isSol && solPrice ? token.amount * solPrice : isUsdc ? token.amount : null;
 
   return (
@@ -839,6 +851,8 @@ function TokenRow({ token, solPrice }: { token: TokenBalance; solPrice: number |
 }
 
 function PortfolioSubtab() {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   const { config } = useNode();
   const { tokens, loading: balLoading, solanaAddress } = useHotKeyBalance();
   const phantom = usePhantomBalance();
@@ -914,13 +928,13 @@ function PortfolioSubtab() {
               activeOpacity={0.7}
               style={s.hotWalletRow}
             >
-              <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 0, color: C.amber }]}>
+              <Text style={[s.sectionLabel, { marginTop: 0, marginBottom: 0, color: colors.amber }]}>
                 {shortId(phantom.address)}
               </Text>
               <Text style={s.hotAddr}>(COPY)</Text>
             </TouchableOpacity>
             {phantom.loading ? (
-              <ActivityIndicator color={C.amber} style={{ marginTop: 12 }} />
+              <ActivityIndicator color={colors.amber} style={{ marginTop: 12 }} />
             ) : (
               <View style={{ marginTop: 10 }}>
                 {/* Total USD */}
@@ -956,7 +970,7 @@ function PortfolioSubtab() {
                 {/* USDC */}
                 {phantom.usdc !== null && phantom.usdc > 0 && (
                   <View style={[s.hotWalletRow, { marginTop: 6 }]}>
-                    <Text style={[s.hotBalance, { color: C.amber }]}>USDC</Text>
+                    <Text style={[s.hotBalance, { color: colors.amber }]}>USDC</Text>
                     <Text style={s.hotAddr}>
                       ${phantom.usdc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </Text>
@@ -971,7 +985,7 @@ function PortfolioSubtab() {
                     const label = info?.symbol || shortId(t.mint);
                     return (
                       <View key={t.mint} style={[s.hotWalletRow, { marginTop: 6 }]}>
-                        <Text style={[s.hotBalance, { color: C.text }]}>
+                        <Text style={[s.hotBalance, { color: colors.text }]}>
                           {label} {t.amount.toLocaleString(undefined, { maximumFractionDigits: 4 })}
                         </Text>
                         {usd !== null && usd > 0 ? (
@@ -1015,7 +1029,7 @@ function PortfolioSubtab() {
           </View>
         )}
         {balLoading && tokens.length === 0 ? (
-          <ActivityIndicator color={C.green} style={{ marginVertical: 20 }} />
+          <ActivityIndicator color={colors.green} style={{ marginVertical: 20 }} />
         ) : tokens.length === 0 ? (
           <Text style={s.noData}>No tokens found</Text>
         ) : (
@@ -1023,7 +1037,7 @@ function PortfolioSubtab() {
         )}
 
         {!isHosted && totalUsdc > 0 && sweepDest && (
-          <View style={{ marginTop: 24, borderTopWidth: 1, borderTopColor: C.border, paddingTop: 16 }}>
+          <View style={{ marginTop: 24, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 16 }}>
             <Text style={s.sectionLabel}>SWEEP TO PHANTOM</Text>
             <View style={s.linkInputRow}>
               <TextInput
@@ -1031,11 +1045,11 @@ function PortfolioSubtab() {
                 value={sweepAmount}
                 onChangeText={setSweepAmount}
                 placeholder={`Max (${totalUsdc.toFixed(2)})`}
-                placeholderTextColor={C.sub}
+                placeholderTextColor={colors.sub}
                 keyboardType="numeric"
               />
               <TouchableOpacity
-                style={[s.btn, { backgroundColor: C.amber, flex: 1, paddingVertical: 10 }, (sweeping || totalUsdc <= 0) && { opacity: 0.5 }]}
+                style={[s.btn, { backgroundColor: colors.amber, flex: 1, paddingVertical: 10 }, (sweeping || totalUsdc <= 0) && { opacity: 0.5 }]}
                 onPress={handleSweep}
                 disabled={sweeping || totalUsdc <= 0}
                 activeOpacity={0.8}
@@ -1070,6 +1084,8 @@ function PortfolioSubtab() {
 }
 
 function PortfolioEventRow({ event, isLast }: { event: PortfolioEvent; isLast: boolean }) {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   const dateStr = new Date(event.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   if (event.type === 'swap') {
@@ -1080,7 +1096,7 @@ function PortfolioEventRow({ event, isLast }: { event: PortfolioEvent; isLast: b
           <Text style={s.inboxFrom}>{shortId(event.input_mint)} → {shortId(event.output_mint)}</Text>
         </View>
         <View style={{ alignItems: 'flex-end' }}>
-          <Text style={[s.inboxSlot, { color: C.green }]}>+{event.output_amount.toFixed(2)}</Text>
+          <Text style={[s.inboxSlot, { color: colors.green }]}>+{event.output_amount.toFixed(2)}</Text>
           <Text style={[s.inboxSlot, { marginTop: 2 }]}>{dateStr}</Text>
         </View>
       </View>
@@ -1091,11 +1107,11 @@ function PortfolioEventRow({ event, isLast }: { event: PortfolioEvent; isLast: b
     return (
       <View style={[s.inboxRow, isLast && { borderBottomWidth: 0 }]}>
         <View style={{ flex: 1 }}>
-          <Text style={[s.inboxType, { color: C.blue }]}>BOUNTY</Text>
+          <Text style={[s.inboxType, { color: colors.blue }]}>BOUNTY</Text>
           <Text style={s.inboxFrom}>from {shortId(event.from_agent)}</Text>
         </View>
         <View style={{ alignItems: 'flex-end' }}>
-          <Text style={[s.inboxSlot, { color: C.green }]}>+${event.amount_usdc.toFixed(2)}</Text>
+          <Text style={[s.inboxSlot, { color: colors.green }]}>+${event.amount_usdc.toFixed(2)}</Text>
           <Text style={[s.inboxSlot, { marginTop: 2 }]}>{dateStr}</Text>
         </View>
       </View>
@@ -1152,10 +1168,12 @@ function PortfolioEventRow({ event, isLast }: { event: PortfolioEvent; isLast: b
   return null;
 }
 function BridgeLogRow({ entry, isLast }: { entry: BridgeLogEntry; isLast: boolean }) {
-  const outcomeColor = entry.outcome === 'ok' ? C.green
-    : entry.outcome === 'disabled' || entry.outcome === 'denied' ? C.sub
-      : entry.outcome === 'rate_limited' ? C.amber
-        : C.red;
+  const { colors } = useTheme();
+  const s = useStyles(colors);
+  const outcomeColor = entry.outcome === 'ok' ? colors.green
+    : entry.outcome === 'disabled' || entry.outcome === 'denied' ? colors.sub
+      : entry.outcome === 'rate_limited' ? colors.amber
+        : colors.red;
   const outcomeLabel = entry.outcome === 'ok' ? 'ok'
     : entry.outcome === 'disabled' ? 'off'
       : entry.outcome === 'denied' ? 'no perm'
@@ -1178,6 +1196,8 @@ function BridgeLogRow({ entry, isLast }: { entry: BridgeLogEntry; isLast: boolea
 // ── Skills Subtab ─────────────────────────────────────────────────────────
 
 function SkillsSubtab() {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   const { skills, loading, refresh } = useSkills();
   const [installing, setInstalling] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
@@ -1229,14 +1249,14 @@ function SkillsSubtab() {
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <Text style={s.sectionLabel}>INSTALLED SKILLS</Text>
         <TouchableOpacity onPress={refresh} disabled={loading}>
-          <Text style={{ fontSize: 9, color: C.sub, fontFamily: 'monospace', letterSpacing: 2 }}>
+          <Text style={{ fontSize: 9, color: colors.sub, fontFamily: 'monospace', letterSpacing: 2 }}>
             {loading ? '…' : 'REFRESH'}
           </Text>
         </TouchableOpacity>
       </View>
       <View style={s.card}>
         {loading && skills.length === 0 ? (
-          <ActivityIndicator color={C.green} style={{ marginVertical: 16 }} />
+          <ActivityIndicator color={colors.green} style={{ marginVertical: 16 }} />
         ) : skills.length === 0 ? (
           <Text style={s.noData}>No skills installed</Text>
         ) : (
@@ -1271,7 +1291,7 @@ function SkillsSubtab() {
           value={urlName}
           onChangeText={setUrlName}
           placeholder="my_skill"
-          placeholderTextColor={C.sub}
+          placeholderTextColor={colors.sub}
           autoCapitalize="none"
           autoCorrect={false}
         />
@@ -1281,13 +1301,13 @@ function SkillsSubtab() {
           value={urlValue}
           onChangeText={setUrlValue}
           placeholder="https://…/SKILL.toml"
-          placeholderTextColor={C.sub}
+          placeholderTextColor={colors.sub}
           autoCapitalize="none"
           autoCorrect={false}
         />
-        <Text style={{ fontSize: 10, color: C.sub, marginTop: 4 }}>Paste a URL to a SKILL.toml file</Text>
+        <Text style={{ fontSize: 10, color: colors.sub, marginTop: 4 }}>Paste a URL to a SKILL.toml file</Text>
         <TouchableOpacity
-          style={[s.btn, { marginTop: 14, backgroundColor: C.green }, !canInstall && { opacity: 0.4 }]}
+          style={[s.btn, { marginTop: 14, backgroundColor: colors.green }, !canInstall && { opacity: 0.4 }]}
           onPress={handleInstall}
           disabled={!canInstall}
           activeOpacity={0.8}
@@ -1309,6 +1329,8 @@ function SkillsSubtab() {
 // ── Main screen ───────────────────────────────────────────────────────────
 
 export function MyScreen() {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   const insets = useSafeAreaInsets();
   const [subtab, setSubtab] = useState<Subtab>('agents');
 
@@ -1342,33 +1364,34 @@ export function MyScreen() {
 
 // ── Styles ────────────────────────────────────────────────────────────────
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: C.bg },
-  header: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 0, borderBottomWidth: 1, borderBottomColor: C.border },
-  title: { fontSize: 13, fontWeight: '700', color: C.text, letterSpacing: 3, fontFamily: 'monospace', marginBottom: 14 },
+function useStyles(colors: ThemeColors) {
+  return React.useMemo(() => StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.bg },
+  header: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 0, borderBottomWidth: 1, borderBottomColor: colors.border },
+  title: { fontSize: 13, fontWeight: '700', color: colors.text, letterSpacing: 3, fontFamily: 'monospace', marginBottom: 14 },
   tabs: { flexDirection: 'row' },
   tab: { paddingVertical: 10, paddingHorizontal: 20, borderBottomWidth: 2, borderBottomColor: 'transparent' },
-  tabActive: { borderBottomColor: C.green },
-  tabText: { fontSize: 11, color: C.sub, letterSpacing: 2, fontWeight: '700', fontFamily: 'monospace' },
-  tabTextActive: { color: C.green },
+  tabActive: { borderBottomColor: colors.green },
+  tabText: { fontSize: 11, color: colors.sub, letterSpacing: 2, fontWeight: '700', fontFamily: 'monospace' },
+  tabTextActive: { color: colors.green },
   subtabRoot: { flex: 1 },
   subtabContent: { padding: 20 },
-  sectionLabel: { fontSize: 11, color: C.sub, letterSpacing: 3, marginBottom: 10, marginTop: 20 },
-  card: { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, padding: 16, marginBottom: 4 },
-  hint: { fontSize: 11, color: C.sub, fontFamily: 'monospace', lineHeight: 18, marginTop: 20, textAlign: 'center' },
+  sectionLabel: { fontSize: 11, color: colors.sub, letterSpacing: 3, marginBottom: 10, marginTop: 20 },
+  card: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 4, padding: 16, marginBottom: 4 },
+  hint: { fontSize: 11, color: colors.sub, fontFamily: 'monospace', lineHeight: 18, marginTop: 20, textAlign: 'center' },
   // agent card
-  agentCard: { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 4, padding: 14, marginBottom: 8 },
+  agentCard: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 4, padding: 14, marginBottom: 8 },
   agentCardRow: { flexDirection: 'row', alignItems: 'center' },
   agentCardInfo: { flex: 1 },
   agentNameRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
-  agentCardName: { fontSize: 14, fontWeight: '700', color: C.text, fontFamily: 'monospace' },
-  verifiedBadge: { backgroundColor: '#00e67618', borderWidth: 1, borderColor: C.green + '60', borderRadius: 3, paddingHorizontal: 5, paddingVertical: 1 },
-  verifiedText: { fontSize: 8, color: C.green, fontWeight: '700', letterSpacing: 1, fontFamily: 'monospace' },
-  agentCardId: { fontSize: 10, color: C.sub, fontFamily: 'monospace', marginTop: 2 },
-  agentCardStats: { flexDirection: 'row', alignItems: 'center', marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.border },
+  agentCardName: { fontSize: 14, fontWeight: '700', color: colors.text, fontFamily: 'monospace' },
+  verifiedBadge: { backgroundColor: '#00e67618', borderWidth: 1, borderColor: colors.green + '60', borderRadius: 3, paddingHorizontal: 5, paddingVertical: 1 },
+  verifiedText: { fontSize: 8, color: colors.green, fontWeight: '700', letterSpacing: 1, fontFamily: 'monospace' },
+  agentCardId: { fontSize: 10, color: colors.sub, fontFamily: 'monospace', marginTop: 2 },
+  agentCardStats: { flexDirection: 'row', alignItems: 'center', marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: colors.border },
   agentScore: { fontSize: 16, fontWeight: '700', fontFamily: 'monospace' },
-  agentScoreLabel: { fontSize: 10, color: C.sub },
-  agentDot: { color: C.sub, marginHorizontal: 4 },
+  agentScoreLabel: { fontSize: 10, color: colors.sub },
+  agentDot: { color: colors.sub, marginHorizontal: 4 },
   agentTrend: { fontSize: 11, fontFamily: 'monospace' },
   modeBadge: { borderRadius: 3, paddingHorizontal: 7, paddingVertical: 3, borderWidth: 1 },
   badgeLocal: { backgroundColor: '#00e67615', borderColor: '#00e67640' },
@@ -1376,93 +1399,94 @@ const s = StyleSheet.create({
   badgeLinked: { backgroundColor: '#2979ff15', borderColor: '#2979ff40' },
   modeBadgeText: { fontSize: 9, fontWeight: '700', letterSpacing: 2 },
   dot: { width: 10, height: 10, borderRadius: 5, marginRight: 12 },
-  agentCardOwner: { fontSize: 9, color: C.blue, fontFamily: 'monospace', marginTop: 2 },
+  agentCardOwner: { fontSize: 9, color: colors.blue, fontFamily: 'monospace', marginTop: 2 },
   // skill badges
-  skillBadgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.border },
+  skillBadgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: colors.border },
   skillBadge: { backgroundColor: '#00e67612', borderWidth: 1, borderColor: '#00e67630', borderRadius: 2, paddingHorizontal: 6, paddingVertical: 2 },
-  skillBadgeText: { fontSize: 8, color: C.green, letterSpacing: 1.5, fontFamily: 'monospace', fontWeight: '700' },
+  skillBadgeText: { fontSize: 8, color: colors.green, letterSpacing: 1.5, fontFamily: 'monospace', fontWeight: '700' },
   // node subtab
   identityRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
-  agentName: { fontSize: 16, fontWeight: '700', color: C.text, fontFamily: 'monospace' },
-  agentId: { fontSize: 11, color: C.sub, fontFamily: 'monospace', marginTop: 2 },
+  agentName: { fontSize: 16, fontWeight: '700', color: colors.text, fontFamily: 'monospace' },
+  agentId: { fontSize: 11, color: colors.sub, fontFamily: 'monospace', marginTop: 2 },
   btn: { borderRadius: 4, paddingVertical: 12, alignItems: 'center' },
   btnText: { fontSize: 12, fontWeight: '700', letterSpacing: 3 },
   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  statCard: { flex: 1, minWidth: '45%', backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 4, padding: 12 },
-  statVal: { fontSize: 24, fontWeight: '700', color: C.text, fontFamily: 'monospace' },
-  statLabel: { fontSize: 10, color: C.sub, letterSpacing: 2, marginTop: 4 },
-  noData: { color: C.sub, fontFamily: 'monospace', letterSpacing: 1 },
-  inboxRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.border },
-  inboxType: { fontSize: 12, fontWeight: '700', color: C.green, fontFamily: 'monospace' },
-  inboxFrom: { fontSize: 10, color: C.sub, fontFamily: 'monospace', marginTop: 2 },
-  inboxSlot: { fontSize: 10, color: C.sub, fontFamily: 'monospace' },
-  hostedBanner: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: C.card, borderWidth: 1, borderColor: C.green + '40', borderRadius: 4, padding: 14, marginBottom: 4 },
-  hostedLabel: { fontSize: 9, color: C.green, letterSpacing: 3, fontWeight: '700' },
-  hostedHost: { fontSize: 13, color: C.text, fontFamily: 'monospace', marginTop: 2 },
-  disconnectBtn: { borderWidth: 1, borderColor: C.red + '60', borderRadius: 3, paddingHorizontal: 8, paddingVertical: 4 },
-  disconnectText: { fontSize: 9, color: C.red, letterSpacing: 2, fontWeight: '700' },
+  statCard: { flex: 1, minWidth: '45%', backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border, borderRadius: 4, padding: 12 },
+  statVal: { fontSize: 24, fontWeight: '700', color: colors.text, fontFamily: 'monospace' },
+  statLabel: { fontSize: 10, color: colors.sub, letterSpacing: 2, marginTop: 4 },
+  noData: { color: colors.sub, fontFamily: 'monospace', letterSpacing: 1 },
+  inboxRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border },
+  inboxType: { fontSize: 12, fontWeight: '700', color: colors.green, fontFamily: 'monospace' },
+  inboxFrom: { fontSize: 10, color: colors.sub, fontFamily: 'monospace', marginTop: 2 },
+  inboxSlot: { fontSize: 10, color: colors.sub, fontFamily: 'monospace' },
+  hostedBanner: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: colors.card, borderWidth: 1, borderColor: colors.green + '40', borderRadius: 4, padding: 14, marginBottom: 4 },
+  hostedLabel: { fontSize: 9, color: colors.green, letterSpacing: 3, fontWeight: '700' },
+  hostedHost: { fontSize: 13, color: colors.text, fontFamily: 'monospace', marginTop: 2 },
+  disconnectBtn: { borderWidth: 1, borderColor: colors.red + '60', borderRadius: 3, paddingHorizontal: 8, paddingVertical: 4 },
+  disconnectText: { fontSize: 9, color: colors.red, letterSpacing: 2, fontWeight: '700' },
   barsRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 2 },
   bar: { width: 4, borderRadius: 1 },
-  signalNull: { fontSize: 14, color: C.sub },
+  signalNull: { fontSize: 14, color: colors.sub },
   // hot wallet / portfolio
   hotWalletRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  hotBalance: { fontSize: 18, fontWeight: '700', color: C.amber, fontFamily: 'monospace' },
+  hotBalance: { fontSize: 18, fontWeight: '700', color: colors.amber, fontFamily: 'monospace' },
   hotBalanceSol: { fontSize: 18, fontWeight: '700', color: '#B351DF', fontFamily: 'monospace' },
-  hotAddr: { fontSize: 9, color: C.sub, fontFamily: 'monospace' },
-  sweepTx: { fontSize: 9, color: C.green, fontFamily: 'monospace', marginTop: 8 },
+  hotAddr: { fontSize: 9, color: colors.sub, fontFamily: 'monospace' },
+  sweepTx: { fontSize: 9, color: colors.green, fontFamily: 'monospace', marginTop: 8 },
   // link agent
-  linkBtn: { borderWidth: 1, borderColor: C.border, borderRadius: 4, padding: 14, alignItems: 'center', marginTop: 12 },
-  linkBtnText: { fontSize: 11, color: C.sub, letterSpacing: 2, fontFamily: 'monospace' },
+  linkBtn: { borderWidth: 1, borderColor: colors.border, borderRadius: 4, padding: 14, alignItems: 'center', marginTop: 12 },
+  linkBtnText: { fontSize: 11, color: colors.sub, letterSpacing: 2, fontFamily: 'monospace' },
   linkSection: { marginTop: 12 },
-  linkHint: { fontSize: 10, color: C.sub, fontFamily: 'monospace', marginBottom: 10 },
+  linkHint: { fontSize: 10, color: colors.sub, fontFamily: 'monospace', marginBottom: 10 },
   linkInputRow: { flexDirection: 'row', gap: 8 },
-  linkInput: { flex: 1, backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 4, paddingHorizontal: 10, paddingVertical: 8, color: C.text, fontFamily: 'monospace', fontSize: 12 },
-  lookupBtn: { backgroundColor: C.blue, borderRadius: 4, paddingHorizontal: 14, justifyContent: 'center', alignItems: 'center', minWidth: 80 },
+  linkInput: { flex: 1, backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border, borderRadius: 4, paddingHorizontal: 10, paddingVertical: 8, color: colors.text, fontFamily: 'monospace', fontSize: 12 },
+  lookupBtn: { backgroundColor: colors.blue, borderRadius: 4, paddingHorizontal: 14, justifyContent: 'center', alignItems: 'center', minWidth: 80 },
   lookupBtnDisabled: { opacity: 0.5 },
   lookupBtnText: { fontSize: 10, fontWeight: '700', color: '#fff', letterSpacing: 2 },
-  linkError: { fontSize: 10, color: C.red, fontFamily: 'monospace', marginTop: 8 },
-  previewBox: { marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: C.border },
+  linkError: { fontSize: 10, color: '#ff1744', fontFamily: 'monospace', marginTop: 8 },
+  previewBox: { marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: colors.border },
   previewRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
-  previewLabel: { fontSize: 10, color: C.sub, fontFamily: 'monospace', letterSpacing: 2 },
-  previewVal: { fontSize: 11, color: C.text, fontFamily: 'monospace' },
-  previewPending: { fontSize: 10, color: C.amber, fontFamily: 'monospace', marginBottom: 6 },
-  confirmBtn: { backgroundColor: C.blue, borderRadius: 4, paddingVertical: 10, alignItems: 'center', marginTop: 10 },
+  previewLabel: { fontSize: 10, color: colors.sub, fontFamily: 'monospace', letterSpacing: 2 },
+  previewVal: { fontSize: 11, color: colors.text, fontFamily: 'monospace' },
+  previewPending: { fontSize: 10, color: colors.amber, fontFamily: 'monospace', marginBottom: 6 },
+  confirmBtn: { backgroundColor: colors.blue, borderRadius: 4, paddingVertical: 10, alignItems: 'center', marginTop: 10 },
   confirmBtnText: { fontSize: 11, fontWeight: '700', color: '#fff', letterSpacing: 2 },
   cancelLink: { alignItems: 'center', paddingVertical: 10 },
-  cancelLinkText: { fontSize: 10, color: C.sub, fontFamily: 'monospace' },
+  cancelLinkText: { fontSize: 10, color: colors.sub, fontFamily: 'monospace' },
   // multi-agent picker
-  pickerBox: { marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: C.border },
-  pickerHint: { fontSize: 10, color: C.sub, fontFamily: 'monospace', marginBottom: 8 },
-  pickerRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 8, borderRadius: 4, marginBottom: 4, borderWidth: 1, borderColor: C.border },
-  pickerRowSelected: { borderColor: C.blue, backgroundColor: '#2979ff15' },
-  pickerRadio: { width: 12, height: 12, borderRadius: 6, borderWidth: 1, borderColor: C.sub, marginRight: 10 },
-  pickerRadioSelected: { borderColor: C.blue, backgroundColor: C.blue },
-  pickerName: { fontSize: 11, color: C.text, fontFamily: 'monospace', fontWeight: '700' },
-  pickerAgentId: { fontSize: 9, color: C.sub, fontFamily: 'monospace', marginTop: 2 },
+  pickerBox: { marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: colors.border },
+  pickerHint: { fontSize: 10, color: colors.sub, fontFamily: 'monospace', marginBottom: 8 },
+  pickerRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 8, borderRadius: 4, marginBottom: 4, borderWidth: 1, borderColor: colors.border },
+  pickerRowSelected: { borderColor: colors.blue, backgroundColor: '#2979ff15' },
+  pickerRadio: { width: 12, height: 12, borderRadius: 6, borderWidth: 1, borderColor: colors.sub, marginRight: 10 },
+  pickerRadioSelected: { borderColor: colors.blue, backgroundColor: colors.blue },
+  pickerName: { fontSize: 11, color: colors.text, fontFamily: 'monospace', fontWeight: '700' },
+  pickerAgentId: { fontSize: 9, color: colors.sub, fontFamily: 'monospace', marginTop: 2 },
   // portfolio total
-  totalUsdRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 12, marginBottom: 4, borderBottomWidth: 1, borderBottomColor: C.border },
-  totalUsdLabel: { fontSize: 9, color: C.sub, letterSpacing: 3, fontFamily: 'monospace' },
-  totalUsdValue: { fontSize: 20, fontWeight: '700', color: C.green, fontFamily: 'monospace' },
+  totalUsdRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 12, marginBottom: 4, borderBottomWidth: 1, borderBottomColor: colors.border },
+  totalUsdLabel: { fontSize: 9, color: colors.sub, letterSpacing: 3, fontFamily: 'monospace' },
+  totalUsdValue: { fontSize: 20, fontWeight: '700', color: colors.green, fontFamily: 'monospace' },
   // skills
-  skillRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.border },
-  skillName: { fontSize: 13, color: C.text, fontFamily: 'monospace' },
-  skillDesc: { fontSize: 11, color: C.sub, lineHeight: 16, marginTop: 3 },
-  removeBtn: { borderWidth: 1, borderColor: C.red + '60', borderRadius: 3, paddingHorizontal: 8, paddingVertical: 4 },
-  removeBtnText: { fontSize: 9, color: C.red, letterSpacing: 2, fontWeight: '700', fontFamily: 'monospace' },
-  fieldLabel: { fontSize: 9, color: C.sub, letterSpacing: 2, fontFamily: 'monospace', marginBottom: 6 },
-  skillInput: { backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 4, paddingHorizontal: 10, paddingVertical: 8, color: C.text, fontFamily: 'monospace', fontSize: 13 },
+  skillRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border },
+  skillName: { fontSize: 13, color: colors.text, fontFamily: 'monospace' },
+  skillDesc: { fontSize: 11, color: colors.sub, lineHeight: 16, marginTop: 3 },
+  removeBtn: { borderWidth: 1, borderColor: colors.red + '60', borderRadius: 3, paddingHorizontal: 8, paddingVertical: 4 },
+  removeBtnText: { fontSize: 9, color: colors.red, letterSpacing: 2, fontWeight: '700', fontFamily: 'monospace' },
+  fieldLabel: { fontSize: 9, color: colors.sub, letterSpacing: 2, fontFamily: 'monospace', marginBottom: 6 },
+  skillInput: { backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border, borderRadius: 4, paddingHorizontal: 10, paddingVertical: 8, color: colors.text, fontFamily: 'monospace', fontSize: 13 },
   // negotiation cards
-  negCard: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.border },
+  negCard: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border },
   negHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
   negBadge: { borderRadius: 3, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 2 },
   negBadgeText: { fontSize: 9, fontWeight: '700', letterSpacing: 2 },
-  negParty: { flex: 1, fontSize: 11, color: C.text, fontFamily: 'monospace' },
-  negAmount: { fontSize: 11, color: C.amber, fontFamily: 'monospace', fontWeight: '700' },
-  negChevron: { fontSize: 10, color: C.sub, marginLeft: 4 },
-  negConvId: { fontSize: 9, color: C.sub, fontFamily: 'monospace', marginBottom: 2 },
-  negTimeline: { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: C.border },
+  negParty: { flex: 1, fontSize: 11, color: colors.text, fontFamily: 'monospace' },
+  negAmount: { fontSize: 11, color: colors.amber, fontFamily: 'monospace', fontWeight: '700' },
+  negChevron: { fontSize: 10, color: colors.sub, marginLeft: 4 },
+  negConvId: { fontSize: 9, color: colors.sub, fontFamily: 'monospace', marginBottom: 2 },
+  negTimeline: { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: colors.border },
   negTimelineRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 10 },
   negDot: { width: 8, height: 8, borderRadius: 4, marginTop: 3 },
   negTimelineType: { fontSize: 11, fontWeight: '700', fontFamily: 'monospace' },
-  negTimelineMsg: { fontSize: 10, color: C.sub, fontFamily: 'monospace', marginTop: 2 },
-});
+  negTimelineMsg: { fontSize: 10, color: colors.sub, fontFamily: 'monospace', marginTop: 2 },
+  }), [colors]);
+}
