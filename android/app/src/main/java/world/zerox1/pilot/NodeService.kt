@@ -1098,13 +1098,16 @@ Plan the entire sequence in one shot. This collapses N LLM calls into 1.
 
 | Tool | Use for |
 |------|---------|
-| `phone_ui_tree`     | Read compact interactive tree before planning. Returns only clickable/editable/scrollable nodes. |
-| `phone_ui_execute`  | **Preferred.** Execute a complete multi-step plan atomically — no LLM round-trips between steps. |
+| `phone_ui_tree`       | Read compact interactive tree before planning. Returns only clickable/editable/scrollable nodes. |
+| `phone_ui_execute`    | **Preferred.** Execute a complete multi-step plan atomically — no LLM round-trips between steps. |
 | `phone_ui_screenshot` | Capture current screen as base64 JPEG. |
-| `phone_ui_tap_text` | Single tap by text label (with built-in wait). |
-| `phone_ui_wait_for` | Wait until element appears, then optionally tap it. |
-| `phone_ui_type`     | Type text into the focused or specified field. |
-| `phone_ui_global`   | back / home / recents / notifications / quick_settings. |
+| `phone_ui_tap_text`   | Single tap by text label (with built-in wait). |
+| `phone_ui_wait_for`   | Wait until element appears, then optionally tap it. |
+| `phone_ui_type`       | Type text into the focused or specified field. |
+| `phone_ui_swipe`      | Raw finger swipe — use for apps that ignore SCROLL_FORWARD (Instagram, TikTok, Maps). |
+| `phone_ui_global`     | back / home / recents / notifications / quick_settings. |
+| `phone_app_launch`    | Launch any installed app by package name. |
+| `phone_app_list`      | List installed launchable apps (filter by label/package). |
 
 ## execute_plan step reference
 
@@ -1113,12 +1116,16 @@ Plan the entire sequence in one shot. This collapses N LLM calls into 1.
 {"type":"scroll_find", "text":"Submit",   "direction":"down", "max_scrolls":10, "tap":true}
 {"type":"tap_text",    "text":"Next",     "exact":false,      "timeout_ms":3000}
 {"type":"tap",         "x":540, "y":1200}
+{"type":"swipe",       "x1":540, "y1":1600, "x2":540, "y2":400, "duration_ms":300}
+{"type":"launch",      "package":"com.instagram.android"}
 {"type":"type",        "text":"hello",    "view_id":"com.ex:id/field"}
 {"type":"action",      "view_id":"...",   "action":"click"}
 {"type":"global",      "action":"back"}
 {"type":"screenshot"}
 {"type":"sleep",       "ms":500}
 ```
+
+Swipe direction convention: y decreases upward. To scroll down (reveal content below): y1 > y2. To scroll up: y1 < y2.
 
 ## Workflow pattern
 
@@ -1195,6 +1202,38 @@ command     = ${'$'}TOML_TQjq -nc --arg a {action} '{"action":${'$'}a}' | curl -
 
 [tools.args]
 action = "back | home | recents | notifications | quick_settings | power_dialog | lock_screen"
+
+[[tools]]
+name        = "phone_ui_swipe"
+description = "Dispatch a raw finger-swipe gesture from (x1,y1) to (x2,y2). Use for apps that ignore SCROLL_FORWARD/BACKWARD (Instagram, TikTok, Maps, custom lists). y1>y2 = scroll down (reveal content below); y1<y2 = scroll up."
+kind        = "shell"
+command     = ${'$'}TOML_TQjq -nc --argjson x1 {x1} --argjson y1 {y1} --argjson x2 {x2} --argjson y2 {y2} --argjson ms {duration_ms} '{"x1":${'$'}x1,"y1":${'$'}y1,"x2":${'$'}x2,"y2":${'$'}y2,"duration_ms":${'$'}ms}' | curl -sf -X POST -H "Content-Type: application/json" -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/a11y/swipe" -d @-${'$'}TOML_TQ
+
+[tools.args]
+x1          = "Start X pixel coordinate"
+y1          = "Start Y pixel coordinate"
+x2          = "End X pixel coordinate"
+y2          = "End Y pixel coordinate"
+duration_ms = "Stroke duration ms — 100-300 for flick, 500-1000 for slow drag (default: 300)"
+
+[[tools]]
+name        = "phone_app_launch"
+description = "Launch any installed app by package name. Use phone_app_list first if you don't know the package name."
+kind        = "shell"
+command     = ${'$'}TOML_TQjq -nc --arg p {package} '{"package":${'$'}p}' | curl -sf -X POST -H "Content-Type: application/json" -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/app/launch" -d @-${'$'}TOML_TQ
+
+[tools.args]
+package = "Android package name e.g. com.whatsapp, com.instagram.android, com.google.android.gm"
+
+[[tools]]
+name        = "phone_app_list"
+description = "List installed launchable apps. Filter by label or package name substring. Returns package, label, version."
+kind        = "shell"
+command     = ${'$'}TOML_TQcurl -sf -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/app/list?query={query}&system={include_system}"${'$'}TOML_TQ
+
+[tools.args]
+query          = "Filter substring for app label or package name (leave empty for all)"
+include_system = "true to include system apps (default: false)"
 """.trimIndent()
     }
 
