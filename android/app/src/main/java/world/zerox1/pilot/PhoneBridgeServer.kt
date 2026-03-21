@@ -452,6 +452,21 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
                     block ?: handleA11yType(body)
                 }
             }
+            // Compact interactive tree + batch plan executor
+            method == "GET"  && path == "/phone/a11y/tree_interactive" -> when {
+                !isCapEnabled("screen_read_tree") -> capDisabled("screen_read_tree")
+                !isObserveAllowed()               -> policyBlocked("observation_not_allowed_in_${BuildConfig.POLICY_MODE}")
+                else -> handleA11yTreeInteractive()
+            }
+            method == "POST" && path == "/phone/a11y/execute_plan" -> when {
+                !isCapEnabled("screen_act") -> capDisabled("screen_act")
+                !isActAllowed()             -> policyBlocked("action_not_allowed_in_${BuildConfig.POLICY_MODE}")
+                else -> {
+                    val stepCount = body?.optJSONArray("steps")?.length() ?: 0
+                    val block = requireAssistedApproval(path, "Execute $stepCount-step UI plan")
+                    block ?: handleA11yExecutePlan(body)
+                }
+            }
 
             // ---- Notification Listener ----
             method == "GET"  && path == "/phone/notifications" -> when {
@@ -553,6 +568,9 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
         path == "/phone/a11y/scroll_find" -> "SCREEN" to "Scrolled to find \"${body?.optString("text") ?: body?.optString("view_id") ?: "?"}\""
         path == "/phone/a11y/tap_text"    -> "SCREEN" to "Tapped by text \"${body?.optString("text") ?: "?"}\""
         path == "/phone/a11y/type"        -> "SCREEN" to "Typed text (${body?.optString("text", "")?.take(20)?.let { "\"$it\"" } ?: "?"})"
+        path == "/phone/a11y/tree_interactive" -> "SCREEN" to "Read interactive UI tree (${
+            body?.optInt("count")?.toString() ?: "compact"} nodes)"
+        path == "/phone/a11y/execute_plan"     -> "SCREEN" to "Executed ${body?.optJSONArray("steps")?.length() ?: "?"}-step UI plan"
         path == "/phone/notifications" -> "NOTIFICATIONS" to "Read active notifications"
         path == "/phone/notifications/history" -> "NOTIFICATIONS" to "Read notification history"
         path == "/phone/notifications/reply" -> "NOTIFICATIONS" to "Replied to notification from ${
@@ -1753,6 +1771,148 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
 
         val result = svc.typeInFocused(text, viewId)
         return jsonOk(JSONObject().put("success", result))
+    }
+
+    // ── tree_interactive ──────────────────────────────────────────────────────
+
+    private fun handleA11yTreeInteractive(): BridgeResponse {
+        val svc = AgentAccessibilityService.instance
+            ?: return jsonError("accessibility service not connected — enable in Settings", 503)
+        val full = svc.dumpUiTree()
+        val interactive = JSONArray()
+        for (i in 0 until full.length()) {
+            val node = full.optJSONObject(i) ?: continue
+            val clickable  = node.optBoolean("clickable")
+            val editable   = node.optBoolean("editable")
+            val scrollable = node.optBoolean("scrollable")
+            val hasText    = node.optString("text").isNotBlank()
+            val hasDesc    = node.optString("contentDescription").isNotBlank()
+            if (!clickable && !editable && !scrollable && !hasText && !hasDesc) continue
+            interactive.put(JSONObject().apply {
+                put("idx",              i)
+                put("className",        node.optString("className"))
+                put("text",             node.optString("text"))
+                put("contentDescription", node.optString("contentDescription"))
+                put("viewId",           node.optString("viewId"))
+                put("bounds",           node.optJSONObject("bounds"))
+                put("clickable",        clickable)
+                put("editable",         editable)
+                put("scrollable",       scrollable)
+            })
+        }
+        return jsonOk(JSONObject().apply {
+            put("total_nodes",       full.length())
+            put("interactive_count", interactive.length())
+            put("nodes",             interactive)
+        })
+    }
+
+    // ── execute_plan ──────────────────────────────────────────────────────────
+
+    private fun handleA11yExecutePlan(body: JSONObject?): BridgeResponse {
+        if (body == null) return jsonError("missing body", 400)
+        val steps = body.optJSONArray("steps")
+            ?: return jsonError("'steps' array required", 400)
+        if (steps.length() == 0)  return jsonError("steps array is empty", 400)
+        if (steps.length() > 50)  return jsonError("too many steps (max 50)", 400)
+
+        val svc = AgentAccessibilityService.instance
+            ?: return jsonError("accessibility service not connected", 503)
+
+        val stopOnFailure = body.optBoolean("stop_on_failure", true)
+        val results = JSONArray()
+        var failedStep: Int? = null
+
+        for (i in 0 until steps.length()) {
+            val step = steps.optJSONObject(i) ?: continue
+            val type = step.optString("type", "")
+
+            val (success, detail) = runCatching {
+                when (type) {
+                    "wait_for" -> {
+                        val node = svc.waitForElement(
+                            selector   = step.toSelector(),
+                            timeoutMs  = step.optLong("timeout_ms", 5_000).coerceIn(100, 30_000),
+                        )
+                        if (node != null) {
+                            if (step.optBoolean("tap", false))
+                                node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
+                            node.recycle()
+                            true to "found"
+                        } else false to "timeout"
+                    }
+                    "scroll_find" -> {
+                        val found = svc.scrollToFind(
+                            selector        = step.toSelector(),
+                            direction       = step.optString("direction", "down"),
+                            maxScrolls      = step.optInt("max_scrolls", 10).coerceIn(1, 50),
+                            containerViewId = step.optString("container_view_id", "").ifBlank { null },
+                            waitAfterScrollMs = step.optLong("wait_after_ms", 400).coerceIn(100, 2_000),
+                            tapOnFind       = step.optBoolean("tap", true),
+                        )
+                        found to if (found) "found" else "not_found"
+                    }
+                    "tap_text" -> {
+                        val ok = svc.tapByText(
+                            text      = step.optString("text", ""),
+                            exact     = step.optBoolean("exact", false),
+                            timeoutMs = step.optLong("timeout_ms", 3_000).coerceIn(100, 15_000),
+                        )
+                        ok to if (ok) "tapped" else "not_found"
+                    }
+                    "tap" -> {
+                        val x = step.optInt("x", -1); val y = step.optInt("y", -1)
+                        if (x < 0 || y < 0) false to "x,y required"
+                        else { val ok = svc.clickAtCoordinates(x, y); ok to if (ok) "tapped" else "failed" }
+                    }
+                    "action" -> {
+                        val viewId = step.optString("view_id", "")
+                        if (viewId.isBlank()) false to "view_id required"
+                        else {
+                            val ok = svc.performNodeAction(viewId, step.optString("action", "click"), step.optString("text", "").ifBlank { null })
+                            ok to if (ok) "performed" else "failed"
+                        }
+                    }
+                    "type" -> {
+                        val ok = svc.typeInFocused(step.optString("text", ""), step.optString("view_id", "").ifBlank { null })
+                        ok to if (ok) "typed" else "no_editable_field"
+                    }
+                    "global" -> {
+                        val action = step.optString("action", "")
+                        if (action.isBlank()) false to "action required"
+                        else { val ok = svc.performGlobalAction(action); ok to if (ok) "performed" else "unknown_action" }
+                    }
+                    "screenshot" -> {
+                        val b64 = svc.captureScreenshot()
+                        (b64 != null) to (b64 ?: "screenshot_failed")
+                    }
+                    "sleep" -> {
+                        Thread.sleep(step.optLong("ms", 500).coerceIn(50, 5_000))
+                        true to "ok"
+                    }
+                    else -> false to "unknown_type: $type"
+                }
+            }.getOrElse { e -> false to "exception: ${e.message}" }
+
+            results.put(JSONObject().apply {
+                put("step",    i)
+                put("type",    type)
+                put("success", success)
+                put("detail",  detail)
+            })
+
+            if (!success && stopOnFailure) { failedStep = i; break }
+        }
+
+        return jsonOk(JSONObject().apply {
+            put("steps_run",       results.length())
+            put("steps_succeeded", (0 until results.length()).count {
+                results.optJSONObject(it)?.optBoolean("success") == true
+            })
+            put("all_succeeded",   failedStep == null)
+            if (failedStep != null) put("failed_step", failedStep)
+            put("results",         results)
+        })
     }
 
     // ── JSON extension helpers for selector + node serialisation ─────────────

@@ -48,7 +48,7 @@ class NodeService : Service() {
 
         // ZeroClaw agent brain binary
         const val AGENT_BINARY_NAME    = "zeroclaw"
-        const val AGENT_ASSET_VERSION  = "0.2.2"   // bump when zeroclaw binary changes
+        const val AGENT_ASSET_VERSION  = "0.2.3"   // bump when zeroclaw binary changes
         const val AGENT_CONFIG_FILE    = "config.toml"  // zeroclaw --config-dir looks for config.toml
         const val AGENT_GATEWAY_PORT   = 42617
         const val AGENT_BRIDGE_PORT    = 9092
@@ -1075,6 +1075,127 @@ command     = ${'$'}TOML_TQcurl -sf --max-time 10 "https://api.duckduckgo.com/?q
 [tools.args]
 query = "Search query string"
 """.trimIndent()
+
+        val PHONE_UI_SKILL_TOML = """
+[skill]
+name        = "phone-ui"
+version     = "1.0.0"
+description = "Control and automate the Android UI. Read the screen, tap, type, scroll, and execute multi-step plans without leaving a conversation."
+author      = "0x01 World"
+tags        = ["android", "ui", "automation", "accessibility", "screen", "tap", "type"]
+
+prompts = [${'$'}TOML_TQ
+# Android UI Control
+
+You can read and control the Android UI on this device via the phone bridge.
+
+## CRITICAL — batch planning eliminates latency
+
+**Always use `phone_ui_execute` for flows with 2+ steps.**
+Plan the entire sequence in one shot. This collapses N LLM calls into 1.
+
+## Tools
+
+| Tool | Use for |
+|------|---------|
+| `phone_ui_tree`     | Read compact interactive tree before planning. Returns only clickable/editable/scrollable nodes. |
+| `phone_ui_execute`  | **Preferred.** Execute a complete multi-step plan atomically — no LLM round-trips between steps. |
+| `phone_ui_screenshot` | Capture current screen as base64 JPEG. |
+| `phone_ui_tap_text` | Single tap by text label (with built-in wait). |
+| `phone_ui_wait_for` | Wait until element appears, then optionally tap it. |
+| `phone_ui_type`     | Type text into the focused or specified field. |
+| `phone_ui_global`   | back / home / recents / notifications / quick_settings. |
+
+## execute_plan step reference
+
+```json
+{"type":"wait_for",    "text":"Login",    "timeout_ms":5000, "tap":true}
+{"type":"scroll_find", "text":"Submit",   "direction":"down", "max_scrolls":10, "tap":true}
+{"type":"tap_text",    "text":"Next",     "exact":false,      "timeout_ms":3000}
+{"type":"tap",         "x":540, "y":1200}
+{"type":"type",        "text":"hello",    "view_id":"com.ex:id/field"}
+{"type":"action",      "view_id":"...",   "action":"click"}
+{"type":"global",      "action":"back"}
+{"type":"screenshot"}
+{"type":"sleep",       "ms":500}
+```
+
+## Workflow pattern
+
+1. `phone_ui_tree` — identify element texts / viewIds / bounds.
+2. `phone_ui_execute` — pass all steps at once. Check `all_succeeded` in the response.
+
+## Rules
+
+- Describe what you are about to do before executing.
+- Accessibility service must be enabled in Android Settings → Accessibility → 0x01 Agent.
+- Never submit or send messages without confirming with the user first.
+${'$'}TOML_TQ]
+
+[[tools]]
+name        = "phone_ui_tree"
+description = "Read only the interactive UI nodes on screen (clickable, editable, scrollable, and labelled). Much smaller than the full tree — use this before planning any multi-step flow to get viewIds and text labels."
+kind        = "shell"
+command     = ${'$'}TOML_TQcurl -sf -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/a11y/tree_interactive"${'$'}TOML_TQ
+
+[[tools]]
+name        = "phone_ui_execute"
+description = "Execute a multi-step UI automation plan atomically. Pass a JSON object with a 'steps' array. Step types: wait_for, scroll_find, tap_text, tap (x/y), type, action (viewId+action), global (back/home/recents), screenshot, sleep. Returns per-step results and all_succeeded. PREFER THIS for any flow with 2+ steps."
+kind        = "shell"
+command     = ${'$'}TOML_TQprintf '%s' {plan_json} | curl -sf -X POST -H "Content-Type: application/json" -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/a11y/execute_plan" -d @-${'$'}TOML_TQ
+
+[tools.args]
+plan_json = "JSON object: {\"steps\":[...], \"stop_on_failure\":true}. See step reference in skill prompt."
+
+[[tools]]
+name        = "phone_ui_screenshot"
+description = "Capture current screen as base64 JPEG. Use with vision to understand what is on screen before planning."
+kind        = "shell"
+command     = ${'$'}TOML_TQcurl -sf -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/a11y/screenshot"${'$'}TOML_TQ
+
+[[tools]]
+name        = "phone_ui_tap_text"
+description = "Find and tap an element by its text label. Waits up to timeout_ms. Use for single taps when you already know the label."
+kind        = "shell"
+command     = ${'$'}TOML_TQjq -nc --arg t {text} --argjson e {exact} --argjson ms {timeout_ms} '{"text":${'$'}t,"exact":${'$'}e,"timeout_ms":${'$'}ms}' | curl -sf -X POST -H "Content-Type: application/json" -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/a11y/tap_text" -d @-${'$'}TOML_TQ
+
+[tools.args]
+text       = "Text label to tap"
+exact      = "true = exact match, false = contains (default: false)"
+timeout_ms = "Max wait ms (default: 3000)"
+
+[[tools]]
+name        = "phone_ui_wait_for"
+description = "Wait for a UI element to appear, then optionally tap it. Specify at least one selector: text, view_id, or content_desc."
+kind        = "shell"
+command     = ${'$'}TOML_TQjq -nc --arg vid {view_id} --arg txt {text} --arg cd {content_desc} --argjson ms {timeout_ms} --argjson tap {tap} '{"view_id":(${'$'}vid|if .=="" then null else . end),"text":(${'$'}txt|if .=="" then null else . end),"content_desc":(${'$'}cd|if .=="" then null else . end),"timeout_ms":${'$'}ms,"tap":${'$'}tap}|with_entries(select(.value!=null))' | curl -sf -X POST -H "Content-Type: application/json" -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/a11y/wait_for" -d @-${'$'}TOML_TQ
+
+[tools.args]
+view_id      = "Resource-id e.g. com.example:id/btn (leave empty to match by text)"
+text         = "Text label (leave empty to match by view_id)"
+content_desc = "Accessibility content-description (leave empty if using text/view_id)"
+timeout_ms   = "Max wait ms (default: 5000)"
+tap          = "true to tap when found (default: false)"
+
+[[tools]]
+name        = "phone_ui_type"
+description = "Type text into a field. If view_id is given, targets that field; otherwise uses the focused or first editable field."
+kind        = "shell"
+command     = ${'$'}TOML_TQjq -nc --arg t {text} --arg vid {view_id} '{"text":${'$'}t,"view_id":(${'$'}vid|if .=="" then null else . end)}|with_entries(select(.value!=null))' | curl -sf -X POST -H "Content-Type: application/json" -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/a11y/type" -d @-${'$'}TOML_TQ
+
+[tools.args]
+text    = "Text to type"
+view_id = "Resource-id of the target field (optional)"
+
+[[tools]]
+name        = "phone_ui_global"
+description = "Perform a global system action: back, home, recents, notifications, quick_settings, power_dialog, lock_screen."
+kind        = "shell"
+command     = ${'$'}TOML_TQjq -nc --arg a {action} '{"action":${'$'}a}' | curl -sf -X POST -H "Content-Type: application/json" -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/a11y/global" -d @-${'$'}TOML_TQ
+
+[tools.args]
+action = "back | home | recents | notifications | quick_settings | power_dialog | lock_screen"
+""".trimIndent()
     }
 
     private var nodeProcess:  Process? = null
@@ -1676,6 +1797,11 @@ timeout_secs = 10
         webSkillDir.mkdirs()
         File(webSkillDir, "SKILL.toml").writeText(WEB_SKILL_TOML)
 
+        // ── Phone UI automation skill ────────────────────────────────────────
+        val phoneUiSkillDir = File(skillsRoot, "phone-ui")
+        phoneUiSkillDir.mkdirs()
+        File(phoneUiSkillDir, "SKILL.toml").writeText(PHONE_UI_SKILL_TOML)
+
         Log.i(TAG, "Bundled skills written to ${skillsRoot.absolutePath}.")
     }
 
@@ -1985,6 +2111,10 @@ the capability in the app Settings > Phone Bridge section instead.
                 it.environment()["ZX01_NODE"] = "http://127.0.0.1:$NODE_API_PORT"
                 if (localApiSecret.isNotEmpty()) {
                     it.environment()["ZX01_TOKEN"] = localApiSecret
+                }
+                it.environment()["ZX01_BRIDGE_URL"] = "http://127.0.0.1:$AGENT_BRIDGE_PORT"
+                if (bridgeSecret.isNotEmpty()) {
+                    it.environment()["ZX01_BRIDGE_TOKEN"] = bridgeSecret
                 }
             }
             .start()
