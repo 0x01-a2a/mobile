@@ -255,6 +255,49 @@ class AgentAccessibilityService : AccessibilityService() {
     }
 
     // -------------------------------------------------------------------------
+    // Swipe Gesture
+    // -------------------------------------------------------------------------
+
+    /**
+     * Dispatch a real finger-swipe gesture from (x1,y1) to (x2,y2).
+     * Unlike SCROLL_FORWARD/BACKWARD, this works in apps that only respond to
+     * raw touch events (Instagram, TikTok, Maps, custom recycler views).
+     *
+     * @param durationMs  Duration of the stroke in milliseconds (50–3000).
+     *                    Shorter = faster flick; longer = slow drag.
+     * @return true if the gesture was dispatched and completed successfully.
+     */
+    fun swipe(x1: Int, y1: Int, x2: Int, y2: Int, durationMs: Long = 300): Boolean {
+        val path = android.graphics.Path().apply {
+            moveTo(x1.toFloat(), y1.toFloat())
+            lineTo(x2.toFloat(), y2.toFloat())
+        }
+        val stroke = android.accessibilityservice.GestureDescription.StrokeDescription(
+            path, 0L, durationMs.coerceIn(50, 3_000)
+        )
+        val gesture = android.accessibilityservice.GestureDescription.Builder()
+            .addStroke(stroke)
+            .build()
+
+        val latch = CountDownLatch(1)
+        var completed = false
+        val dispatched = dispatchGesture(
+            gesture,
+            object : AccessibilityService.GestureResultCallback() {
+                override fun onCompleted(g: android.accessibilityservice.GestureDescription) {
+                    completed = true; latch.countDown()
+                }
+                override fun onCancelled(g: android.accessibilityservice.GestureDescription) {
+                    latch.countDown()
+                }
+            },
+            null
+        )
+        if (dispatched) latch.await(durationMs + 2_000, TimeUnit.MILLISECONDS)
+        return dispatched && completed
+    }
+
+    // -------------------------------------------------------------------------
     // Global Actions
     // -------------------------------------------------------------------------
 

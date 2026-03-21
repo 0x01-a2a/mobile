@@ -452,6 +452,30 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
                     block ?: handleA11yType(body)
                 }
             }
+
+            // Swipe gesture — raw touch, works where SCROLL_FORWARD doesn't
+            method == "POST" && path == "/phone/a11y/swipe" -> when {
+                !isCapEnabled("screen_act") -> capDisabled("screen_act")
+                !isActAllowed()             -> policyBlocked("action_not_allowed_in_${BuildConfig.POLICY_MODE}")
+                else -> {
+                    val x1 = body?.optInt("x1") ?: 0; val y1 = body?.optInt("y1") ?: 0
+                    val x2 = body?.optInt("x2") ?: 0; val y2 = body?.optInt("y2") ?: 0
+                    val desc = "Swipe ($x1,$y1)→($x2,$y2)"
+                    requireAssistedApproval(path, desc) ?: handleA11ySwipe(body)
+                }
+            }
+
+            // App launch + discovery
+            method == "POST" && path == "/phone/app/launch" -> when {
+                !isCapEnabled("screen_act") -> capDisabled("screen_act")
+                !isActAllowed()             -> policyBlocked("action_not_allowed_in_${BuildConfig.POLICY_MODE}")
+                else -> {
+                    val block = requireAssistedApproval(path, "Launch ${body?.optString("package") ?: "?"}")
+                    block ?: handleAppLaunch(body)
+                }
+            }
+            method == "GET" && path == "/phone/app/list" -> handleAppList(params)
+
             // Compact interactive tree + batch plan executor
             method == "GET"  && path == "/phone/a11y/tree_interactive" -> when {
                 !isCapEnabled("screen_read_tree") -> capDisabled("screen_read_tree")
@@ -568,6 +592,9 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
         path == "/phone/a11y/scroll_find" -> "SCREEN" to "Scrolled to find \"${body?.optString("text") ?: body?.optString("view_id") ?: "?"}\""
         path == "/phone/a11y/tap_text"    -> "SCREEN" to "Tapped by text \"${body?.optString("text") ?: "?"}\""
         path == "/phone/a11y/type"        -> "SCREEN" to "Typed text (${body?.optString("text", "")?.take(20)?.let { "\"$it\"" } ?: "?"})"
+        path == "/phone/a11y/swipe"     -> "SCREEN" to "Swiped (${body?.optInt("x1") ?: "?"},${body?.optInt("y1") ?: "?"})→(${body?.optInt("x2") ?: "?"},${body?.optInt("y2") ?: "?"})"
+        path == "/phone/app/launch"     -> "SYSTEM" to "Launched app ${body?.optString("package") ?: "?"}"
+        path == "/phone/app/list"       -> "SYSTEM" to "Listed installed apps"
         path == "/phone/a11y/tree_interactive" -> "SCREEN" to "Read interactive UI tree (${
             body?.optInt("count")?.toString() ?: "compact"} nodes)"
         path == "/phone/a11y/execute_plan"     -> "SCREEN" to "Executed ${body?.optJSONArray("steps")?.length() ?: "?"}-step UI plan"
@@ -1773,6 +1800,81 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
         return jsonOk(JSONObject().put("success", result))
     }
 
+    // ── swipe ─────────────────────────────────────────────────────────────────
+
+    private fun handleA11ySwipe(body: JSONObject?): BridgeResponse {
+        if (body == null) return jsonError("missing body", 400)
+        val svc = AgentAccessibilityService.instance
+            ?: return jsonError("accessibility service not connected", 503)
+        val x1 = body.optInt("x1", -1); val y1 = body.optInt("y1", -1)
+        val x2 = body.optInt("x2", -1); val y2 = body.optInt("y2", -1)
+        if (x1 < 0 || y1 < 0 || x2 < 0 || y2 < 0)
+            return jsonError("x1, y1, x2, y2 required", 400)
+        val durationMs = body.optLong("duration_ms", 300).coerceIn(50, 3_000)
+        val ok = svc.swipe(x1, y1, x2, y2, durationMs)
+        return jsonOk(JSONObject().put("success", ok))
+    }
+
+    // ── app launch + list ─────────────────────────────────────────────────────
+
+    private fun handleAppLaunch(body: JSONObject?): BridgeResponse {
+        if (body == null) return jsonError("missing body", 400)
+        val pkg = body.optString("package", "").ifBlank {
+            return jsonError("'package' is required — use /phone/app/list to find package names", 400)
+        }
+        return try {
+            val intent = context.packageManager.getLaunchIntentForPackage(pkg)
+                ?: return jsonError("app not installed or not launchable: $pkg", 404)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+            jsonOk(JSONObject().put("launched", pkg))
+        } catch (e: Exception) {
+            jsonError("launch failed: ${e.message}")
+        }
+    }
+
+    /**
+     * GET /phone/app/list?system=false&query=<substring>
+     * Lists installed user apps (or all apps with system=true).
+     * Optional query param filters by package name or label (case-insensitive).
+     */
+    private fun handleAppList(params: Map<String, String>): BridgeResponse {
+        val includeSystem = params["system"]?.lowercase() == "true"
+        val query = params["query"]?.lowercase() ?: ""
+        val pm = context.packageManager
+        val flag = if (Build.VERSION.SDK_INT >= 33)
+            android.content.pm.PackageManager.PackageInfoFlags.of(0L)
+        else null
+
+        @Suppress("DEPRECATION")
+        val packages = if (flag != null)
+            pm.getInstalledPackages(android.content.pm.PackageManager.PackageInfoFlags.of(0L))
+        else
+            pm.getInstalledPackages(0)
+
+        val apps = JSONArray()
+        for (info in packages) {
+            val isSystem = (info.applicationInfo?.flags ?: 0) and
+                android.content.pm.ApplicationInfo.FLAG_SYSTEM != 0
+            if (!includeSystem && isSystem) continue
+            // Only include apps with a launcher intent
+            val launchable = pm.getLaunchIntentForPackage(info.packageName) != null
+            if (!launchable) continue
+            val label = pm.getApplicationLabel(info.applicationInfo!!).toString()
+            if (query.isNotBlank() && !label.lowercase().contains(query) &&
+                !info.packageName.lowercase().contains(query)) continue
+            apps.put(JSONObject().apply {
+                put("package", info.packageName)
+                put("label",   label)
+                put("version", info.versionName ?: "")
+            })
+        }
+        return jsonOk(JSONObject().apply {
+            put("count", apps.length())
+            put("apps",  apps)
+        })
+    }
+
     // ── tree_interactive ──────────────────────────────────────────────────────
 
     private fun handleA11yTreeInteractive(): BridgeResponse {
@@ -1885,6 +1987,28 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
                     "screenshot" -> {
                         val b64 = svc.captureScreenshot()
                         (b64 != null) to (b64 ?: "screenshot_failed")
+                    }
+                    "swipe" -> {
+                        val x1 = step.optInt("x1", -1); val y1 = step.optInt("y1", -1)
+                        val x2 = step.optInt("x2", -1); val y2 = step.optInt("y2", -1)
+                        if (x1 < 0 || y1 < 0 || x2 < 0 || y2 < 0) false to "x1,y1,x2,y2 required"
+                        else {
+                            val ok = svc.swipe(x1, y1, x2, y2, step.optLong("duration_ms", 300).coerceIn(50, 3_000))
+                            ok to if (ok) "swiped" else "gesture_failed"
+                        }
+                    }
+                    "launch" -> {
+                        val pkg = step.optString("package", "")
+                        if (pkg.isBlank()) false to "package required"
+                        else {
+                            val intent = context.packageManager.getLaunchIntentForPackage(pkg)
+                            if (intent == null) false to "not_installed: $pkg"
+                            else {
+                                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                context.startActivity(intent)
+                                true to "launched: $pkg"
+                            }
+                        }
                     }
                     "sleep" -> {
                         Thread.sleep(step.optLong("ms", 500).coerceIn(50, 5_000))
