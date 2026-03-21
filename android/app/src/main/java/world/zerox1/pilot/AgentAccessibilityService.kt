@@ -73,6 +73,32 @@ class AgentAccessibilityService : AccessibilityService() {
     }
 
     // -------------------------------------------------------------------------
+    // Element selector (used by waitForElement / scrollToFind)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Flexible selector for locating a UI node. At least one field must be set.
+     *
+     * @param viewId       Exact resource-id match  e.g. "com.example.app:id/btn_ok"
+     * @param text         Text / label match (exactText = true: exact, false: contains)
+     * @param contentDesc  Content-description match (contains, case-insensitive)
+     * @param className    Class name match  e.g. "android.widget.Button"
+     * @param exactText    When matching by [text], require an exact case-insensitive match.
+     *                     Defaults to false (contains). Has no effect on other fields.
+     * @param mustBeEnabled Only return nodes where isEnabled = true. Defaults to true.
+     */
+    data class ElementSelector(
+        val viewId: String? = null,
+        val text: String? = null,
+        val contentDesc: String? = null,
+        val className: String? = null,
+        val exactText: Boolean = false,
+        val mustBeEnabled: Boolean = true,
+    ) {
+        fun isBlank() = viewId == null && text == null && contentDesc == null && className == null
+    }
+
+    // -------------------------------------------------------------------------
     // UI Tree Dump
     // -------------------------------------------------------------------------
 
@@ -313,5 +339,251 @@ class AgentAccessibilityService : AccessibilityService() {
 
         latch.await(5, TimeUnit.SECONDS)
         return result
+    }
+
+    // -------------------------------------------------------------------------
+    // waitForElement — poll until a node matching the selector appears
+    // -------------------------------------------------------------------------
+
+    /**
+     * Poll the active window's UI tree until a node matching [selector] appears
+     * or [timeoutMs] elapses. Returns the matched [AccessibilityNodeInfo] (caller
+     * must NOT recycle it; this method obtains a fresh copy) or null on timeout.
+     *
+     * @param selector     What to look for.
+     * @param timeoutMs    Maximum wait in milliseconds (default 5 000).
+     * @param pollMs       Polling interval in milliseconds (default 200).
+     */
+    fun waitForElement(
+        selector: ElementSelector,
+        timeoutMs: Long = 5_000,
+        pollMs: Long = 200,
+    ): AccessibilityNodeInfo? {
+        if (selector.isBlank()) return null
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            val root = rootInActiveWindow
+            if (root != null) {
+                val found = findBySelector(root, selector)
+                root.recycle()
+                if (found != null) return found
+            }
+            Thread.sleep(pollMs.coerceAtLeast(50))
+        }
+        return null
+    }
+
+    // -------------------------------------------------------------------------
+    // scrollToFind — scroll a container until the element appears, then click it
+    // -------------------------------------------------------------------------
+
+    /**
+     * Scroll a container node in [direction] up to [maxScrolls] times, checking for
+     * a node matching [selector] after each scroll. If found and [tapOnFind] is true,
+     * the node is clicked.
+     *
+     * @param selector         What to look for.
+     * @param direction        "down" (default), "up", "left", "right".
+     * @param maxScrolls       Maximum number of scroll steps (default 10).
+     * @param containerViewId  Resource-id of the scrollable container. If null, the
+     *                         first scrollable node in the window is used.
+     * @param waitAfterScrollMs Pause after each scroll to let the UI settle (default 400 ms).
+     * @param tapOnFind        Click the found node immediately (default true).
+     * @return true if the element was found (and clicked if [tapOnFind]).
+     */
+    fun scrollToFind(
+        selector: ElementSelector,
+        direction: String = "down",
+        maxScrolls: Int = 10,
+        containerViewId: String? = null,
+        waitAfterScrollMs: Long = 400,
+        tapOnFind: Boolean = true,
+    ): Boolean {
+        val scrollAction = when (direction.lowercase()) {
+            "up", "left" -> AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+            else         -> AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+        }
+
+        // Check before first scroll — element may already be visible.
+        rootInActiveWindow?.let { root ->
+            val found = findBySelector(root, selector)
+            root.recycle()
+            if (found != null) {
+                if (tapOnFind) { found.performAction(AccessibilityNodeInfo.ACTION_CLICK) }
+                found.recycle()
+                return true
+            }
+        }
+
+        repeat(maxScrolls) {
+            // Locate the scroll container
+            val root = rootInActiveWindow ?: return false
+            val container = if (containerViewId != null) {
+                root.findAccessibilityNodeInfosByViewId(containerViewId)?.firstOrNull()
+                    ?: findFirstScrollable(root)
+            } else {
+                findFirstScrollable(root)
+            }
+            if (container == null) {
+                root.recycle()
+                return false  // no scrollable at all — give up
+            }
+            container.performAction(scrollAction)
+            container.recycle()
+            root.recycle()
+
+            Thread.sleep(waitAfterScrollMs.coerceAtLeast(100))
+
+            // Check after scroll
+            rootInActiveWindow?.let { r ->
+                val found = findBySelector(r, selector)
+                r.recycle()
+                if (found != null) {
+                    if (tapOnFind) { found.performAction(AccessibilityNodeInfo.ACTION_CLICK) }
+                    found.recycle()
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    // -------------------------------------------------------------------------
+    // tapByText / typeInFocused — high-level convenience actions
+    // -------------------------------------------------------------------------
+
+    /**
+     * Find the first visible node whose text (or content description) matches
+     * [text] and click it. Optionally waits up to [timeoutMs] for it to appear.
+     *
+     * @return true if a matching node was found and clicked.
+     */
+    fun tapByText(text: String, exact: Boolean = false, timeoutMs: Long = 3_000): Boolean {
+        val sel = ElementSelector(text = text, exactText = exact)
+        val node = waitForElement(sel, timeoutMs) ?: return false
+        val result = node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        node.recycle()
+        return result
+    }
+
+    /**
+     * Type [text] into a field.
+     * If [viewId] is given, finds that field. Otherwise uses the currently focused
+     * editable node, or the first editable node in the window.
+     *
+     * @return true if text was successfully set.
+     */
+    fun typeInFocused(text: String, viewId: String? = null): Boolean {
+        val root = rootInActiveWindow ?: return false
+
+        val target: AccessibilityNodeInfo? = when {
+            viewId != null ->
+                root.findAccessibilityNodeInfosByViewId(viewId)?.firstOrNull()
+            else -> {
+                // Prefer focused editable node; fall back to first editable.
+                findFocusedEditable(root) ?: findFirstEditable(root)
+            }
+        }
+        root.recycle()
+
+        if (target == null) return false
+
+        // Ensure the field is focused before typing
+        target.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+
+        val args = android.os.Bundle().apply {
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+        }
+        val result = target.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+        target.recycle()
+        return result
+    }
+
+    // -------------------------------------------------------------------------
+    // Private helpers
+    // -------------------------------------------------------------------------
+
+    /**
+     * Find the first node in the tree that matches [selector].
+     * Caller is responsible for recycling the returned node.
+     * Root node is NOT recycled by this method.
+     */
+    fun findBySelector(root: AccessibilityNodeInfo, sel: ElementSelector): AccessibilityNodeInfo? {
+        // Use O(1) system lookups where possible before falling back to tree walk.
+
+        if (sel.viewId != null) {
+            val nodes = root.findAccessibilityNodeInfosByViewId(sel.viewId)
+            if (!nodes.isNullOrEmpty()) {
+                val match = nodes.firstOrNull { !sel.mustBeEnabled || it.isEnabled }
+                nodes.forEachIndexed { i, n -> if (i != nodes.indexOf(match)) n.recycle() }
+                return match
+            }
+        }
+
+        if (sel.text != null) {
+            val nodes = root.findAccessibilityNodeInfosByText(sel.text)
+            if (!nodes.isNullOrEmpty()) {
+                val match = nodes.firstOrNull { n ->
+                    val t = n.text?.toString() ?: n.contentDescription?.toString() ?: ""
+                    val textMatch = if (sel.exactText) t.equals(sel.text, ignoreCase = true)
+                                    else t.contains(sel.text, ignoreCase = true)
+                    textMatch && (!sel.mustBeEnabled || n.isEnabled)
+                }
+                nodes.forEachIndexed { i, n -> if (n !== match) n.recycle() }
+                return match
+            }
+        }
+
+        // Fall back to full tree walk (contentDesc / className / etc.)
+        return walkForSelector(root, sel, depth = 0)
+    }
+
+    private fun walkForSelector(
+        node: AccessibilityNodeInfo,
+        sel: ElementSelector,
+        depth: Int,
+    ): AccessibilityNodeInfo? {
+        if (depth > 20) return null
+
+        val matches = (!sel.mustBeEnabled || node.isEnabled) &&
+            (sel.contentDesc == null || node.contentDescription?.toString()
+                ?.contains(sel.contentDesc, ignoreCase = true) == true) &&
+            (sel.className == null || node.className?.toString()
+                ?.equals(sel.className, ignoreCase = true) == true)
+
+        if (matches && !sel.isBlank()) return AccessibilityNodeInfo.obtain(node)
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val found = walkForSelector(child, sel, depth + 1)
+            child.recycle()
+            if (found != null) return found
+        }
+        return null
+    }
+
+    private fun findFirstScrollable(root: AccessibilityNodeInfo): AccessibilityNodeInfo? =
+        walkPredicate(root, depth = 0) { it.isScrollable }
+
+    private fun findFocusedEditable(root: AccessibilityNodeInfo): AccessibilityNodeInfo? =
+        walkPredicate(root, depth = 0) { it.isFocused && it.isEditable }
+
+    private fun findFirstEditable(root: AccessibilityNodeInfo): AccessibilityNodeInfo? =
+        walkPredicate(root, depth = 0) { it.isEditable }
+
+    private fun walkPredicate(
+        node: AccessibilityNodeInfo,
+        depth: Int,
+        pred: (AccessibilityNodeInfo) -> Boolean,
+    ): AccessibilityNodeInfo? {
+        if (depth > 20) return null
+        if (pred(node)) return AccessibilityNodeInfo.obtain(node)
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val found = walkPredicate(child, depth + 1, pred)
+            child.recycle()
+            if (found != null) return found
+        }
+        return null
     }
 }
