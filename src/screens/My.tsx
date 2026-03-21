@@ -1263,7 +1263,12 @@ function SkillsSubtab() {
           skills.map((skill, i) => (
             <View key={skill.name} style={[s.skillRow, i === skills.length - 1 && { borderBottomWidth: 0 }]}>
               <View style={{ flex: 1 }}>
-                <Text style={s.skillName}>{skill.icon}  {skill.label}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                  <View style={s.skillBadge}>
+                    <Text style={s.skillBadgeText}>{skill.icon}</Text>
+                  </View>
+                  <Text style={s.skillName}>{skill.label}</Text>
+                </View>
                 {skill.description ? (
                   <Text style={s.skillDesc}>{skill.description}</Text>
                 ) : null}
@@ -1470,6 +1475,8 @@ function useStyles(colors: ThemeColors) {
   skillRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border },
   skillName: { fontSize: 13, color: colors.text, fontFamily: 'monospace' },
   skillDesc: { fontSize: 11, color: colors.sub, lineHeight: 16, marginTop: 3 },
+  skillBadge: { borderWidth: 1, borderColor: colors.border, borderRadius: 3, paddingHorizontal: 5, paddingVertical: 2 },
+  skillBadgeText: { fontSize: 9, color: colors.sub, fontFamily: 'monospace', fontWeight: '700', letterSpacing: 1 },
   removeBtn: { borderWidth: 1, borderColor: colors.red + '60', borderRadius: 3, paddingHorizontal: 8, paddingVertical: 4 },
   removeBtnText: { fontSize: 9, color: colors.red, letterSpacing: 2, fontWeight: '700', fontFamily: 'monospace' },
   fieldLabel: { fontSize: 9, color: colors.sub, letterSpacing: 2, fontFamily: 'monospace', marginBottom: 6 },

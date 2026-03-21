@@ -1766,32 +1766,32 @@ const SKILL_CATALOG: Record<string, { label: string; description: string; icon: 
   bags: {
     label: 'Bags Token Launcher',
     description: 'Launch tokens on Bags.fm, execute swaps, check positions and claimable fees.',
-    icon: '🪙',
+    icon: 'BAGS',
   },
   launchlab: {
     label: 'Raydium LaunchLab',
     description: 'Buy and sell tokens on the Raydium bonding curve. Earns 0.1% share fee on every trade.',
-    icon: '📈',
+    icon: 'RAY-LC',
   },
   cpmm: {
     label: 'Raydium CPMM Pool',
     description: 'Create constant-product liquidity pools on Raydium. Earn LP fees on every swap.',
-    icon: '💧',
+    icon: 'RAY-LP',
   },
   health: {
     label: 'Health & Wearables',
     description: 'Read on-device health sensors — steps, heart rate, sleep, recovery — privately.',
-    icon: '❤️',
+    icon: 'HLTH',
   },
   skill_manager: {
     label: 'Skill Manager',
     description: 'Install new skills from a URL or let your agent write and self-install capabilities.',
-    icon: '⚙️',
+    icon: 'MGR',
   },
   trade: {
     label: 'Jupiter + LaunchLab Trader',
     description: 'Full DeFi toolkit: Jupiter swaps aggregator and Raydium LaunchLab in one skill.',
-    icon: '⚡',
+    icon: 'JUP',
   },
 };
 
@@ -1803,7 +1803,7 @@ export function useSkills(): { skills: Skill[]; loading: boolean; refresh: () =>
     setLoading(true);
     const data = await apiFetch<{ skills: string[] }>('/skill/list');
     if (data?.skills) {
-      setSkills(data.skills.map(name => ({ name, ...(SKILL_CATALOG[name] ?? { label: name, description: '', icon: '◈' }) })));
+      setSkills(data.skills.map(name => ({ name, ...(SKILL_CATALOG[name] ?? { label: name, description: '', icon: 'EXT' }) })));
     }
     setLoading(false);
   }, []);
