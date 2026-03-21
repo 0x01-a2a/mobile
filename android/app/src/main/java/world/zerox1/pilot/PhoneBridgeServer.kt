@@ -233,9 +233,9 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
 
             // ---- SMS / Messaging ----
             method == "GET"  && path == "/phone/sms" ->
-                if (!isCapEnabled("messaging")) capDisabled("messaging") else handleSmsRead(params)
+                if (!isCapEnabled("sms_read")) capDisabled("sms_read") else handleSmsRead(params)
             method == "POST" && path == "/phone/sms/send" ->
-                if (!isCapEnabled("messaging")) capDisabled("messaging") else handleSmsSend(body)
+                if (!isCapEnabled("sms_send")) capDisabled("sms_send") else handleSmsSend(body)
 
             // ---- Location ----
             method == "GET"  && path == "/phone/location" ->
@@ -307,27 +307,27 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
             // ---- Accessibility Service ----
             method == "GET"  && path == "/phone/a11y/status"     -> handleA11yStatus()
             method == "GET"  && path == "/phone/a11y/tree"       ->
-                if (!isCapEnabled("screen")) capDisabled("screen") else handleA11yTree()
+                if (!isCapEnabled("screen_read_tree")) capDisabled("screen_read_tree") else handleA11yTree()
             method == "POST" && path == "/phone/a11y/action"     ->
-                if (!isCapEnabled("screen")) capDisabled("screen") else handleA11yAction(body)
+                if (!isCapEnabled("screen_act")) capDisabled("screen_act") else handleA11yAction(body)
             method == "POST" && path == "/phone/a11y/click"      ->
-                if (!isCapEnabled("screen")) capDisabled("screen") else handleA11yClick(body)
+                if (!isCapEnabled("screen_act")) capDisabled("screen_act") else handleA11yClick(body)
             method == "POST" && path == "/phone/a11y/global"     ->
-                if (!isCapEnabled("screen")) capDisabled("screen") else handleA11yGlobal(body)
+                if (!isCapEnabled("screen_global_nav")) capDisabled("screen_global_nav") else handleA11yGlobal(body)
             method == "GET"  && path == "/phone/a11y/screenshot" ->
-                if (!isCapEnabled("screen")) capDisabled("screen") else handleA11yScreenshot()
-            method == "POST" && path == "/phone/a11y/vision"      ->
-                if (!isCapEnabled("screen")) capDisabled("screen") else handleA11yVision(body)
+                if (!isCapEnabled("screen_capture")) capDisabled("screen_capture") else handleA11yScreenshot()
+            method == "POST" && path == "/phone/a11y/vision"     ->
+                if (!isCapEnabled("screen_vision")) capDisabled("screen_vision") else handleA11yVision(body)
 
             // ---- Notification Listener ----
             method == "GET"  && path == "/phone/notifications"         ->
-                if (!isCapEnabled("messaging")) capDisabled("messaging") else handleNotificationsGet()
+                if (!isCapEnabled("notifications_read")) capDisabled("notifications_read") else handleNotificationsGet()
             method == "GET"  && path == "/phone/notifications/history" ->
-                if (!isCapEnabled("messaging")) capDisabled("messaging") else handleNotificationsHistory()
+                if (!isCapEnabled("notifications_read")) capDisabled("notifications_read") else handleNotificationsHistory()
             method == "POST" && path == "/phone/notifications/reply"   ->
-                if (!isCapEnabled("messaging")) capDisabled("messaging") else handleNotificationsReply(body)
+                if (!isCapEnabled("notifications_reply")) capDisabled("notifications_reply") else handleNotificationsReply(body)
             method == "POST" && path == "/phone/notifications/dismiss" ->
-                if (!isCapEnabled("messaging")) capDisabled("messaging") else handleNotificationsDismiss(body)
+                if (!isCapEnabled("notifications_dismiss")) capDisabled("notifications_dismiss") else handleNotificationsDismiss(body)
 
             // ---- Call Screening ----
             method == "GET"  && path == "/phone/calls/pending"  ->
@@ -397,11 +397,11 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
         path == "/phone/a11y/click" -> "SCREEN" to "Tapped at (${body?.optInt("x") ?: "?"}, ${body?.optInt("y") ?: "?"})"
         path == "/phone/a11y/global" -> "SCREEN" to "Global action: ${body?.optString("action") ?: "?"}"
         path == "/phone/a11y/screenshot" -> "SCREEN" to "Took screenshot"
-        path == "/phone/notifications" -> "MESSAGING" to "Read active notifications"
-        path == "/phone/notifications/history" -> "MESSAGING" to "Read notification history"
-        path == "/phone/notifications/reply" -> "MESSAGING" to "Replied to notification from ${
+        path == "/phone/notifications" -> "NOTIFICATIONS" to "Read active notifications"
+        path == "/phone/notifications/history" -> "NOTIFICATIONS" to "Read notification history"
+        path == "/phone/notifications/reply" -> "NOTIFICATIONS" to "Replied to notification from ${
             body?.optString("key")?.substringBefore("|") ?: "?"}"
-        path == "/phone/notifications/dismiss" -> "MESSAGING" to "Dismissed notification"
+        path == "/phone/notifications/dismiss" -> "NOTIFICATIONS" to "Dismissed notification"
         path == "/phone/calls/pending" -> "CALLS" to "Checked pending calls"
         path == "/phone/calls/history" -> "CALLS" to "Read call screening history"
         path == "/phone/calls/respond" -> "CALLS" to "${body?.optString("action")?.replaceFirstChar { it.uppercase() } ?: "Handled"} incoming call"

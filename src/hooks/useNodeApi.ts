@@ -1363,16 +1363,34 @@ export interface BridgeLogEntry {
 }
 
 export const CAPABILITY_KEYS = [
-  'messaging', 'contacts', 'location', 'camera',
-  'microphone', 'screen', 'calls', 'calendar', 'media', 'motion',
+  // Notifications (requires Notification Listener permission)
+  'notifications_read', 'notifications_reply', 'notifications_dismiss',
+  // SMS
+  'sms_read', 'sms_send',
+  // Contacts / location / calendar / storage / sensors
+  'contacts', 'location', 'calendar', 'media', 'motion',
+  // A/V capture
+  'camera', 'microphone',
+  // Calls
+  'calls',
+  // Health
+  'health', 'wearables',
+  // Screen control (Accessibility Service)
+  'screen_read_tree', 'screen_capture', 'screen_act',
+  'screen_global_nav', 'screen_vision', 'screen_autonomy',
 ] as const;
 
 export type BridgeCapabilityKey = typeof CAPABILITY_KEYS[number];
 
 const DEFAULT_CAPABILITIES: Record<BridgeCapabilityKey, boolean> = {
-  messaging: true, contacts: true, location: true, camera: true,
-  microphone: true, screen: true, calls: true, calendar: true, media: true,
-  motion: true,
+  notifications_read: true, notifications_reply: true, notifications_dismiss: true,
+  sms_read: true, sms_send: true,
+  contacts: true, location: true, calendar: true, media: true, motion: true,
+  camera: true, microphone: true,
+  calls: true,
+  health: true, wearables: true,
+  screen_read_tree: true, screen_capture: true, screen_act: true,
+  screen_global_nav: true, screen_vision: true, screen_autonomy: true,
 };
 
 /** Read + write bridge capability toggles (persisted via SharedPreferences). */

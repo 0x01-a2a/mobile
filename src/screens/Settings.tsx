@@ -535,16 +535,31 @@ function PhoneCapabilitiesSection() {
 // ── Agent Capabilities Section ────────────────────────────────────────────────
 
 const CAPABILITY_INFO: Record<BridgeCapabilityKey, { label: string; desc: string }> = {
-  messaging: { label: 'MESSAGING', desc: 'Read SMS, read & reply to notifications (WhatsApp, email, etc.)' },
-  contacts: { label: 'CONTACTS', desc: 'Read and create contacts in your address book' },
-  location: { label: 'LOCATION', desc: 'Read your last known GPS coordinates' },
-  camera: { label: 'CAMERA', desc: 'Capture a photo from front or rear camera in the background' },
+  // Notifications
+  notifications_read:    { label: 'NOTIF — READ',    desc: 'Read active and historical notifications from all apps (requires Notification Access)' },
+  notifications_reply:   { label: 'NOTIF — REPLY',   desc: 'Reply to notifications inline (WhatsApp, Messages, email, etc.)' },
+  notifications_dismiss: { label: 'NOTIF — DISMISS', desc: 'Dismiss notifications on your behalf' },
+  // SMS
+  sms_read: { label: 'SMS — READ',  desc: 'Read SMS inbox and message history' },
+  sms_send: { label: 'SMS — SEND',  desc: 'Send SMS messages' },
+  // Standard phone bridge
+  contacts:   { label: 'CONTACTS',   desc: 'Read and create contacts in your address book' },
+  location:   { label: 'LOCATION',   desc: 'Read your last known GPS coordinates' },
+  calendar:   { label: 'CALENDAR',   desc: 'Read upcoming events and create new calendar entries' },
+  media:      { label: 'MEDIA',      desc: 'Browse photos and documents on device storage' },
+  motion:     { label: 'MOTION',     desc: 'Read accelerometer and gyroscope for movement and activity data' },
+  camera:     { label: 'CAMERA',     desc: 'Capture a photo from front or rear camera in the background' },
   microphone: { label: 'MICROPHONE', desc: 'Record short audio clips (up to 30 seconds)' },
-  screen: { label: 'SCREEN', desc: 'Read UI of any open app, tap buttons, take silent screenshots (requires Accessibility setup)' },
-  calls: { label: 'CALLS', desc: 'Read call history and screen incoming calls (allow / reject / silence)' },
-  calendar: { label: 'CALENDAR', desc: 'Read upcoming events and create new calendar entries' },
-  media: { label: 'MEDIA', desc: 'Browse photos and documents on device storage' },
-  motion: { label: 'MOTION', desc: 'Read accelerometer and gyroscope for movement and activity data collection' },
+  calls:      { label: 'CALLS',      desc: 'Read call history and screen incoming calls (allow / reject / silence)' },
+  health:     { label: 'HEALTH',     desc: 'Read on-device health data — steps, heart rate, sleep, calories' },
+  wearables:  { label: 'WEARABLES',  desc: 'Scan and read data from paired BLE health devices' },
+  // Screen control (Accessibility Service)
+  screen_read_tree:  { label: 'SCREEN — READ',     desc: 'Read the UI tree of any foreground app (requires Accessibility setup)' },
+  screen_capture:    { label: 'SCREEN — CAPTURE',  desc: 'Take silent screenshots of the current screen' },
+  screen_act:        { label: 'SCREEN — ACT',       desc: 'Tap buttons, enter text, and scroll in any app' },
+  screen_global_nav: { label: 'SCREEN — NAV',       desc: 'Trigger Back, Home, Recents, and system navigation' },
+  screen_vision:     { label: 'SCREEN — VISION',    desc: 'Pass screenshots to the vision model for screen understanding' },
+  screen_autonomy:   { label: 'SCREEN — AUTONOMY',  desc: 'Allow multi-step autonomous UI workflows without per-step confirmation' },
 };
 
 function AgentCapabilitiesSection() {
@@ -608,11 +623,11 @@ function AgentCapabilitiesSection() {
           </Text>
           <TouchableOpacity style={cs.permBtn} onPress={openAccessibility}>
             <Text style={cs.permBtnText}>↗ Accessibility Settings</Text>
-            <Text style={cs.permBtnSub}>Required for SCREEN capability</Text>
+            <Text style={cs.permBtnSub}>Required for SCREEN — READ / ACT / NAV / VISION</Text>
           </TouchableOpacity>
           <TouchableOpacity style={cs.permBtn} onPress={openNotificationAccess}>
             <Text style={cs.permBtnText}>↗ Notification Access</Text>
-            <Text style={cs.permBtnSub}>Required for MESSAGING capability</Text>
+            <Text style={cs.permBtnSub}>Required for NOTIF — READ / REPLY / DISMISS</Text>
           </TouchableOpacity>
         </View>
       )}
