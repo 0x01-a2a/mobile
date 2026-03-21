@@ -118,19 +118,31 @@ android {
     productFlavors {
         full {
             dimension "distribution"
-            buildConfigField "String",  "DISTRIBUTION",       '"full"'
-            buildConfigField "boolean", "SEED_VAULT_ENABLED", "false"
+            buildConfigField "String",  "DISTRIBUTION",                  '"full"'
+            buildConfigField "boolean", "SEED_VAULT_ENABLED",            "false"
+            buildConfigField "String",  "POLICY_MODE",                   '"AUTONOMOUS"'
+            buildConfigField "boolean", "ALLOW_ACCESSIBILITY_SERVICE",   "true"
+            buildConfigField "boolean", "ALLOW_NOTIFICATION_LISTENER",   "true"
+            buildConfigField "boolean", "ALLOW_AUTONOMOUS_UI_EXECUTION", "true"
         }
         dappstore {
             dimension "distribution"
             minSdkVersion 26
-            buildConfigField "String",  "DISTRIBUTION",       '"dappstore"'
-            buildConfigField "boolean", "SEED_VAULT_ENABLED", "true"
+            buildConfigField "String",  "DISTRIBUTION",                  '"dappstore"'
+            buildConfigField "boolean", "SEED_VAULT_ENABLED",            "true"
+            buildConfigField "String",  "POLICY_MODE",                   '"CLIENT_ONLY"'
+            buildConfigField "boolean", "ALLOW_ACCESSIBILITY_SERVICE",   "true"
+            buildConfigField "boolean", "ALLOW_NOTIFICATION_LISTENER",   "true"
+            buildConfigField "boolean", "ALLOW_AUTONOMOUS_UI_EXECUTION", "false"
         }
         googleplay {
             dimension "distribution"
-            buildConfigField "String",  "DISTRIBUTION",       '"googleplay"'
-            buildConfigField "boolean", "SEED_VAULT_ENABLED", "false"
+            buildConfigField "String",  "DISTRIBUTION",                  '"googleplay"'
+            buildConfigField "boolean", "SEED_VAULT_ENABLED",            "false"
+            buildConfigField "String",  "POLICY_MODE",                   '"ASSISTED"'
+            buildConfigField "boolean", "ALLOW_ACCESSIBILITY_SERVICE",   "false"
+            buildConfigField "boolean", "ALLOW_NOTIFICATION_LISTENER",   "false"
+            buildConfigField "boolean", "ALLOW_AUTONOMOUS_UI_EXECUTION", "false"
         }
     }
 }

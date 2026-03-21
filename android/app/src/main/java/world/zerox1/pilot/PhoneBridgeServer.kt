@@ -215,6 +215,68 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
             403
         )
 
+    // ── Policy-mode gate ─────────────────────────────────────────────────────
+    // BuildConfig.POLICY_MODE: "AUTONOMOUS" | "ASSISTED" | "CLIENT_ONLY"
+    // BuildConfig.ALLOW_ACCESSIBILITY_SERVICE / ALLOW_NOTIFICATION_LISTENER /
+    //             ALLOW_AUTONOMOUS_UI_EXECUTION
+
+    private fun policyBlocked(reason: String): BridgeResponse =
+        BridgeResponse(
+            JSONObject().apply { put("ok", false); put("error", "POLICY_BLOCKED"); put("reason", reason) }.toString(),
+            403
+        )
+
+    /** Passive observation (read_tree, screenshot, vision) allowed in AUTONOMOUS + ASSISTED. */
+    private fun isObserveAllowed(): Boolean =
+        BuildConfig.ALLOW_ACCESSIBILITY_SERVICE &&
+            BuildConfig.POLICY_MODE != "CLIENT_ONLY"
+
+    /**
+     * Active UI manipulation (act, global_nav).
+     * In AUTONOMOUS: allowed directly.
+     * In ASSISTED: allowed only after user confirms via [ScreenActionQueue].
+     * In CLIENT_ONLY: blocked.
+     */
+    private fun isActAllowed(): Boolean =
+        BuildConfig.ALLOW_AUTONOMOUS_UI_EXECUTION ||
+            BuildConfig.POLICY_MODE == "ASSISTED"
+
+    /**
+     * Autonomous UI execution without human-in-the-loop.
+     * Only allowed when BuildConfig.ALLOW_AUTONOMOUS_UI_EXECUTION = true (full flavor).
+     */
+    private fun isAutonomyAllowed(): Boolean =
+        BuildConfig.ALLOW_AUTONOMOUS_UI_EXECUTION
+
+    /**
+     * Gate for action endpoints in ASSISTED mode.
+     * Blocks the IO thread and emits a 'screenActionPending' RN event.
+     * Returns null if approved (caller should proceed), or a [BridgeResponse] to return.
+     */
+    private fun requireAssistedApproval(endpoint: String, description: String): BridgeResponse? {
+        if (!BuildConfig.ALLOW_AUTONOMOUS_UI_EXECUTION && BuildConfig.POLICY_MODE == "ASSISTED") {
+            // Find the next pending ID — emit before blocking so JS can show the modal.
+            val pendingId = java.util.UUID.randomUUID().toString()
+            // We inline the action into ScreenActionQueue with a known ID by using awaitApproval
+            // which generates its own UUID. Emit the event with the data, then defer to queue.
+            // Since we need the ID before enqueuing, we use a wrapper that pre-announces it.
+            val approved = awaitAssistedApproval(endpoint, description)
+            if (!approved) return policyBlocked("user_rejected_or_timeout")
+        }
+        return null
+    }
+
+    /**
+     * Suspend the calling thread while waiting for user confirmation.
+     * Emits the RN event before blocking so the UI can show the modal promptly.
+     */
+    private fun awaitAssistedApproval(endpoint: String, description: String): Boolean {
+        // Build a PendingAction externally so we can emit its ID before blocking.
+        val action = ScreenActionQueue.PendingAction(endpoint = endpoint, description = description)
+        NodeModule.emitScreenActionPending(action.id, endpoint, description)
+        return ScreenActionQueue.awaitApprovalWithAction(action)
+    }
+
     private fun route(
         method: String,
         path: String,
@@ -305,29 +367,88 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
                 if (!isCapEnabled("media")) capDisabled("media") else handleMediaImages(params)
 
             // ---- Accessibility Service ----
-            method == "GET"  && path == "/phone/a11y/status"     -> handleA11yStatus()
-            method == "GET"  && path == "/phone/a11y/tree"       ->
-                if (!isCapEnabled("screen_read_tree")) capDisabled("screen_read_tree") else handleA11yTree()
-            method == "POST" && path == "/phone/a11y/action"     ->
-                if (!isCapEnabled("screen_act")) capDisabled("screen_act") else handleA11yAction(body)
-            method == "POST" && path == "/phone/a11y/click"      ->
-                if (!isCapEnabled("screen_act")) capDisabled("screen_act") else handleA11yClick(body)
-            method == "POST" && path == "/phone/a11y/global"     ->
-                if (!isCapEnabled("screen_global_nav")) capDisabled("screen_global_nav") else handleA11yGlobal(body)
-            method == "GET"  && path == "/phone/a11y/screenshot" ->
-                if (!isCapEnabled("screen_capture")) capDisabled("screen_capture") else handleA11yScreenshot()
-            method == "POST" && path == "/phone/a11y/vision"     ->
-                if (!isCapEnabled("screen_vision")) capDisabled("screen_vision") else handleA11yVision(body)
+            method == "GET"  && path == "/phone/a11y/status" -> handleA11yStatus()
+
+            // Observation cluster — allowed in AUTONOMOUS + ASSISTED (read-only, no confirmation needed)
+            method == "GET"  && path == "/phone/a11y/tree" -> when {
+                !isCapEnabled("screen_read_tree") -> capDisabled("screen_read_tree")
+                !isObserveAllowed()               -> policyBlocked("observation_not_allowed_in_${BuildConfig.POLICY_MODE}")
+                else -> handleA11yTree()
+            }
+            method == "GET"  && path == "/phone/a11y/screenshot" -> when {
+                !isCapEnabled("screen_capture") -> capDisabled("screen_capture")
+                !isObserveAllowed()             -> policyBlocked("observation_not_allowed_in_${BuildConfig.POLICY_MODE}")
+                else -> handleA11yScreenshot()
+            }
+            method == "POST" && path == "/phone/a11y/vision" -> when {
+                !isCapEnabled("screen_vision") -> capDisabled("screen_vision")
+                !isObserveAllowed()            -> policyBlocked("observation_not_allowed_in_${BuildConfig.POLICY_MODE}")
+                else -> handleA11yVision(body)
+            }
+
+            // Action cluster — AUTONOMOUS: direct; ASSISTED: confirmation required; CLIENT_ONLY: blocked
+            method == "POST" && path == "/phone/a11y/action" -> when {
+                !isCapEnabled("screen_act") -> capDisabled("screen_act")
+                !isActAllowed()             -> policyBlocked("action_not_allowed_in_${BuildConfig.POLICY_MODE}")
+                else -> {
+                    val desc = "UI action: ${body?.optString("action") ?: "?"}"
+                    val block = requireAssistedApproval(path, desc)
+                    block ?: handleA11yAction(body)
+                }
+            }
+            method == "POST" && path == "/phone/a11y/click" -> when {
+                !isCapEnabled("screen_act") -> capDisabled("screen_act")
+                !isActAllowed()             -> policyBlocked("action_not_allowed_in_${BuildConfig.POLICY_MODE}")
+                else -> {
+                    val desc = "Tap at (${body?.optInt("x") ?: "?"}, ${body?.optInt("y") ?: "?"})"
+                    val block = requireAssistedApproval(path, desc)
+                    block ?: handleA11yClick(body)
+                }
+            }
+            method == "POST" && path == "/phone/a11y/global" -> when {
+                !isCapEnabled("screen_global_nav") -> capDisabled("screen_global_nav")
+                !isActAllowed()                    -> policyBlocked("action_not_allowed_in_${BuildConfig.POLICY_MODE}")
+                else -> {
+                    val desc = "Global nav: ${body?.optString("action") ?: "?"}"
+                    val block = requireAssistedApproval(path, desc)
+                    block ?: handleA11yGlobal(body)
+                }
+            }
+
+            // Autonomy cluster — only full flavor
+            method == "GET"  && path == "/phone/a11y/autonomy" -> when {
+                !isCapEnabled("screen_autonomy") -> capDisabled("screen_autonomy")
+                !isAutonomyAllowed()             -> policyBlocked("autonomy_not_allowed_in_${BuildConfig.POLICY_MODE}")
+                else -> handleA11yTree()  // autonomy reads tree as foundation
+            }
 
             // ---- Notification Listener ----
-            method == "GET"  && path == "/phone/notifications"         ->
-                if (!isCapEnabled("notifications_read")) capDisabled("notifications_read") else handleNotificationsGet()
-            method == "GET"  && path == "/phone/notifications/history" ->
-                if (!isCapEnabled("notifications_read")) capDisabled("notifications_read") else handleNotificationsHistory()
-            method == "POST" && path == "/phone/notifications/reply"   ->
-                if (!isCapEnabled("notifications_reply")) capDisabled("notifications_reply") else handleNotificationsReply(body)
-            method == "POST" && path == "/phone/notifications/dismiss" ->
-                if (!isCapEnabled("notifications_dismiss")) capDisabled("notifications_dismiss") else handleNotificationsDismiss(body)
+            method == "GET"  && path == "/phone/notifications" -> when {
+                !isCapEnabled("notifications_read") -> capDisabled("notifications_read")
+                !BuildConfig.ALLOW_NOTIFICATION_LISTENER -> policyBlocked("notification_listener_disabled_in_${BuildConfig.POLICY_MODE}")
+                else -> handleNotificationsGet()
+            }
+            method == "GET"  && path == "/phone/notifications/history" -> when {
+                !isCapEnabled("notifications_read") -> capDisabled("notifications_read")
+                !BuildConfig.ALLOW_NOTIFICATION_LISTENER -> policyBlocked("notification_listener_disabled_in_${BuildConfig.POLICY_MODE}")
+                else -> handleNotificationsHistory()
+            }
+            method == "POST" && path == "/phone/notifications/reply" -> when {
+                !isCapEnabled("notifications_reply") -> capDisabled("notifications_reply")
+                !BuildConfig.ALLOW_NOTIFICATION_LISTENER -> policyBlocked("notification_listener_disabled_in_${BuildConfig.POLICY_MODE}")
+                else -> {
+                    val block = requireAssistedApproval(path, "Reply to notification from ${body?.optString("key")?.substringBefore("|") ?: "?"}")
+                    block ?: handleNotificationsReply(body)
+                }
+            }
+            method == "POST" && path == "/phone/notifications/dismiss" -> when {
+                !isCapEnabled("notifications_dismiss") -> capDisabled("notifications_dismiss")
+                !BuildConfig.ALLOW_NOTIFICATION_LISTENER -> policyBlocked("notification_listener_disabled_in_${BuildConfig.POLICY_MODE}")
+                else -> {
+                    val block = requireAssistedApproval(path, "Dismiss notification")
+                    block ?: handleNotificationsDismiss(body)
+                }
+            }
 
             // ---- Call Screening ----
             method == "GET"  && path == "/phone/calls/pending"  ->

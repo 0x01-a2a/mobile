@@ -60,6 +60,30 @@ class NodeModule(private val ctx: ReactApplicationContext)
         /** GitHub releases API URL — returns latest release metadata + APK asset URL. */
         private const val RELEASES_API_URL =
             "https://api.github.com/repos/0x01-a2a/mobile/releases/latest"
+
+        /**
+         * Static reference so PhoneBridgeServer (or any other non-RN class) can emit
+         * events to JS without holding a ReactApplicationContext reference.
+         * Set in [init], cleared in [invalidate].
+         */
+        @Volatile var instance: NodeModule? = null
+
+        /**
+         * Emit a 'screenActionPending' event to JS with the pending action details.
+         * Called from [ScreenActionQueue] / PhoneBridgeServer on the IO thread.
+         */
+        fun emitScreenActionPending(id: String, endpoint: String, description: String) {
+            val mod = instance ?: return
+            val ctx = mod.ctx
+            if (!ctx.hasActiveReactInstance()) return
+            val params = Arguments.createMap().apply {
+                putString("id", id)
+                putString("endpoint", endpoint)
+                putString("description", description)
+            }
+            ctx.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                .emit("screenActionPending", params)
+        }
     }
 
     private var isNodeRunning = false
@@ -86,6 +110,7 @@ class NodeModule(private val ctx: ReactApplicationContext)
         val filter = IntentFilter(NodeService.ACTION_STATUS)
         ctx.registerReceiver(statusReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
         ctx.addLifecycleEventListener(this)
+        instance = this
     }
 
     override fun getName() = "ZeroxNodeModule"
@@ -98,6 +123,7 @@ class NodeModule(private val ctx: ReactApplicationContext)
         pendingStartIntent = null
         pendingStartPromise = null
         moduleScope.cancel()
+        if (instance === this) instance = null
     }
 
     // -------------------------------------------------------------------------
@@ -938,6 +964,17 @@ class NodeModule(private val ctx: ReactApplicationContext)
             Log.e(TAG, "requestBatteryOptExemption failed: $e")
             promise.reject("BATTERY_OPT_ERROR", e.message)
         }
+    }
+
+    /**
+     * Resolve a pending ASSISTED-mode screen action confirmation from the JS side.
+     * @param id       The action UUID emitted in 'screenActionPending'.
+     * @param approved true = user approved, false = user rejected.
+     */
+    @ReactMethod
+    fun confirmScreenAction(id: String, approved: Boolean, promise: Promise) {
+        ScreenActionQueue.decide(id, approved)
+        promise.resolve(null)
     }
 
     // Required for addListener / removeListeners (RN event emitter contract)
