@@ -2,12 +2,10 @@
  * useScreenActions — subscribes to 'screenActionPending' RN events emitted by
  * PhoneBridgeServer when POLICY_MODE = "ASSISTED" and the agent requests a UI action.
  *
- * Maintains a queue of pending actions that the ScreenActionConfirmModal renders.
- * Resolves each action by calling NodeModule.confirmScreenAction().
+ * Uses React's built-in useSyncExternalStore for a zero-dependency global store.
  */
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useSyncExternalStore } from 'react';
 import { NativeEventEmitter, NativeModules } from 'react-native';
-import { create } from 'zustand';
 import { NodeModule } from '../native/NodeModule';
 
 export interface PendingScreenAction {
@@ -16,50 +14,68 @@ export interface PendingScreenAction {
   description: string;
 }
 
-interface ScreenActionStore {
-  queue: PendingScreenAction[];
-  enqueue: (action: PendingScreenAction) => void;
-  remove: (id: string) => void;
+// ── Minimal external store (no zustand needed) ──────────────────────────────
+
+type Listener = () => void;
+
+let _queue: PendingScreenAction[] = [];
+const _listeners = new Set<Listener>();
+
+function notifyListeners() {
+  _listeners.forEach((l) => l());
 }
 
-export const useScreenActionStore = create<ScreenActionStore>((set) => ({
-  queue: [],
-  enqueue: (action) =>
-    set((s) => ({ queue: [...s.queue, action] })),
-  remove: (id) =>
-    set((s) => ({ queue: s.queue.filter((a) => a.id !== id) })),
-}));
+const screenActionStore = {
+  subscribe: (listener: Listener) => {
+    _listeners.add(listener);
+    return () => _listeners.delete(listener);
+  },
+  getSnapshot: () => _queue,
+  enqueue: (action: PendingScreenAction) => {
+    _queue = [..._queue, action];
+    notifyListeners();
+  },
+  remove: (id: string) => {
+    _queue = _queue.filter((a) => a.id !== id);
+    notifyListeners();
+  },
+};
+
+// ── Hook: read the queue ─────────────────────────────────────────────────────
+
+export function usePendingScreenActions(): PendingScreenAction[] {
+  return useSyncExternalStore(
+    screenActionStore.subscribe,
+    screenActionStore.getSnapshot,
+  );
+}
+
+// ── Hook: mount the native event listener (call once in App.tsx) ─────────────
 
 const emitter = new NativeEventEmitter(NativeModules.ZeroxNodeModule);
 
-/**
- * Mount once at the top of the component tree (App.tsx).
- * Subscribes to native events and populates the store.
- */
 export function useScreenActionListener() {
-  const enqueue = useScreenActionStore((s) => s.enqueue);
-
   useEffect(() => {
     const sub = emitter.addListener(
       'screenActionPending',
-      (event: PendingScreenAction) => enqueue(event),
+      (event: PendingScreenAction) => screenActionStore.enqueue(event),
     );
     return () => sub.remove();
-  }, [enqueue]);
+  }, []);
 }
 
-/**
- * Returns a handler for approving / rejecting a pending screen action.
- * Removes the action from the queue and notifies the native layer.
- */
-export function useConfirmScreenAction() {
-  const remove = useScreenActionStore((s) => s.remove);
+// ── Hook: approve / reject a pending action ───────────────────────────────────
 
-  return useCallback(
-    async (id: string, approved: boolean) => {
-      remove(id);
+export function useConfirmScreenAction() {
+  return useCallback(async (id: string, approved: boolean) => {
+    try {
+      // Notify native side FIRST; only remove from queue on success.
       await NodeModule.confirmScreenAction(id, approved);
-    },
-    [remove],
-  );
+      screenActionStore.remove(id);
+    } catch (e) {
+      // Native call failed — keep the item in queue so user can retry,
+      // but also call decide(false) to unblock any still-waiting native thread.
+      NodeModule.confirmScreenAction(id, false).catch(() => {});
+    }
+  }, []);
 }

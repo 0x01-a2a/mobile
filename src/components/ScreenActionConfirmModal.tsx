@@ -18,13 +18,13 @@ import {
   Platform,
 } from 'react-native';
 import {
-  useScreenActionStore,
+  usePendingScreenActions,
   useConfirmScreenAction,
   PendingScreenAction,
 } from '../hooks/useScreenActions';
 
 export function ScreenActionConfirmModal() {
-  const queue = useScreenActionStore((s) => s.queue);
+  const queue = usePendingScreenActions();
   const confirm = useConfirmScreenAction();
 
   // Always show the oldest pending action first.
