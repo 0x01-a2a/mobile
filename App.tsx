@@ -16,6 +16,8 @@ import { AgentBrainConfig, useAgentBrain } from './src/hooks/useAgentBrain';
 import { NodeProvider } from './src/hooks/useNode';
 import { initI18n } from './src/i18n';
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext';
+import { useScreenActionListener } from './src/hooks/useScreenActions';
+import { ScreenActionConfirmModal } from './src/components/ScreenActionConfirmModal';
 
 // Set SENTRY_DSN to your project's DSN from sentry.io to enable crash reporting.
 // Leave empty to disable (safe for dev builds).
@@ -68,6 +70,12 @@ function ThemedStatusBar() {
   return <StatusBar barStyle={isDark ? "light-content" : "dark-content"} backgroundColor={colors.bg} />;
 }
 
+/** Mounts the screen-action confirmation listener + modal (ASSISTED mode only). */
+function ScreenActionGate() {
+  useScreenActionListener();
+  return <ScreenActionConfirmModal />;
+}
+
 export default function App() {
   const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null);
   const [i18nReady, setI18nReady] = useState(false);
@@ -109,6 +117,7 @@ export default function App() {
           <NavigationContainer>
             <NodeProvider>
               <AppNavigator />
+              <ScreenActionGate />
             </NodeProvider>
           </NavigationContainer>
         </SafeAreaProvider>

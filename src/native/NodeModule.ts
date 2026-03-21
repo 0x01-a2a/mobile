@@ -249,6 +249,15 @@ export const NodeModule = {
    */
   downloadAndInstall: (downloadUrl: string): Promise<void> =>
     ZeroxNodeModule.downloadAndInstall(downloadUrl),
+
+  /**
+   * Resolve a pending ASSISTED-mode screen action confirmation.
+   * Called from the ScreenActionConfirmModal after the user taps APPROVE or REJECT.
+   * @param id       The action UUID from the 'screenActionPending' event.
+   * @param approved true = approve, false = reject.
+   */
+  confirmScreenAction: (id: string, approved: boolean): Promise<void> =>
+    ZeroxNodeModule.confirmScreenAction(id, approved),
 };
 
 // ============================================================================
