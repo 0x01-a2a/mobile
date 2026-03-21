@@ -46,6 +46,8 @@ import {
   usePortfolioHistory,
   useSkills,
   useSolPrice,
+  PendingSwap,
+  usePendingSwaps,
 } from '../hooks/useNodeApi';
 import { useOwnedAgents, notifyLinkedAgentsUpdated, OwnedAgent } from '../hooks/useOwnedAgents';
 import { useAgentBrain, CAPABILITY_LABELS } from '../hooks/useAgentBrain';
@@ -53,9 +55,12 @@ import { useBridgeCapabilities, CAPABILITY_KEYS, use8004Badge } from '../hooks/u
 import { NodeStatusBanner } from '../components/NodeStatusBanner';
 
 const BRIDGE_LABELS: Record<string, string> = {
-  messaging: 'MSG', contacts: 'CONTACTS', location: 'GPS',
-  camera: 'CAM', microphone: 'MIC', screen: 'SCREEN',
-  calls: 'CALLS', calendar: 'CAL', media: 'MEDIA', motion: 'MOTION',
+  notifications_read: 'NOTIF', notifications_reply: 'NOTIF-RPL', notifications_dismiss: 'NOTIF-DIS',
+  sms_read: 'SMS', sms_send: 'SMS-SND',
+  contacts: 'CONTACTS', location: 'GPS', calendar: 'CAL', media: 'MEDIA', motion: 'MOTION',
+  camera: 'CAM', microphone: 'MIC', calls: 'CALLS', health: 'HEALTH', wearables: 'WEAR',
+  screen_read_tree: 'SCR-READ', screen_capture: 'SCR-CAP', screen_act: 'SCR-ACT',
+  screen_global_nav: 'SCR-NAV', screen_vision: 'SCR-VIS', screen_autonomy: 'SCR-AUTO',
 };
 
 
@@ -576,6 +581,7 @@ function NodeSubtab() {
   const { status, loading, start, stop, config, saveConfig } = useNode();
   const identity = useIdentity();
   const rep = useOwnReputation(identity?.agent_id ?? null);
+  const { swaps: pendingSwaps, confirm: confirmSwap, reject: rejectSwap } = usePendingSwaps();
   const bridgeLog = useBridgeActivityLog(30);
   const [inbox, setInbox] = useState<InboundEnvelope[]>([]);
   const [hostedAgentId, setHostedAgentId] = useState<string | null>(null);
@@ -721,6 +727,25 @@ function NodeSubtab() {
           <View style={s.card}>
             {inbox.map((env, i) => (
               <InboxRow key={i} env={env} />
+            ))}
+          </View>
+        </>
+      )}
+
+      {pendingSwaps.length > 0 && (
+        <>
+          <Text style={s.sectionLabel}>PENDING SWAPS</Text>
+          <View style={s.card}>
+            {pendingSwaps.map((swap, i) => (
+              <PendingSwapRow
+                key={swap.swap_id}
+                swap={swap}
+                isLast={i === pendingSwaps.length - 1}
+                onConfirm={confirmSwap}
+                onReject={rejectSwap}
+                colors={colors}
+                s={s}
+              />
             ))}
           </View>
         </>
@@ -1080,6 +1105,85 @@ function PortfolioSubtab() {
         )}
       </View>
     </ScrollView>
+  );
+}
+
+function PendingSwapRow({
+  swap,
+  isLast,
+  onConfirm,
+  onReject,
+  colors,
+  s,
+}: {
+  swap: PendingSwap;
+  isLast: boolean;
+  onConfirm: (id: string) => Promise<{ out_amount: number; txid: string }>;
+  onReject: (id: string) => Promise<void>;
+  colors: ThemeColors;
+  s: any;
+}) {
+  const [busy, setBusy] = useState(false);
+  const expiresIn = Math.max(0, Math.round((swap.expires_at - Date.now() / 1000)));
+  const mm = Math.floor(expiresIn / 60);
+  const ss = expiresIn % 60;
+
+  const handleConfirm = async () => {
+    setBusy(true);
+    try {
+      const res = await onConfirm(swap.swap_id);
+      Alert.alert('Swap executed', `Received ${res.out_amount.toFixed(4)} tokens\n${res.txid.slice(0, 16)}…`);
+    } catch (e: any) {
+      Alert.alert('Swap failed', e?.message ?? 'Unknown error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleReject = async () => {
+    setBusy(true);
+    try {
+      await onReject(swap.swap_id);
+    } catch {
+      // silent
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <View style={[s.inboxRow, isLast && { borderBottomWidth: 0 }, { flexDirection: 'column', gap: 8 }]}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={s.inboxType}>UNKNOWN TOKEN SWAP</Text>
+        <Text style={[s.hint, { color: expiresIn < 60 ? colors.red : colors.sub }]}>
+          {mm}:{ss.toString().padStart(2, '0')}
+        </Text>
+      </View>
+      <Text style={s.inboxFrom}>
+        {(swap.amount / 1e6).toFixed(2)} {shortId(swap.input_mint)} → {shortId(swap.output_mint)}
+      </Text>
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <TouchableOpacity
+          style={[s.btn, { flex: 1, paddingVertical: 8, backgroundColor: colors.green }, busy && { opacity: 0.5 }]}
+          onPress={handleConfirm}
+          disabled={busy}
+          activeOpacity={0.8}
+        >
+          {busy
+            ? <ActivityIndicator size="small" color="#000" />
+            : <Text style={[s.btnText, { color: '#000' }]}>CONFIRM</Text>
+          }
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[s.btn, { flex: 1, paddingVertical: 8, borderWidth: 1, borderColor: colors.red, backgroundColor: 'transparent' }, busy && { opacity: 0.5 }]}
+          onPress={handleReject}
+          disabled={busy}
+          activeOpacity={0.8}
+        >
+          <Text style={[s.btnText, { color: colors.red }]}>REJECT</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
   );
 }
 

@@ -162,8 +162,12 @@ export const NodeModule = {
 
   /**
    * Enable or disable a bridge capability.
-   * Keys: "messaging" | "contacts" | "location" | "camera" | "microphone"
-   *      | "screen" | "calls" | "calendar" | "media"
+   * Notification: "notifications_read" | "notifications_reply" | "notifications_dismiss"
+   * SMS:          "sms_read" | "sms_send"
+   * Other:        "contacts" | "location" | "calendar" | "media" | "motion"
+   *               "camera" | "microphone" | "calls" | "health" | "wearables"
+   * Screen:       "screen_read_tree" | "screen_capture" | "screen_act"
+   *               "screen_global_nav" | "screen_vision" | "screen_autonomy"
    */
   setBridgeCapability: (capability: string, enabled: boolean): Promise<void> =>
     ZeroxNodeModule.setBridgeCapability(capability, enabled),

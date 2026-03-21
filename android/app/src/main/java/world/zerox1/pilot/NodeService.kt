@@ -1749,7 +1749,14 @@ timeout_secs = 10
 
             // ── Read bridge capability toggles ───────────────────────────────
             val bridgePrefs = applicationContext.getSharedPreferences("zerox1_bridge", android.content.Context.MODE_PRIVATE)
-            val allBridgeCaps = listOf("messaging","contacts","location","camera","microphone","screen","calls","calendar","media")
+            val allBridgeCaps = listOf(
+                "notifications_read","notifications_reply","notifications_dismiss",
+                "sms_read","sms_send",
+                "contacts","location","calendar","media","motion",
+                "camera","microphone","calls","health","wearables",
+                "screen_read_tree","screen_capture","screen_act",
+                "screen_global_nav","screen_vision","screen_autonomy",
+            )
             val capLines = allBridgeCaps.joinToString("\n") { cap ->
                 val enabled = bridgePrefs.getBoolean("bridge_cap_$cap", true)
                 val status  = if (enabled) "enabled" else "disabled (user toggled off)"
@@ -2102,18 +2109,38 @@ the capability in the app Settings > Phone Bridge section instead.
         val editor = prefs.edit()
         when (dist) {
             "googleplay" -> {
-                editor.putBoolean("bridge_cap_camera",      false)
-                editor.putBoolean("bridge_cap_microphone",  false)
-                editor.putBoolean("bridge_cap_calls",       false)
-                editor.putBoolean("bridge_cap_screen",      false)
-                // wearables: ON — BLUETOOTH_SCAN with neverForLocation is Play-approved for health devices
-                // messaging/contacts/location/calendar/media: leave at default (true)
+                // A/V capture — Play policy requires explicit justification
+                editor.putBoolean("bridge_cap_camera",                false)
+                editor.putBoolean("bridge_cap_microphone",            false)
+                // Call screening — removed from Play manifest
+                editor.putBoolean("bridge_cap_calls",                 false)
+                // Notification listener — keep off until policy review approves it
+                editor.putBoolean("bridge_cap_notifications_reply",   false)
+                editor.putBoolean("bridge_cap_notifications_dismiss", false)
+                // SMS send — higher-risk action; read is left on
+                editor.putBoolean("bridge_cap_sms_send",              false)
+                // Screen control — all off; ASSISTED mode ships Path 1 (no accessibility service)
+                editor.putBoolean("bridge_cap_screen_read_tree",      false)
+                editor.putBoolean("bridge_cap_screen_capture",        false)
+                editor.putBoolean("bridge_cap_screen_act",            false)
+                editor.putBoolean("bridge_cap_screen_global_nav",     false)
+                editor.putBoolean("bridge_cap_screen_vision",         false)
+                editor.putBoolean("bridge_cap_screen_autonomy",       false)
+                // wearables: ON — BLUETOOTH_SCAN with neverForLocation is Play-approved
+                // notifications_read/sms_read/contacts/location/calendar/media: leave at default (true)
             }
             "dappstore" -> {
-                editor.putBoolean("bridge_cap_calls",       false)
-                editor.putBoolean("bridge_cap_screen",      false)
-                editor.putBoolean("bridge_cap_wearables",   false)
-                // camera/microphone/messaging/contacts/location/calendar/media: leave at default (true)
+                // Call screening — removed from dappstore manifest
+                editor.putBoolean("bridge_cap_calls",                 false)
+                editor.putBoolean("bridge_cap_wearables",             false)
+                // Screen control — off by default; user can enable if they enable the service
+                editor.putBoolean("bridge_cap_screen_read_tree",      false)
+                editor.putBoolean("bridge_cap_screen_capture",        false)
+                editor.putBoolean("bridge_cap_screen_act",            false)
+                editor.putBoolean("bridge_cap_screen_global_nav",     false)
+                editor.putBoolean("bridge_cap_screen_vision",         false)
+                editor.putBoolean("bridge_cap_screen_autonomy",       false)
+                // camera/microphone/notifications/sms/contacts/location/calendar/media: default (true)
             }
             else -> {
                 // "full" — all capabilities on by default; no overrides needed
