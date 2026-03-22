@@ -34,8 +34,78 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+
+	<!-- ── Usage descriptions ───────────────────────────────────────────── -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Required for mesh node communication on the local network.</string>
+
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string></string>
+	<string>ZeroClaw can access your location for location-aware tasks.</string>
+
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>ZeroClaw can access your location in the background for ongoing tasks.</string>
+
+	<key>NSContactsUsageDescription</key>
+	<string>ZeroClaw can read your contacts to help with messaging and lookup tasks.</string>
+
+	<key>NSCalendarsUsageDescription</key>
+	<string>ZeroClaw can read and create calendar events for scheduling tasks.</string>
+
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>ZeroClaw needs full calendar access to manage your schedule.</string>
+
+	<key>NSCameraUsageDescription</key>
+	<string>ZeroClaw can take photos for image processing and analysis tasks.</string>
+
+	<key>NSMicrophoneUsageDescription</key>
+	<string>ZeroClaw can record audio for transcription and voice tasks.</string>
+
+	<key>NSHealthShareUsageDescription</key>
+	<string>ZeroClaw can read your health data (steps, heart rate) for health-aware tasks.</string>
+
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>ZeroClaw can log health data on your behalf.</string>
+
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>ZeroClaw can discover nearby wearable devices.</string>
+
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>ZeroClaw can access your photo library for media tasks.</string>
+
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>ZeroClaw can save photos to your library.</string>
+
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>ZeroClaw can transcribe speech for voice-based tasks.</string>
+
+	<!-- ── Background execution ─────────────────────────────────────────── -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+		<string>fetch</string>
+		<string>processing</string>
+		<string>location</string>
+	</array>
+
+	<!-- ── BGTask identifiers ────────────────────────────────────────────── -->
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>world.zerox1.pilot.node-keepalive</string>
+	</array>
+
+	<!-- ── Bonjour / local network ──────────────────────────────────────── -->
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_zerox1._tcp</string>
+	</array>
+
+	<!-- ── Queried URL schemes (for wallet deeplinks) ───────────────────── -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>phantom</string>
+		<string>solflare</string>
+	</array>
+
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIRequiredDeviceCapabilities</key>

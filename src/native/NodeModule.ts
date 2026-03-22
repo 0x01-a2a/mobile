@@ -9,11 +9,15 @@ import { NativeModules, NativeEventEmitter, Platform } from 'react-native';
 
 const { ZeroxNodeModule } = NativeModules;
 
-if (!ZeroxNodeModule && Platform.OS === 'android') {
-  throw new Error(
-    'ZeroxNodeModule not found. ' +
-    'Ensure NodePackage is registered in MainApplication.kt.',
-  );
+if (!ZeroxNodeModule) {
+  if (Platform.OS === 'android') {
+    throw new Error(
+      'ZeroxNodeModule not found. ' +
+      'Ensure NodePackage is registered in MainApplication.kt.',
+    );
+  } else if (Platform.OS === 'ios') {
+    console.warn('ZeroxNodeModule not found on iOS. Native features unavailable.');
+  }
 }
 
 export interface NodeConfig {
