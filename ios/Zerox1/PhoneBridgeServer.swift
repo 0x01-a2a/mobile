@@ -32,13 +32,12 @@ final class PhoneBridgeServer: NSObject {
     func start(token: String) {
         bridgeToken = token
         locationManager.delegate = self
-        do {
-            listener = try NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: port)!)
-            listener?.parameters.requiredInterfaceType = .loopback
-        } catch {
-            // Fallback: allow any local
-            listener = try? NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: port)!)
-        }
+        // Build NWParameters with loopback constraint BEFORE constructing the listener.
+        // Setting requiredInterfaceType on listener?.parameters after construction is ignored
+        // and falls back to binding on all interfaces — a security regression.
+        let params = NWParameters.tcp
+        params.requiredInterfaceType = .loopback
+        listener = try? NWListener(using: params, on: NWEndpoint.Port(rawValue: port)!)
         listener?.newConnectionHandler = { [weak self] conn in
             self?.handleConnection(conn)
         }
@@ -111,11 +110,11 @@ final class PhoneBridgeServer: NSObject {
         let method = String(parts[0])
         let path = String(parts[1]).components(separatedBy: "?")[0]
 
-        // Auth check
+        // Auth check — constant-time comparison to prevent timing-based token oracle attacks.
         let authLine = lines.first(where: { $0.lowercased().hasPrefix("authorization:") }) ?? ""
         let token = authLine.replacingOccurrences(of: "Authorization: Bearer ", with: "",
                                                     options: .caseInsensitive).trimmingCharacters(in: .whitespaces)
-        guard token == bridgeToken else {
+        guard timingSafeEqual(token, bridgeToken) else {
             sendResponse(conn: conn, status: 401, body: #"{"error":"unauthorized"}"#)
             return
         }
@@ -259,6 +258,27 @@ final class PhoneBridgeServer: NSObject {
             conn.cancel()
         })
     }
+}
+
+// MARK: - Timing-safe comparison
+
+/// XOR-based constant-time string comparison.
+/// Swift's `==` short-circuits on first mismatch — timing leak allows oracle attacks
+/// against predictable token spaces. This function always runs in O(max(a,b)) time.
+private func timingSafeEqual(_ a: String, _ b: String) -> Bool {
+    let aBytes = Array(a.utf8)
+    let bBytes = Array(b.utf8)
+    let len = max(aBytes.count, bBytes.count)
+    guard len > 0 else { return aBytes.count == bBytes.count }
+    var diff: UInt8 = 0
+    for i in 0..<len {
+        let x: UInt8 = i < aBytes.count ? aBytes[i] : 0
+        let y: UInt8 = i < bBytes.count ? bBytes[i] : 0
+        diff |= x ^ y
+    }
+    // Also catch length differences via a separate flag to avoid early exit.
+    let lenDiff: UInt8 = aBytes.count == bBytes.count ? 0 : 1
+    return (diff | lenDiff) == 0
 }
 
 // MARK: - CLLocationManagerDelegate

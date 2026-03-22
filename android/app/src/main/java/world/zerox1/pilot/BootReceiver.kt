@@ -21,7 +21,7 @@ class BootReceiver : BroadcastReceiver() {
 
         val serviceIntent = Intent(context, NodeService::class.java).apply {
             putExtra(NodeService.EXTRA_AGENT_NAME, prefs.getString("agent_name", "zerox1-agent"))
-            putExtra(NodeService.EXTRA_RPC_URL,    prefs.getString("rpc_url",    "https://api.devnet.solana.com"))
+            putExtra(NodeService.EXTRA_RPC_URL,    prefs.getString("rpc_url",    "https://api.mainnet-beta.solana.com"))
             prefs.getString("relay_addr", null)?.let { putExtra(NodeService.EXTRA_RELAY_ADDR, it) }
             prefs.getString("fcm_token",  null)?.let { putExtra(NodeService.EXTRA_FCM_TOKEN,  it) }
             // Agent brain config

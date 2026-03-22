@@ -36,8 +36,18 @@ object ScreenActionQueue {
     /**
      * Register an action in the pending map BEFORE emitting the RN event.
      * Guarantees that [decide] cannot miss the action even if JS responds immediately.
+     *
+     * Also evicts any entries whose latch has already counted down (timed out or
+     * decided) but whose caller never called [awaitRegistered] — prevents unbounded
+     * map growth if the caller path is interrupted.
      */
     fun register(action: PendingAction) {
+        // Evict stale entries (latch already released, count == 0).
+        val stale = pending.entries.filter { it.value.latch.count == 0L }
+        for (e in stale) {
+            pending.remove(e.key)
+            Log.d(TAG, "Evicted stale action ${e.key}")
+        }
         pending[action.id] = action
         Log.i(TAG, "Registered action ${action.id}: ${action.description}")
     }

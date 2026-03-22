@@ -67,7 +67,13 @@ import world.zerox1.pilot.BuildConfig
  * Runtime permissions are checked at the endpoint level; missing permission returns
  * {"ok": false, "error": "PERMISSION_DENIED"} rather than crashing.
  */
-class PhoneBridgeServer(private val context: Context, private val secret: String) {
+class PhoneBridgeServer(
+    private val context: Context,
+    private val secret: String,
+    private val llmProvider: String = "gemini",
+    private val llmModel: String = "",
+    private val llmBaseUrl: String = "",
+) {
 
     companion object {
         const val TAG             = "PhoneBridgeServer"
@@ -84,6 +90,9 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
     // on a rooted device where loopback traffic can be observed.
     private val failedAuthCount = java.util.concurrent.atomic.AtomicInteger(0)
     private val authWindowStart = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
+    // MED-2: lock to make window-reset + counter-increment atomic, preventing
+    // two concurrent failures at the boundary from both resetting the counter.
+    private val authRateLock = Any()
 
     private var serverSocket: ServerSocket? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -93,6 +102,29 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
     private val audioMutex       = kotlinx.coroutines.sync.Mutex()
     private val cameraMutex      = kotlinx.coroutines.sync.Mutex()
     private val imuMutex         = kotlinx.coroutines.sync.Mutex()
+
+    // ── Read-only TTL cache (Gap 2) ───────────────────────────────────────────
+    // Caches successful (HTTP 200) responses for read-only, non-sensitive endpoints
+    // to avoid redundant I/O when the LLM makes repeated reads within a short window.
+    // Key format: "endpoint:param1:param2...". Entry: (expireEpochMs, body).
+    private val readCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, String>>()
+
+    /**
+     * Wrap a read-only handler call with a TTL cache.
+     * On hit: returns cached body immediately (no handler invoked).
+     * On miss or expired: runs [block], caches the result if status == 200.
+     */
+    private fun withCache(key: String, ttlMs: Long, block: () -> BridgeResponse): BridgeResponse {
+        val entry = readCache[key]
+        if (entry != null && System.currentTimeMillis() < entry.first) {
+            return BridgeResponse(entry.second)  // cache hit
+        }
+        val resp = block()
+        if (resp.status == 200) {
+            readCache[key] = Pair(System.currentTimeMillis() + ttlMs, resp.body)
+        }
+        return resp
+    }
 
     // -------------------------------------------------------------------------
     // Lifecycle
@@ -154,12 +186,14 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
                 // Authentication Check (CRIT-1) + brute-force rate limit (SEC-1)
                 val token = headers["x-bridge-token"]
                 if (token == null || token != secret) {
-                    val now = System.currentTimeMillis()
-                    if (now - authWindowStart.get() > 60_000L) {
-                        authWindowStart.set(now)
-                        failedAuthCount.set(0)
+                    val attempts = synchronized(authRateLock) {
+                        val now = System.currentTimeMillis()
+                        if (now - authWindowStart.get() > 60_000L) {
+                            authWindowStart.set(now)
+                            failedAuthCount.set(0)
+                        }
+                        failedAuthCount.incrementAndGet()
                     }
-                    val attempts = failedAuthCount.incrementAndGet()
                     if (attempts > MAX_AUTH_FAILURES_PER_MINUTE) {
                         Log.w(TAG, "Auth rate limit exceeded ($attempts failures/min) — throttling")
                         Thread.sleep(AUTH_LOCKOUT_SLEEP_MS)
@@ -301,7 +335,8 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
 
             // ---- Calendar ----
             method == "GET"  && path == "/phone/calendar" ->
-                if (!isCapEnabled("calendar")) capDisabled("calendar") else handleCalendarRead(params)
+                if (!isCapEnabled("calendar")) capDisabled("calendar")
+                else withCache("calendar:${params["days"]}", 30_000) { handleCalendarRead(params) }
             method == "POST" && path == "/phone/calendar" ->
                 if (!isCapEnabled("calendar")) capDisabled("calendar") else handleCalendarWrite(body)
             method == "PUT"  && path.startsWith("/phone/calendar/") ->
@@ -340,13 +375,16 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
             method == "GET"  && path == "/phone/documents" ->
                 if (!isCapEnabled("media")) capDisabled("media") else handleDocuments(params)
 
+            // ---- Aggregated device context (Gap 1) ----
+            method == "GET"  && path == "/phone/context"     -> handlePhoneContext()
+
             // ---- Device context (no sensitive data) ----
             method == "GET"  && path == "/phone/permissions" -> handlePermissions()
-            method == "GET"  && path == "/phone/device"      -> handleDevice()
-            method == "GET"  && path == "/phone/battery"     -> handleBattery()
+            method == "GET"  && path == "/phone/device"      -> withCache("device", 300_000) { handleDevice() }
+            method == "GET"  && path == "/phone/battery"     -> withCache("battery", 15_000) { handleBattery() }
             method == "POST" && path == "/phone/vibrate"     -> handleVibrate(body)
-            method == "GET"  && path == "/phone/timezone"    -> handleTimezone()
-            method == "GET"  && path == "/phone/network"     -> handleNetwork()
+            method == "GET"  && path == "/phone/timezone"    -> withCache("timezone", 300_000) { handleTimezone() }
+            method == "GET"  && path == "/phone/network"     -> withCache("network", 15_000) { handleNetwork() }
             method == "GET"  && path == "/phone/wifi"        -> handleWifi()
             method == "GET"  && path == "/phone/carrier"     -> handleCarrier()
             method == "GET"  && path == "/phone/bluetooth"   -> handleBluetooth()
@@ -474,13 +512,14 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
                     block ?: handleAppLaunch(body)
                 }
             }
-            method == "GET" && path == "/phone/app/list" -> handleAppList(params)
+            method == "GET" && path == "/phone/app/list" ->
+                withCache("app/list:${params["query"]}:${params["system"]}", 120_000) { handleAppList(params) }
 
             // Compact interactive tree + batch plan executor
             method == "GET"  && path == "/phone/a11y/tree_interactive" -> when {
                 !isCapEnabled("screen_read_tree") -> capDisabled("screen_read_tree")
                 !isObserveAllowed()               -> policyBlocked("observation_not_allowed_in_${BuildConfig.POLICY_MODE}")
-                else -> handleA11yTreeInteractive()
+                else -> withCache("tree_interactive", 5_000) { handleA11yTreeInteractive() }
             }
             method == "POST" && path == "/phone/a11y/execute_plan" -> when {
                 !isCapEnabled("screen_act") -> capDisabled("screen_act")
@@ -519,6 +558,13 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
                     block ?: handleNotificationsDismiss(body)
                 }
             }
+            // Triage rules — GET reads current rules, POST updates them (no confirmation needed)
+            method == "GET"  && path == "/phone/notifications/triage" ->
+                if (!isCapEnabled("notifications_read")) capDisabled("notifications_read")
+                else jsonOk(AgentNotificationListener.getTriageRules(context))
+            method == "POST" && path == "/phone/notifications/triage" ->
+                if (!isCapEnabled("notifications_read")) capDisabled("notifications_read")
+                else handleNotificationsTriageSet(body)
 
             // ---- Call Screening ----
             method == "GET"  && path == "/phone/calls/pending"  ->
@@ -530,7 +576,8 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
 
             // ---- Health Connect ----
             method == "GET"  && path == "/phone/health" ->
-                if (!isCapEnabled("health")) capDisabled("health") else handleHealthRead(params)
+                if (!isCapEnabled("health")) capDisabled("health")
+                else withCache("health:${params["types"]}:${params["days"]}", 60_000) { handleHealthRead(params) }
 
             // ---- Wearables (BLE GATT) ----
             method == "GET"  && path == "/phone/wearables/scan" ->
@@ -614,12 +661,84 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
         path == "/phone/wearables/scan"  -> "WEARABLES" to "Scanned for nearby BLE health devices"
         path == "/phone/wearables/read"  -> "WEARABLES" to "Read ${params["service"] ?: "?"} from ${params["device"] ?: "?"}"
         path == "/phone/recovery"        -> "HEALTH" to "Computed sleep + recovery readiness score"
+        path == "/phone/context"         -> "SYSTEM" to "Read aggregated device context"
         else -> "SYSTEM" to "$method $path"
     }
 
     // -------------------------------------------------------------------------
     // Endpoints
     // -------------------------------------------------------------------------
+
+    // ── Aggregated context (Gap 1) ────────────────────────────────────────────
+    //
+    // Single round-trip that gives the LLM everything it needs to orient itself:
+    //   battery, network, time/timezone, today's calendar events,
+    //   recent notifications (last 5), recent SMS (last 3), health summary.
+    //
+    // Saves 5-7 individual tool calls at the start of any personal-assistant task.
+    //
+    private fun handlePhoneContext(): BridgeResponse {
+        val result = JSONObject()
+
+        // Time + timezone
+        try {
+            val tzResp = handleTimezone()
+            if (tzResp.status == 200) result.put("timezone", JSONObject(tzResp.body).opt("data"))
+        } catch (_: Exception) {}
+
+        // Battery
+        try {
+            val battResp = handleBattery()
+            if (battResp.status == 200) result.put("battery", JSONObject(battResp.body).opt("data"))
+        } catch (_: Exception) {}
+
+        // Network
+        try {
+            val netResp = handleNetwork()
+            if (netResp.status == 200) result.put("network", JSONObject(netResp.body).opt("data"))
+        } catch (_: Exception) {}
+
+        // Calendar — today only (next 24 h)
+        if (isCapEnabled("calendar")) {
+            try {
+                val calResp = handleCalendarRead(mapOf("days" to "1"))
+                if (calResp.status == 200) result.put("calendar_today", JSONObject(calResp.body).opt("data") ?: JSONArray())
+            } catch (_: Exception) {}
+        }
+
+        // Recent notifications (last 5 from rolling history)
+        if (isCapEnabled("notifications_read") && BuildConfig.ALLOW_NOTIFICATION_LISTENER) {
+            try {
+                val listener = AgentNotificationListener.instance
+                if (listener != null) {
+                    val hist = listener.getHistoryJson()
+                    val recent = JSONArray()
+                    for (i in 0 until minOf(5, hist.length())) recent.put(hist.get(i))
+                    result.put("recent_notifications", recent)
+                }
+            } catch (_: Exception) {}
+        }
+
+        // Recent SMS (last 3) — requires READ_SMS permission
+        if (isCapEnabled("sms_read") && hasPermission(Manifest.permission.READ_SMS)) {
+            try {
+                val smsResp = handleSmsRead(mapOf("limit" to "3"))
+                if (smsResp.status == 200) result.put("recent_sms", JSONObject(smsResp.body).opt("data") ?: JSONArray())
+            } catch (_: Exception) {}
+        }
+
+        // Health summary (steps + HR today) — fire-and-forget, skip on timeout
+        if (isCapEnabled("health")) {
+            try {
+                val healthResp = withCache("health:steps,heart_rate:1", 60_000) {
+                    handleHealthRead(mapOf("types" to "steps,heart_rate", "days" to "1"))
+                }
+                if (healthResp.status == 200) result.put("health_today", JSONObject(healthResp.body).opt("data"))
+            } catch (_: Exception) {}
+        }
+
+        return jsonOk(result)
+    }
 
     // ── Health Connect ───────────────────────────────────────────────────────
 
@@ -1070,6 +1189,7 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
         return try {
             @SuppressLint("MissingPermission") // permission checked at top of method
             cm.openCamera(cameraId, cameraCallback, handler)
+            // openCamera() succeeded — wait for the capture callback or timeout.
             resultLatch.await(10, TimeUnit.SECONDS)
             ht.quitSafely()
             ht.join()           // wait for handler thread to drain before closing ImageReader
@@ -1077,9 +1197,12 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
             imageReader.close()
             bridgeResult
         } catch (e: SecurityException) {
+            // openCamera() threw before registering callback — latch was never awaited, safe to ignore.
+            resultLatch.countDown() // unblock any theoretical waiter; no-op if count already 0
             ht.quitSafely(); ht.join(); cameraRef?.close(); imageReader.close()
             permDenied()
         } catch (e: Exception) {
+            resultLatch.countDown()
             ht.quitSafely(); ht.join(); cameraRef?.close(); imageReader.close()
             jsonError("camera open failed: ${e.message}", 500)
         } finally {
@@ -2068,7 +2191,8 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
     }
 
     // -------------------------------------------------------------------------
-    // Gemini Vision — screenshot + optional UI tree → structured actions
+    // Vision — screenshot + optional UI tree → structured actions
+    // Routes to the user's configured LLM provider (Gemini / Anthropic / OpenAI-compat).
     // -------------------------------------------------------------------------
 
     /**
@@ -2076,79 +2200,104 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
      * Body: { "prompt": "...", "include_tree": true|false }
      *
      * Captures a screenshot, optionally includes the UI tree, and sends both
-     * to Gemini 2.5 Flash Vision for analysis. Returns the model's response
-     * with structured action suggestions.
+     * to the configured LLM for analysis. Returns the model's response with
+     * structured action suggestions.
      */
-    // Rate limit: max 1 vision call per 3 seconds
     @Volatile
     private var lastVisionCallMs = 0L
 
     private fun handleA11yVision(body: JSONObject?): BridgeResponse {
-        // Rate limit
         val now = System.currentTimeMillis()
         if (now - lastVisionCallMs < 3_000L) {
             return jsonError("Vision rate limited (max 1 call per 3s)", 429)
         }
         lastVisionCallMs = now
 
-        // 1. Validate input
         val prompt = body?.optString("prompt", "")?.takeIf { it.isNotBlank() }
             ?: return jsonError("'prompt' is required", 400)
         val includeTree = body.optBoolean("include_tree", false)
 
-        // 2. Read API key from encrypted storage
-        val apiKey = getGeminiApiKey()
-            ?: return jsonError("No Gemini API key configured — set it in Settings → Agent Brain", 400)
+        // Read current provider config — picks up Settings changes without restart
+        val prefs    = context.getSharedPreferences("zerox1", Context.MODE_PRIVATE)
+        val provider = prefs.getString("llm_provider", llmProvider) ?: llmProvider
+        val model    = prefs.getString("llm_model",    llmModel)    ?: llmModel
+        val baseUrl  = prefs.getString("llm_base_url", llmBaseUrl)  ?: llmBaseUrl
 
-        // 3. Capture screenshot
+        val apiKey = getLlmApiKey()
+            ?: return jsonError("No LLM API key configured — set it in Settings → Agent Brain", 400)
+
         val svc = AgentAccessibilityService.instance
             ?: return jsonError("accessibility service not connected — enable in Settings", 503)
         val screenshotB64 = svc.captureScreenshot()
             ?: return jsonError("screenshot failed (requires Android 11+)", 500)
 
-        // 4. Build system prompt with optional UI tree context
-        val systemParts = StringBuilder()
-        systemParts.append("You are a device-control AI. Analyze the screenshot and respond with a JSON object containing:\n")
-        systemParts.append("- \"analysis\": a brief description of what you see on screen\n")
-        systemParts.append("- \"actions\": an array of actions to perform, each with:\n")
-        systemParts.append("  - \"type\": \"click\" | \"type_text\" | \"scroll\" | \"global\" | \"wait\"\n")
-        systemParts.append("  - \"x\", \"y\": pixel coordinates (for click)\n")
-        systemParts.append("  - \"text\": text to type (for type_text)\n")
-        systemParts.append("  - \"direction\": \"up\" | \"down\" | \"left\" | \"right\" (for scroll)\n")
-        systemParts.append("  - \"action\": \"BACK\" | \"HOME\" | \"RECENTS\" (for global)\n")
-        systemParts.append("  - \"description\": what this action does\n")
-        systemParts.append("Respond ONLY with valid JSON, no markdown fences.")
+        val systemPrompt = buildVisionSystemPrompt(includeTree, svc)
 
+        return when {
+            provider == "google" || provider == "gemini" ->
+                callGeminiVision(apiKey, model.ifBlank { "gemini-2.5-flash" }, systemPrompt, prompt, screenshotB64)
+            provider == "anthropic" ->
+                callAnthropicVision(apiKey, model.ifBlank { "claude-sonnet-4-6" }, systemPrompt, prompt, screenshotB64)
+            else ->
+                callOpenAiCompatVision(apiKey, model, baseUrl.ifBlank { resolveOpenAiBase(provider) }, systemPrompt, prompt, screenshotB64)
+        }
+    }
+
+    private fun buildVisionSystemPrompt(includeTree: Boolean, svc: AgentAccessibilityService): String {
+        val sb = StringBuilder()
+        sb.append("You are a device-control AI. Analyze the screenshot and respond with a JSON object containing:\n")
+        sb.append("- \"analysis\": a brief description of what you see on screen\n")
+        sb.append("- \"actions\": an array of actions to perform, each with:\n")
+        sb.append("  - \"type\": \"click\" | \"type_text\" | \"scroll\" | \"global\" | \"wait\"\n")
+        sb.append("  - \"x\", \"y\": pixel coordinates (for click)\n")
+        sb.append("  - \"text\": text to type (for type_text)\n")
+        sb.append("  - \"direction\": \"up\" | \"down\" | \"left\" | \"right\" (for scroll)\n")
+        sb.append("  - \"action\": \"BACK\" | \"HOME\" | \"RECENTS\" (for global)\n")
+        sb.append("  - \"description\": what this action does\n")
+        sb.append("Respond ONLY with valid JSON, no markdown fences.")
         if (includeTree) {
             try {
                 val tree = svc.dumpUiTree()
-                systemParts.append("\n\nUI accessibility tree:\n")
-                systemParts.append(tree.toString().take(8000)) // Cap at 8K chars
+                sb.append("\n\nUI accessibility tree:\n")
+                sb.append(tree.toString().take(8000))
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to dump UI tree for vision context: $e")
             }
         }
+        return sb.toString()
+    }
 
-        // 5. Build Gemini API request — API key in header, not URL
-        val model = "gemini-2.5-flash"
+    private fun resolveOpenAiBase(provider: String): String = when (provider) {
+        "openrouter" -> "https://openrouter.ai/api/v1"
+        "openai"     -> "https://api.openai.com/v1"
+        "ollama"     -> "http://localhost:11434/v1"
+        else         -> "https://api.openai.com/v1"
+    }
+
+    private fun parseVisionResponse(raw: String): BridgeResponse {
+        val result = try {
+            JSONObject(raw.trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim())
+        } catch (_: Exception) {
+            JSONObject().apply { put("analysis", raw); put("actions", JSONArray()) }
+        }
+        return jsonOk(result)
+    }
+
+    private fun callGeminiVision(
+        apiKey: String, model: String,
+        systemPrompt: String, userPrompt: String, screenshotB64: String,
+    ): BridgeResponse {
         val url = java.net.URL(
             "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"
         )
-
         val requestBody = JSONObject().apply {
             put("contents", JSONArray().put(JSONObject().apply {
                 put("parts", JSONArray().apply {
-                    // Text part: system instructions + user prompt
-                    put(JSONObject().apply {
-                        put("text", "${systemParts}\n\nUser request: $prompt")
-                    })
-                    // Image part: screenshot
-                    put(JSONObject().apply {
-                        put("inline_data", JSONObject().apply {
-                            put("mime_type", "image/jpeg")
-                            put("data", screenshotB64)
-                        })
-                    })
+                    put(JSONObject().put("text", "$systemPrompt\n\nUser request: $userPrompt"))
+                    put(JSONObject().put("inline_data", JSONObject().apply {
+                        put("mime_type", "image/jpeg")
+                        put("data", screenshotB64)
+                    }))
                 })
             }))
             put("generationConfig", JSONObject().apply {
@@ -2156,61 +2305,119 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
                 put("maxOutputTokens", 2048)
             })
         }
-
-        // 6. Call Gemini API (blocking — ok because bridge runs on IO thread)
         return try {
             val conn = url.openConnection() as HttpURLConnection
             conn.requestMethod = "POST"
             conn.setRequestProperty("Content-Type", "application/json")
             conn.setRequestProperty("x-goog-api-key", apiKey)
-            conn.connectTimeout = 15_000
-            conn.readTimeout = 30_000
-            conn.doOutput = true
-
+            conn.connectTimeout = 15_000; conn.readTimeout = 30_000; conn.doOutput = true
             conn.outputStream.bufferedWriter().use { it.write(requestBody.toString()) }
-
-            val responseCode = conn.responseCode
-            val responseText = if (responseCode in 200..299) {
-                conn.inputStream.bufferedReader().use { it.readText() }
-            } else {
-                val errorText = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
-                conn.disconnect()
-                return jsonError("Gemini API error ($responseCode): $errorText", 502)
-            }
+            val code = conn.responseCode
+            val text = if (code in 200..299) conn.inputStream.bufferedReader().use { it.readText() }
+                       else { val e = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""; conn.disconnect(); return jsonError("Gemini API error ($code): $e", 502) }
             conn.disconnect()
-
-            // 7. Parse response — extract text from candidates[0].content.parts[0].text
-            val geminiResp = JSONObject(responseText)
-            val candidates = geminiResp.optJSONArray("candidates")
-            val text = candidates
-                ?.optJSONObject(0)
-                ?.optJSONObject("content")
-                ?.optJSONArray("parts")
-                ?.optJSONObject(0)
-                ?.optString("text", "")
-                ?: ""
-
-            // Try to parse the model output as JSON; if it fails, return raw text
-            val result = try {
-                JSONObject(text.trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim())
-            } catch (_: Exception) {
-                JSONObject().apply {
-                    put("analysis", text)
-                    put("actions", JSONArray())
-                }
-            }
-
-            jsonOk(result)
+            val raw = JSONObject(text).optJSONArray("candidates")
+                ?.optJSONObject(0)?.optJSONObject("content")
+                ?.optJSONArray("parts")?.optJSONObject(0)?.optString("text", "") ?: ""
+            parseVisionResponse(raw)
         } catch (e: Exception) {
             Log.e(TAG, "Gemini Vision call failed: ${e.message}")
-            jsonError("Gemini Vision call failed: ${e.message}", 502)
+            jsonError("Vision call failed: ${e.message}", 502)
+        }
+    }
+
+    private fun callAnthropicVision(
+        apiKey: String, model: String,
+        systemPrompt: String, userPrompt: String, screenshotB64: String,
+    ): BridgeResponse {
+        val url = java.net.URL("https://api.anthropic.com/v1/messages")
+        val requestBody = JSONObject().apply {
+            put("model", model)
+            put("system", systemPrompt)
+            put("max_tokens", 2048)
+            put("messages", JSONArray().put(JSONObject().apply {
+                put("role", "user")
+                put("content", JSONArray().apply {
+                    put(JSONObject().apply {
+                        put("type", "image")
+                        put("source", JSONObject().apply {
+                            put("type", "base64")
+                            put("media_type", "image/jpeg")
+                            put("data", screenshotB64)
+                        })
+                    })
+                    put(JSONObject().apply { put("type", "text"); put("text", userPrompt) })
+                })
+            }))
+        }
+        return try {
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.setRequestProperty("x-api-key", apiKey)
+            conn.setRequestProperty("anthropic-version", "2023-06-01")
+            conn.connectTimeout = 15_000; conn.readTimeout = 30_000; conn.doOutput = true
+            conn.outputStream.bufferedWriter().use { it.write(requestBody.toString()) }
+            val code = conn.responseCode
+            val text = if (code in 200..299) conn.inputStream.bufferedReader().use { it.readText() }
+                       else { val e = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""; conn.disconnect(); return jsonError("Anthropic API error ($code): $e", 502) }
+            conn.disconnect()
+            val raw = JSONObject(text).optJSONArray("content")
+                ?.optJSONObject(0)?.optString("text", "") ?: ""
+            parseVisionResponse(raw)
+        } catch (e: Exception) {
+            Log.e(TAG, "Anthropic Vision call failed: ${e.message}")
+            jsonError("Vision call failed: ${e.message}", 502)
+        }
+    }
+
+    private fun callOpenAiCompatVision(
+        apiKey: String, model: String, baseUrl: String,
+        systemPrompt: String, userPrompt: String, screenshotB64: String,
+    ): BridgeResponse {
+        if (model.isBlank()) return jsonError("No model configured for vision — set it in Settings → Agent Brain", 400)
+        val url = java.net.URL("$baseUrl/chat/completions")
+        val requestBody = JSONObject().apply {
+            put("model", model)
+            put("max_tokens", 2048)
+            put("messages", JSONArray().apply {
+                put(JSONObject().apply { put("role", "system"); put("content", systemPrompt) })
+                put(JSONObject().apply {
+                    put("role", "user")
+                    put("content", JSONArray().apply {
+                        put(JSONObject().apply {
+                            put("type", "image_url")
+                            put("image_url", JSONObject().put("url", "data:image/jpeg;base64,$screenshotB64"))
+                        })
+                        put(JSONObject().apply { put("type", "text"); put("text", userPrompt) })
+                    })
+                })
+            })
+        }
+        return try {
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.setRequestProperty("Authorization", "Bearer $apiKey")
+            conn.connectTimeout = 15_000; conn.readTimeout = 30_000; conn.doOutput = true
+            conn.outputStream.bufferedWriter().use { it.write(requestBody.toString()) }
+            val code = conn.responseCode
+            val text = if (code in 200..299) conn.inputStream.bufferedReader().use { it.readText() }
+                       else { val e = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""; conn.disconnect(); return jsonError("API error ($code): $e", 502) }
+            conn.disconnect()
+            val raw = JSONObject(text).optJSONArray("choices")
+                ?.optJSONObject(0)?.optJSONObject("message")?.optString("content", "") ?: ""
+            parseVisionResponse(raw)
+        } catch (e: Exception) {
+            Log.e(TAG, "OpenAI-compat Vision call failed: ${e.message}")
+            jsonError("Vision call failed: ${e.message}", 502)
         }
     }
 
     /**
      * Read the LLM API key from Android EncryptedSharedPreferences.
      */
-    private fun getGeminiApiKey(): String? {
+    private fun getLlmApiKey(): String? {
         return try {
             val masterKey = androidx.security.crypto.MasterKey.Builder(context)
                 .setKeyScheme(androidx.security.crypto.MasterKey.KeyScheme.AES256_GCM)
@@ -2265,6 +2472,36 @@ class PhoneBridgeServer(private val context: Context, private val secret: String
         if (key.isBlank()) return jsonError("key required", 400)
         val result = svc.dismissNotificationByKey(key)
         return jsonOk(JSONObject().put("dismissed", result))
+    }
+
+    private fun handleNotificationsTriageSet(body: JSONObject?): BridgeResponse {
+        if (body == null) return jsonError("missing body", 400)
+
+        // Validate each field is a JSON array of strings (not arbitrary objects).
+        fun validatePkgArray(key: String): Pair<JSONArray?, String?> {
+            val raw = body.opt(key) ?: return Pair(null, null) // field absent — OK
+            if (raw !is JSONArray) return Pair(null, "$key must be a JSON array")
+            for (i in 0 until raw.length()) {
+                if (raw.opt(i) !is String) return Pair(null, "$key[${i}] must be a string")
+                val pkg = raw.getString(i)
+                // Basic Android package-name sanity: alphanumeric + dots + underscores only
+                if (!pkg.matches(Regex("[a-zA-Z0-9._]{1,200}")))
+                    return Pair(null, "$key[${i}] is not a valid package name: \"${pkg.take(40)}\"")
+            }
+            return Pair(raw, null)
+        }
+
+        val (blocked,     errBlocked)     = validatePkgArray("blocked")
+        val (vip,         errVip)         = validatePkgArray("vip")
+        val (autoDismiss, errAutoDismiss) = validatePkgArray("auto_dismiss")
+
+        val firstErr = errBlocked ?: errVip ?: errAutoDismiss
+        if (firstErr != null) return jsonError(firstErr, 400)
+        if (blocked == null && vip == null && autoDismiss == null)
+            return jsonError("provide at least one of: blocked, vip, auto_dismiss", 400)
+
+        AgentNotificationListener.setTriageRules(context, blocked, vip, autoDismiss)
+        return jsonOk(AgentNotificationListener.getTriageRules(context))
     }
 
     // -------------------------------------------------------------------------
