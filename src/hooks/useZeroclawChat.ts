@@ -104,7 +104,7 @@ export function useZeroclawChat(agentId?: string, conversationId?: string): UseZ
           `You are an autonomous agent on the 0x01 mesh network (zerox1).`,
           `Your agent ID (hex): ${agentId}`,
           `Your Solana wallet address (base58): ${solanaAddress}`,
-          `You have an on-chain hot wallet on Solana devnet used for task rewards, staking, and USDC payments on the mesh.`,
+          `You have an on-chain hot wallet on Solana mainnet used for task rewards, staking, and USDC payments on the mesh.`,
           `IMPORTANT: The Solana CLI is not available on this device. Never run "solana", "which solana", or similar CLI commands.`,
           `To check your wallet balance, call: GET http://127.0.0.1:9090/portfolio/balances with header "Authorization: Bearer <nodeApiToken>". The nodeApiToken is the same token configured in your zerox1 channel.`,
         ];

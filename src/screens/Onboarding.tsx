@@ -339,13 +339,20 @@ function NameStep({
 
 function ProviderStep({
   provider,
+  customModel,
   onSelect,
+  onChangeModel,
+  onNext,
 }: {
   provider: LlmProvider;
+  customModel: string;
   onSelect: (p: LlmProvider) => void;
+  onChangeModel: (v: string) => void;
+  onNext: () => void;
 }) {
   const { colors } = useTheme();
   const s = useStyles(colors);
+  const providerInfo = PROVIDERS.find(p => p.key === provider)!;
   return (
     <StepShell step={2}>
       <Heading label="CHOOSE LLM PROVIDER" />
@@ -376,7 +383,24 @@ function ProviderStep({
         ))}
       </View>
 
-      <Sub>Get a key at {PROVIDERS.find(p => p.key === provider)?.hint}</Sub>
+      <View style={s.keyCard}>
+        <Text style={s.keyLabel}>MODEL OVERRIDE (optional)</Text>
+        <TextInput
+          style={s.keyInput}
+          value={customModel}
+          onChangeText={onChangeModel}
+          placeholder={providerInfo.model}
+          placeholderTextColor={colors.sub}
+          autoCapitalize="none"
+          autoCorrect={false}
+          spellCheck={false}
+        />
+      </View>
+      <Text style={s.keyHint}>
+        Leave blank to use the default. Get a key at {providerInfo.hint}
+      </Text>
+
+      <PrimaryBtn label="CONTINUE →" onPress={onNext} />
     </StepShell>
   );
 }
@@ -784,10 +808,10 @@ export function OnboardingScreen({
       return (
         <ProviderStep
           provider={provider}
-          onSelect={p => {
-            setProvider(p);
-            setStep(3);
-          }}
+          customModel={customModel}
+          onSelect={setProvider}
+          onChangeModel={setCustomModel}
+          onNext={() => setStep(3)}
         />
       );
     case 3:

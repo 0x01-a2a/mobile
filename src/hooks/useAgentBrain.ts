@@ -56,7 +56,7 @@ export const PROVIDERS: ProviderInfo[] = [
   { key: 'gemini', label: 'Gemini', model: 'gemini-2.5-flash', hint: 'aistudio.google.com' },
   { key: 'anthropic', label: 'Claude', model: 'claude-haiku-4-5-20251001', hint: 'console.anthropic.com' },
   { key: 'openai', label: 'OpenAI', model: 'gpt-4o-mini', hint: 'platform.openai.com' },
-  { key: 'groq', label: 'Groq', model: 'llama-3.1-8b-instant', hint: 'console.groq.com' },
+  { key: 'groq', label: 'Groq', model: 'llama-3.3-70b-versatile', hint: 'console.groq.com' },
   { key: 'custom', label: 'Custom', model: 'Any supported SDK model', hint: 'Your custom endpoint URL' },
 ];
 

@@ -14,6 +14,9 @@ struct KeychainHelper {
         SecItemDelete(query as CFDictionary)
         var attrs = query
         attrs[kSecValueData] = data
+        // kSecAttrAccessibleAfterFirstUnlock allows reads from background threads/tasks
+        // after the device has been unlocked at least once (survives device restarts).
+        attrs[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlock
         SecItemAdd(attrs as CFDictionary, nil)
     }
 

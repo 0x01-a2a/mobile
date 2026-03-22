@@ -44,11 +44,11 @@ class NodeService : Service() {
         const val NOTIF_ID         = 1
         const val NODE_API_PORT    = 9090
         const val BINARY_NAME      = "zerox1-node"
-        const val ASSET_VERSION    = "0.4.5"   // bump when binary changes
+        const val ASSET_VERSION    = "0.4.7"   // bump when binary changes
 
         // ZeroClaw agent brain binary
         const val AGENT_BINARY_NAME    = "zeroclaw"
-        const val AGENT_ASSET_VERSION  = "0.2.3"   // bump when zeroclaw binary changes
+        const val AGENT_ASSET_VERSION  = "0.2.5"   // bump when zeroclaw binary changes
         const val AGENT_CONFIG_FILE    = "config.toml"  // zeroclaw --config-dir looks for config.toml
         const val AGENT_GATEWAY_PORT   = 42617
         const val AGENT_BRIDGE_PORT    = 9092
@@ -109,7 +109,7 @@ author      = "0x01 World"
 tags        = ["zerox1", "solana", "mesh", "agent", "escrow", "defi", "p2p"]
 
 # ── Agent instructions (injected into system prompt) ─────────────────────────
-prompts = [${'$'}TOML_TQ
+prompts = [${TOML_TQ}
 # 0x01 Mesh Participation
 
 You are connected to the 0x01 machine-native P2P agentic mesh on Solana.
@@ -208,7 +208,7 @@ For high-value tasks, a neutral notary can be involved to objectively judge comp
 - Only invoke when the counterparty or user explicitly requests a token swap.
 - Whitelisted mints only: SOL, USDC (mainnet + devnet), USDT, JUP, BONK, RAY, WIF, BAGS.
 - Never swap into unrecognised mint addresses — token fraud is common on Solana.
-${'$'}TOML_TQ]
+${TOML_TQ}]
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Tools — all execute as: sh -c "<command>"
@@ -222,19 +222,19 @@ ${'$'}TOML_TQ]
 name        = "zerox1_identity"
 description = "Get your own agent_id and display name on the 0x01 mesh."
 kind        = "shell"
-command     = ${'$'}TOML_TQcurl -sf "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/identity" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${'$'}TOML_TQ
+command     = ${TOML_TQ}curl -sf "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/identity" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${TOML_TQ}
 
 [[tools]]
 name        = "zerox1_peers"
 description = "List agents currently connected to your node on the 0x01 mesh."
 kind        = "shell"
-command     = ${'$'}TOML_TQcurl -sf "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/peers" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${'$'}TOML_TQ
+command     = ${TOML_TQ}curl -sf "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/peers" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${TOML_TQ}
 
 [[tools]]
 name        = "zerox1_register"
 description = "Register this agent in the 8004 Solana Agent Registry. Run once to establish an on-chain identity. Required for full mesh participation."
 kind        = "shell"
-command     = ${'$'}TOML_TQjq -nc --arg u {agent_uri} '{"agent_uri":${'$'}u}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/registry/8004/register-local" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg u {agent_uri} '{"agent_uri":${'$'}u}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/registry/8004/register-local" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 agent_uri = "Optional public URI for this agent (e.g. https://yoursite.com/agent). Leave empty string to skip."
@@ -245,7 +245,7 @@ agent_uri = "Optional public URI for this agent (e.g. https://yoursite.com/agent
 name        = "zerox1_propose"
 description = "Send a PROPOSE to another agent to initiate a paid task negotiation on the 0x01 mesh. The recipient can respond with ACCEPT, REJECT, or COUNTER."
 kind        = "shell"
-command     = ${'$'}TOML_TQjq -nc --arg r {recipient} --arg m {message} '{"recipient":${'$'}r,"message":${'$'}m}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/negotiate/propose" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg r {recipient} --arg m {message} '{"recipient":${'$'}r,"message":${'$'}m}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/negotiate/propose" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 recipient = "Hex-encoded 32-byte agent_id of the target agent"
@@ -255,7 +255,7 @@ message   = "Task description or proposal details"
 name        = "zerox1_counter"
 description = "Counter-propose different terms during a 0x01 mesh negotiation. Send after receiving a PROPOSE or COUNTER you want to modify. Max 2 rounds by default."
 kind        = "shell"
-command     = ${'$'}TOML_TQjq -nc --arg r {recipient} --arg c {conversation_id} --argjson a {amount_usdc_micro} --argjson rn {round} --argjson mx {max_rounds} --arg m {message} '{"recipient":${'$'}r,"conversation_id":${'$'}c,"amount_usdc_micro":${'$'}a,"round":${'$'}rn,"max_rounds":${'$'}mx,"message":${'$'}m}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/negotiate/counter" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg r {recipient} --arg c {conversation_id} --argjson a {amount_usdc_micro} --argjson rn {round} --argjson mx {max_rounds} --arg m {message} '{"recipient":${'$'}r,"conversation_id":${'$'}c,"amount_usdc_micro":${'$'}a,"round":${'$'}rn,"max_rounds":${'$'}mx,"message":${'$'}m}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/negotiate/counter" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 recipient        = "Hex-encoded 32-byte agent_id of the counterparty"
@@ -269,7 +269,7 @@ message          = "Explanation of your counter-offer"
 name        = "zerox1_accept"
 description = "Accept an incoming PROPOSE or COUNTER on the 0x01 mesh. After sending, immediately call zerox1_lock_payment to lock escrow before work begins."
 kind        = "shell"
-command     = ${'$'}TOML_TQjq -nc --arg r {recipient} --arg c {conversation_id} --argjson a {amount_usdc_micro} --arg m {message} '{"recipient":${'$'}r,"conversation_id":${'$'}c,"amount_usdc_micro":${'$'}a,"message":${'$'}m}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/negotiate/accept" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg r {recipient} --arg c {conversation_id} --argjson a {amount_usdc_micro} --arg m {message} '{"recipient":${'$'}r,"conversation_id":${'$'}c,"amount_usdc_micro":${'$'}a,"message":${'$'}m}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/negotiate/accept" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 recipient         = "Hex-encoded 32-byte agent_id of the proposing agent"
@@ -281,8 +281,7 @@ message           = "Optional acceptance confirmation message"
 name        = "zerox1_reject"
 description = "Decline an incoming PROPOSE or COUNTER on the 0x01 mesh."
 kind        = "shell"
-command     = ${'$'}TOML_TQP=${'$'}(printf '%s' {reason} | base64 | tr -d '
-'); jq -nc --arg r {recipient} --arg c {conversation_id} --arg p "${'$'}P" '{"msg_type":"REJECT","recipient":${'$'}r,"conversation_id":${'$'}c,"payload_b64":${'$'}p}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/envelopes/send" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg recip {recipient} --arg conv {conversation_id} --arg reason {reason} '{"msg_type":"REJECT","recipient":${'$'}recip,"conversation_id":${'$'}conv,"payload_b64":(${'$'}reason|@base64)}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/envelopes/send" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 recipient       = "Hex-encoded 32-byte agent_id of the proposing agent"
@@ -293,8 +292,7 @@ reason          = "Reason for declining (optional)"
 name        = "zerox1_deliver"
 description = "Deliver completed task results to the requesting agent. After delivery the requester should call zerox1_approve_payment to release escrow funds."
 kind        = "shell"
-command     = ${'$'}TOML_TQP=${'$'}(printf '%s' {result} | base64 | tr -d '
-'); jq -nc --arg r {recipient} --arg c {conversation_id} --arg p "${'$'}P" '{"msg_type":"DELIVER","recipient":${'$'}r,"conversation_id":${'$'}c,"payload_b64":${'$'}p}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/envelopes/send" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg recip {recipient} --arg conv {conversation_id} --arg result {result} '{"msg_type":"DELIVER","recipient":${'$'}recip,"conversation_id":${'$'}conv,"payload_b64":(${'$'}result|@base64)}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/envelopes/send" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 recipient       = "Hex-encoded 32-byte agent_id of the agent that sent the PROPOSE"
@@ -307,8 +305,7 @@ result          = "Completed task result (plain text, JSON, or summary)"
 name        = "zerox1_advertise"
 description = "Broadcast an ADVERTISE envelope to all mesh peers announcing your capabilities and availability. Call this when you receive a DISCOVER that matches what you can do."
 kind        = "shell"
-command     = ${'$'}TOML_TQP=${'$'}(jq -nc --argjson caps {capabilities} --arg desc {description} '{"capabilities":${'$'}caps,"description":${'$'}desc}' | base64 | tr -d '
-'); jq -nc --arg p "${'$'}P" '{"msg_type":"ADVERTISE","conversation_id":"00000000000000000000000000000000","payload_b64":${'$'}p}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/envelopes/send" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --argjson caps {capabilities} --arg desc {description} '{"msg_type":"ADVERTISE","conversation_id":"00000000000000000000000000000000","payload_b64":({"capabilities":${'$'}caps,"description":${'$'}desc}|tostring|@base64)}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/envelopes/send" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 capabilities = "JSON array of capability tags you offer (e.g. [\"summarization\",\"translation\"])"
@@ -318,8 +315,7 @@ description  = "Human-readable summary of what you offer and your current availa
 name        = "zerox1_discover"
 description = "Broadcast a DISCOVER query to the mesh asking which agents can perform a specific capability. Agents that match will respond with ADVERTISE. Use before zerox1_propose to find a suitable provider."
 kind        = "shell"
-command     = ${'$'}TOML_TQP=${'$'}(jq -nc --arg q {query} '{"query":${'$'}q}' | base64 | tr -d '
-'); jq -nc --arg p "${'$'}P" '{"msg_type":"DISCOVER","conversation_id":"00000000000000000000000000000000","payload_b64":${'$'}p}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/envelopes/send" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg q {query} '{"msg_type":"DISCOVER","conversation_id":"00000000000000000000000000000000","payload_b64":({"query":${'$'}q}|tostring|@base64)}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/envelopes/send" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 query = "Description of the capability or task you are looking for (e.g. \"image-generation\", \"summarization\")"
@@ -328,18 +324,7 @@ query = "Description of the capability or task you are looking for (e.g. \"image
 name        = "zerox1_broadcast"
 description = "Publish a BROADCAST to a named topic channel on the 0x01 mesh. All agents and apps subscribed to that topic will receive it. Use for announcements, data feeds, audio content, or group coordination."
 kind        = "shell"
-command     = ${'$'}TOML_TQjq -nc \
-  --arg title {title} \
-  --argjson tags {tags} \
-  --arg format {format} \
-  --arg content_url {content_url} \
-  --arg content_type {content_type} \
-  --argjson duration_ms {duration_ms} \
-  '{title:${'$'}title,tags:${'$'}tags,format:${'$'}format,content_url:(if ${'$'}content_url=="" then null else ${'$'}content_url end),content_type:(if ${'$'}content_type=="" then null else ${'$'}content_type end),duration_ms:(if ${'$'}duration_ms==0 then null else ${'$'}duration_ms end)}' \
-| curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/topics/{topic}/broadcast" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" \
-  -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg title {title} --argjson tags {tags} --arg format {format} --arg content_url {content_url} --arg content_type {content_type} --argjson duration_ms {duration_ms} '{"title":${'$'}title,"tags":${'$'}tags,"format":${'$'}format,"content_url":(if ${'$'}content_url=="" then null else ${'$'}content_url end),"content_type":(if ${'$'}content_type=="" then null else ${'$'}content_type end),"duration_ms":(if ${'$'}duration_ms==0 then null else ${'$'}duration_ms end)}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/topics/{topic}/broadcast" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 topic        = "Topic slug (alphanumeric, hyphens, underscores, colons — e.g. \"radio:defi\", \"data:sol-price\", \"news:crypto\")"
@@ -356,8 +341,7 @@ duration_ms  = "Duration in milliseconds for audio/video content. Use 0 if not a
 name        = "zerox1_notarize_bid"
 description = "Volunteer as the notary for a task by sending NOTARIZE_BID. The task requester will review bids and assign one notary via NOTARIZE_ASSIGN. As notary you objectively judge task completion and issue a VERDICT."
 kind        = "shell"
-command     = ${'$'}TOML_TQP=${'$'}(jq -nc --arg m {message} '{"message":${'$'}m}' | base64 | tr -d '
-'); jq -nc --arg c {conversation_id} --arg p "${'$'}P" '{"msg_type":"NOTARIZE_BID","conversation_id":${'$'}c,"payload_b64":${'$'}p}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/envelopes/send" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg conv {conversation_id} --arg msg {message} '{"msg_type":"NOTARIZE_BID","conversation_id":${'$'}conv,"payload_b64":({"message":${'$'}msg}|tostring|@base64)}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/envelopes/send" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 conversation_id = "Conversation ID of the task you wish to notarize"
@@ -367,8 +351,7 @@ message         = "Brief statement of your qualifications to notarize this task"
 name        = "zerox1_notarize_assign"
 description = "Assign a specific agent as the notary for a task after reviewing NOTARIZE_BID responses. The assigned notary will observe task completion and issue a VERDICT."
 kind        = "shell"
-command     = ${'$'}TOML_TQP=${'$'}(jq -nc --arg m {message} '{"message":${'$'}m}' | base64 | tr -d '
-'); jq -nc --arg r {recipient} --arg c {conversation_id} --arg p "${'$'}P" '{"msg_type":"NOTARIZE_ASSIGN","recipient":${'$'}r,"conversation_id":${'$'}c,"payload_b64":${'$'}p}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/envelopes/send" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg recip {recipient} --arg conv {conversation_id} --arg msg {message} '{"msg_type":"NOTARIZE_ASSIGN","recipient":${'$'}recip,"conversation_id":${'$'}conv,"payload_b64":({"message":${'$'}msg}|tostring|@base64)}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/envelopes/send" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 recipient       = "Hex-encoded agent_id of the agent you are assigning as notary"
@@ -379,8 +362,7 @@ message         = "Optional message explaining the task scope to the notary"
 name        = "zerox1_verdict"
 description = "Issue a VERDICT as the assigned notary judging whether delivered work meets the agreed requirements. outcome must be 'completed', 'failed', or 'partial'."
 kind        = "shell"
-command     = ${'$'}TOML_TQP=${'$'}(jq -nc --arg o {outcome} --arg r {reasoning} '{"outcome":${'$'}o,"reasoning":${'$'}r}' | base64 | tr -d '
-'); jq -nc --arg r {recipient} --arg c {conversation_id} --arg p "${'$'}P" '{"msg_type":"VERDICT","recipient":${'$'}r,"conversation_id":${'$'}c,"payload_b64":${'$'}p}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/envelopes/send" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg recip {recipient} --arg conv {conversation_id} --arg outcome {outcome} --arg reasoning {reasoning} '{"msg_type":"VERDICT","recipient":${'$'}recip,"conversation_id":${'$'}conv,"payload_b64":({"outcome":${'$'}outcome,"reasoning":${'$'}reasoning}|tostring|@base64)}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/envelopes/send" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 recipient       = "Hex-encoded agent_id of the task requester"
@@ -392,8 +374,7 @@ reasoning       = "Explanation of the verdict with evidence"
 name        = "zerox1_dispute"
 description = "Challenge a VERDICT by sending DISPUTE to the notary with your evidence. Use when you believe the verdict was incorrect or unfair."
 kind        = "shell"
-command     = ${'$'}TOML_TQP=${'$'}(jq -nc --arg r {reason} '{"reason":${'$'}r}' | base64 | tr -d '
-'); jq -nc --arg r {recipient} --arg c {conversation_id} --arg p "${'$'}P" '{"msg_type":"DISPUTE","recipient":${'$'}r,"conversation_id":${'$'}c,"payload_b64":${'$'}p}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/envelopes/send" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg recip {recipient} --arg conv {conversation_id} --arg reason {reason} '{"msg_type":"DISPUTE","recipient":${'$'}recip,"conversation_id":${'$'}conv,"payload_b64":({"reason":${'$'}reason}|tostring|@base64)}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/envelopes/send" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 recipient       = "Hex-encoded agent_id of the notary who issued the verdict"
@@ -406,7 +387,7 @@ reason          = "Explanation of why you are disputing the verdict with support
 name        = "zerox1_lock_payment"
 description = "Lock USDC escrow funds on-chain after both parties agree via ACCEPT. Always call this before the provider starts work — it is the on-chain payment guarantee."
 kind        = "shell"
-command     = ${'$'}TOML_TQjq -nc --arg pv {provider} --arg c {conversation_id} --argjson a {amount_usdc_micro} '{"provider":${'$'}pv,"conversation_id":${'$'}c,"amount_usdc_micro":${'$'}a}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/escrow/lock" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg pv {provider} --arg c {conversation_id} --argjson a {amount_usdc_micro} '{"provider":${'$'}pv,"conversation_id":${'$'}c,"amount_usdc_micro":${'$'}a}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/escrow/lock" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 provider          = "Hex-encoded 32-byte agent_id of the provider who will receive payment"
@@ -417,7 +398,7 @@ amount_usdc_micro = "Amount to lock in USDC microunits (must exactly match the A
 name        = "zerox1_approve_payment"
 description = "Release locked USDC escrow funds to the provider after verifying their delivered work. Only call this when satisfied with the result."
 kind        = "shell"
-command     = ${'$'}TOML_TQjq -nc --arg rq {requester} --arg pv {provider} --arg c {conversation_id} '{"requester":${'$'}rq,"provider":${'$'}pv,"conversation_id":${'$'}c}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/escrow/approve" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg rq {requester} --arg pv {provider} --arg c {conversation_id} '{"requester":${'$'}rq,"provider":${'$'}pv,"conversation_id":${'$'}c}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/escrow/approve" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 requester       = "Hex-encoded 32-byte agent_id of the requester (payer)"
@@ -430,7 +411,7 @@ conversation_id = "Conversation ID from the negotiation"
 name        = "zerox1_swap"
 description = "Execute a token swap on Solana via Jupiter DEX using the node hot wallet. Only invoke when explicitly asked to swap or trade. Whitelisted tokens only: SOL, USDC, USDT, JUP, BONK, RAY, WIF."
 kind        = "shell"
-command     = ${'$'}TOML_TQjq -nc --arg i {input_mint} --arg o {output_mint} --argjson a {amount} '{"input_mint":${'$'}i,"output_mint":${'$'}o,"amount":${'$'}a,"slippage_bps":50}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/swap" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg i {input_mint} --arg o {output_mint} --argjson a {amount} '{"input_mint":${'$'}i,"output_mint":${'$'}o,"amount":${'$'}a,"slippage_bps":50}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/swap" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 input_mint  = "Base58 mint address of the token to sell (e.g. So11111111111111111111111111111111111111112 for SOL)"
@@ -447,7 +428,7 @@ description = "Launch and manage tokens on Bags.fm — trade, price-check, view 
 author      = "0x01 World"
 tags        = ["bags", "token", "launch", "defi", "solana", "fee-sharing", "trading"]
 
-prompts = [${'$'}TOML_TQ
+prompts = [${TOML_TQ}
 # Bags Token Launch & Trading
 
 You can launch, trade, and manage Solana tokens on Bags.fm directly from this agent.
@@ -477,13 +458,13 @@ You can launch, trade, and manage Solana tokens on Bags.fm directly from this ag
 
 If a tool returns JSON containing `"error":"bags_rate_limited"` or HTTP 429, include the exact
 token `[BAGS_RATE_LIMITED]` somewhere in your reply. Do not include this token for any other error.
-${'$'}TOML_TQ]
+${TOML_TQ}]
 
 [[tools]]
 name        = "bags_launch"
 description = "Launch a new Solana token on Bags.fm. You receive 100% of all future pool trading fees. Requires ~0.05 SOL in hot wallet."
 kind        = "shell"
-command     = ${'$'}TOML_TQjq -nc --arg n {name} --arg s {symbol} --arg d {description} --arg img {image_url} --arg cid {image_cid} --argjson buy {initial_buy_lamports} '{"name":${'$'}n,"symbol":${'$'}s,"description":${'$'}d,"image_url":(${'$'}img|if . == "" then null else . end),"image_cid":(${'$'}cid|if . == "" then null else . end),"initial_buy_lamports":(${'$'}buy|if . == 0 then null else . end)}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/launch" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg n {name} --arg s {symbol} --arg d {description} --arg img {image_url} --arg cid {image_cid} --argjson buy {initial_buy_lamports} '{"name":${'$'}n,"symbol":${'$'}s,"description":${'$'}d,"image_url":(${'$'}img|if . == "" then null else . end),"image_cid":(${'$'}cid|if . == "" then null else . end),"initial_buy_lamports":(${'$'}buy|if . == 0 then null else . end)}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/launch" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 name                 = "Token name (e.g. 'My Agent Token')"
@@ -497,7 +478,7 @@ initial_buy_lamports = "Lamports to spend on initial token buy (0 = no initial b
 name        = "bags_swap_quote"
 description = "Get a swap quote for buying or selling a token on the Bags AMM. Check price before executing."
 kind        = "shell"
-command     = ${'$'}TOML_TQjq -nc --arg m {token_mint} --argjson amt {amount} --arg act {action} --argjson slip {slippage_bps} '{"token_mint":${'$'}m,"amount":${'$'}amt,"action":${'$'}act,"slippage_bps":(${'$'}slip|if . == 0 then null else . end)}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/swap/quote" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg m {token_mint} --argjson amt {amount} --arg act {action} --argjson slip {slippage_bps} '{"token_mint":${'$'}m,"amount":${'$'}amt,"action":${'$'}act,"slippage_bps":(${'$'}slip|if . == 0 then null else . end)}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/swap/quote" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 token_mint   = "Base58 mint address of the token to trade"
@@ -509,7 +490,7 @@ slippage_bps = "Slippage in basis points (50 = 0.5%). Use 0 for default."
 name        = "bags_swap_execute"
 description = "Execute a token swap on the Bags AMM — gets quote, signs, and broadcasts in one step. Returns txid."
 kind        = "shell"
-command     = ${'$'}TOML_TQjq -nc --arg m {token_mint} --argjson amt {amount} --arg act {action} --argjson slip {slippage_bps} '{"token_mint":${'$'}m,"amount":${'$'}amt,"action":${'$'}act,"slippage_bps":(${'$'}slip|if . == 0 then null else . end)}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/swap/execute" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg m {token_mint} --argjson amt {amount} --arg act {action} --argjson slip {slippage_bps} '{"token_mint":${'$'}m,"amount":${'$'}amt,"action":${'$'}act,"slippage_bps":(${'$'}slip|if . == 0 then null else . end)}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/swap/execute" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 token_mint   = "Base58 mint address of the token to trade"
@@ -521,7 +502,7 @@ slippage_bps = "Slippage in basis points (50 = 0.5%). Use 0 for default."
 name        = "bags_pool"
 description = "Get Bags AMM pool info for a token: reserves, implied price, TVL, and 24h volume."
 kind        = "shell"
-command     = ${'$'}TOML_TQcurl -s "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/pool/{token_mint}" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${'$'}TOML_TQ
+command     = ${TOML_TQ}curl -s "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/pool/{token_mint}" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${TOML_TQ}
 
 [tools.args]
 token_mint = "Base58 mint address of the token to look up"
@@ -530,13 +511,13 @@ token_mint = "Base58 mint address of the token to look up"
 name        = "bags_claimable"
 description = "List all tokens with unclaimed pool fee revenue across your entire agent wallet."
 kind        = "shell"
-command     = ${'$'}TOML_TQcurl -s "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/claimable" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${'$'}TOML_TQ
+command     = ${TOML_TQ}curl -s "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/claimable" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${TOML_TQ}
 
 [[tools]]
 name        = "bags_claim"
 description = "Claim accumulated pool trading fees for a specific token you launched on Bags.fm."
 kind        = "shell"
-command     = ${'$'}TOML_TQjq -nc --arg m {token_mint} '{"token_mint":${'$'}m}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/claim" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg m {token_mint} '{"token_mint":${'$'}m}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/claim" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 token_mint = "Base58 mint address of the token to claim fees for"
@@ -545,13 +526,13 @@ token_mint = "Base58 mint address of the token to claim fees for"
 name        = "bags_positions"
 description = "List all tokens you have launched on Bags.fm and their claimable fee balances."
 kind        = "shell"
-command     = ${'$'}TOML_TQcurl -s "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/positions" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${'$'}TOML_TQ
+command     = ${TOML_TQ}curl -s "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/positions" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${TOML_TQ}
 
 [[tools]]
 name        = "bags_dexscreener_check"
 description = "Check if a Dexscreener listing is available for a token and how much it costs."
 kind        = "shell"
-command     = ${'$'}TOML_TQcurl -s "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/dexscreener/check/{token_mint}" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${'$'}TOML_TQ
+command     = ${TOML_TQ}curl -s "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/dexscreener/check/{token_mint}" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${TOML_TQ}
 
 [tools.args]
 token_mint = "Base58 mint address of the token to check"
@@ -560,7 +541,7 @@ token_mint = "Base58 mint address of the token to check"
 name        = "bags_dexscreener_list"
 description = "Create and pay for a Dexscreener listing in one step. Always check bags_dexscreener_check first and confirm the cost with the user."
 kind        = "shell"
-command     = ${'$'}TOML_TQjq -nc --arg m {token_mint} --arg img {image_url} '{"token_mint":${'$'}m,"image_url":(${'$'}img|if . == "" then null else . end)}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/dexscreener/list" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg m {token_mint} --arg img {image_url} '{"token_mint":${'$'}m,"image_url":(${'$'}img|if . == "" then null else . end)}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/bags/dexscreener/list" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 token_mint = "Base58 mint address of the token to list"
@@ -576,7 +557,7 @@ description = "Trade any token on Solana via Jupiter or Raydium LaunchLab — sw
 author      = "0x01 World"
 tags        = ["jupiter", "raydium", "launchlab", "swap", "trading", "defi", "solana", "limit-orders", "dca", "bonding-curve"]
 
-prompts = [${'$'}TOML_TQ
+prompts = [${TOML_TQ}
 # Solana Trading — Jupiter + Raydium LaunchLab
 
 You can trade any Solana token directly from this agent.
@@ -609,13 +590,6 @@ Use the `launchlab` skill tools for bonding-curve tokens:
 
 The node earns a 0.1% share fee on every LaunchLab trade, credited on-chain atomically.
 
-## CA confirmation for unknown tokens
-
-`trade_swap` runs instantly for known tokens (SOL, USDC, USDT, JUP, BONK, RAY, WIF, BAGS, mSOL, ETH).
-For **any other mint**, the swap is parked and returns HTTP 202 with a `swap_id`. The user must
-confirm or reject it in the mobile app (Pending Swaps card) within 5 minutes.
-When this happens, tell the user: "I've queued the swap — please confirm the token CA in the app."
-
 ## Sending tokens
 
 Use `wallet_send` to transfer SOL or any SPL token from the agent hot wallet to another address.
@@ -631,18 +605,17 @@ No `mint` = native SOL. With `mint` = SPL transfer (destination ATA is created a
 
 - Always confirm trade details (token, amount, expected output) with the user before executing.
 - Use `trade_quote` or `trade_price` first so the user knows what they're getting.
-- For unknown CAs: after calling `trade_swap`, tell the user to confirm in the app.
 - For LaunchLab (`launchlab_buy`/`launchlab_sell`), confirm the SOL amount before buying; report the txid and share fee after.
 - For limit orders, confirm the target price and expiry before placing.
 - For DCA, confirm total amount, per-cycle amount, and interval before creating.
 - For `wallet_send`, always confirm destination and amount with the user first.
-${'$'}TOML_TQ]
+${TOML_TQ}]
 
 [[tools]]
 name        = "trade_price"
 description = "Look up current USD price for one or more tokens by mint address."
 kind        = "shell"
-command     = ${'$'}TOML_TQcurl -s "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/price?ids={mints}" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${'$'}TOML_TQ
+command     = ${TOML_TQ}curl -s "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/price?ids={mints}" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${TOML_TQ}
 
 [tools.args]
 mints = "Comma-separated list of base58 mint addresses (e.g. 'So11111111111111111111111111111111111111112,EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v')"
@@ -651,7 +624,7 @@ mints = "Comma-separated list of base58 mint addresses (e.g. 'So1111111111111111
 name        = "trade_tokens"
 description = "Search for a token by name or symbol to find its mint address."
 kind        = "shell"
-command     = ${'$'}TOML_TQcurl -s "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/tokens?q={query}" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${'$'}TOML_TQ
+command     = ${TOML_TQ}curl -s "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/tokens?q={query}" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${TOML_TQ}
 
 [tools.args]
 query = "Token name or ticker symbol to search for (e.g. 'bonk' or 'USDC')"
@@ -660,7 +633,7 @@ query = "Token name or ticker symbol to search for (e.g. 'bonk' or 'USDC')"
 name        = "trade_quote"
 description = "Get a swap quote — expected output amount for a given input. Use before swapping to confirm the rate."
 kind        = "shell"
-command     = ${'$'}TOML_TQcurl -s "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/quote?input_mint={input_mint}&output_mint={output_mint}&amount={amount}&slippage_bps={slippage_bps}" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${'$'}TOML_TQ
+command     = ${TOML_TQ}curl -s "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/quote?input_mint={input_mint}&output_mint={output_mint}&amount={amount}&slippage_bps={slippage_bps}" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${TOML_TQ}
 
 [tools.args]
 input_mint   = "Mint address of the token to sell"
@@ -670,9 +643,9 @@ slippage_bps = "Slippage tolerance in basis points (50 = 0.5%). Use 50 as defaul
 
 [[tools]]
 name        = "trade_swap"
-description = "Execute a market swap — quote, sign, and broadcast in one step. Returns txid."
+description = "Execute a market swap — quote, sign, and broadcast in one step. Returns txid. Works for any valid SPL token mint."
 kind        = "shell"
-command     = ${'$'}TOML_TQjq -nc --arg im {input_mint} --arg om {output_mint} --argjson amt {amount} --argjson slip {slippage_bps} '{"input_mint":${'$'}im,"output_mint":${'$'}om,"amount":${'$'}amt,"slippage_bps":${'$'}slip}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/swap" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg im {input_mint} --arg om {output_mint} --argjson amt {amount} --argjson slip {slippage_bps} '{"input_mint":${'$'}im,"output_mint":${'$'}om,"amount":${'$'}amt,"slippage_bps":${'$'}slip,"force":true}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/swap" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 input_mint   = "Mint address of the token to sell"
@@ -684,7 +657,7 @@ slippage_bps = "Slippage in basis points (50 = 0.5%)"
 name        = "trade_limit_create"
 description = "Place a limit order — buy or sell at a specific price. Signs and broadcasts the order tx."
 kind        = "shell"
-command     = ${'$'}TOML_TQjq -nc --arg im {input_mint} --arg om {output_mint} --argjson mka {making_amount} --argjson tka {taking_amount} --argjson exp {expired_at} '{"input_mint":${'$'}im,"output_mint":${'$'}om,"making_amount":${'$'}mka,"taking_amount":${'$'}tka,"expired_at":(${'$'}exp|if . == 0 then null else . end)}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/limit/create" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg im {input_mint} --arg om {output_mint} --argjson mka {making_amount} --argjson tka {taking_amount} --argjson exp {expired_at} '{"input_mint":${'$'}im,"output_mint":${'$'}om,"making_amount":${'$'}mka,"taking_amount":${'$'}tka,"expired_at":(${'$'}exp|if . == 0 then null else . end)}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/limit/create" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 input_mint    = "Mint to sell"
@@ -697,13 +670,13 @@ expired_at    = "Unix timestamp when order expires (0 = never)"
 name        = "trade_limit_orders"
 description = "List all open limit orders for this agent wallet."
 kind        = "shell"
-command     = ${'$'}TOML_TQcurl -s "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/limit/orders" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${'$'}TOML_TQ
+command     = ${TOML_TQ}curl -s "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/limit/orders" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${TOML_TQ}
 
 [[tools]]
 name        = "trade_limit_cancel"
 description = "Cancel one or more open limit orders by their order pubkeys."
 kind        = "shell"
-command     = ${'$'}TOML_TQjq -nc --argjson orders {orders} '{"orders":${'$'}orders}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/limit/cancel" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --argjson orders {orders} '{"orders":${'$'}orders}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/limit/cancel" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 orders = "JSON array of order pubkey strings to cancel (e.g. '[\"ABC...\",\"DEF...\"]')"
@@ -712,7 +685,7 @@ orders = "JSON array of order pubkey strings to cancel (e.g. '[\"ABC...\",\"DEF.
 name        = "trade_dca_create"
 description = "Create a DCA (dollar-cost averaging) order — recurring buys at a fixed interval."
 kind        = "shell"
-command     = ${'$'}TOML_TQjq -nc --arg im {input_mint} --arg om {output_mint} --argjson total {in_amount} --argjson per_cycle {in_amount_per_cycle} --argjson secs {cycle_seconds} '{"input_mint":${'$'}im,"output_mint":${'$'}om,"in_amount":${'$'}total,"in_amount_per_cycle":${'$'}per_cycle,"cycle_seconds":${'$'}secs}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/dca/create" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg im {input_mint} --arg om {output_mint} --argjson total {in_amount} --argjson per_cycle {in_amount_per_cycle} --argjson secs {cycle_seconds} '{"input_mint":${'$'}im,"output_mint":${'$'}om,"in_amount":${'$'}total,"in_amount_per_cycle":${'$'}per_cycle,"cycle_seconds":${'$'}secs}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/dca/create" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 input_mint        = "Mint to sell (e.g. USDC)"
@@ -725,7 +698,7 @@ cycle_seconds     = "Seconds between each cycle (3600 = hourly, 86400 = daily)"
 name        = "wallet_send"
 description = "Send SOL or any SPL token from the agent hot wallet to a destination address."
 kind        = "shell"
-command     = ${'$'}TOML_TQjq -nc --arg to {to} --argjson amt {amount} --arg m {mint} '{"to":${'$'}to,"amount":${'$'}amt} | if ${'$'}m != "" then . + {"mint":${'$'}m} else . end' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/wallet/send" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg to {to} --argjson amt {amount} --arg m {mint} '{"to":${'$'}to,"amount":${'$'}amt} | if ${'$'}m != "" then . + {"mint":${'$'}m} else . end' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/wallet/send" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 to     = "Destination Solana wallet address (base58)"
@@ -742,7 +715,7 @@ description = "Buy and sell tokens on the Raydium LaunchLab bonding curve. Earns
 author      = "0x01 World"
 tags        = ["raydium", "launchlab", "bonding-curve", "defi", "solana", "fee-sharing"]
 
-prompts = [${'$'}TOML_TQ
+prompts = [${TOML_TQ}
 # Raydium LaunchLab Trading
 
 You can buy and sell tokens on the Raydium LaunchLab bonding curve directly from this agent.
@@ -768,13 +741,13 @@ Every trade earns a 0.1% share fee for the node operator, credited on-chain atom
 
 - Always confirm the mint, amount, and direction (buy/sell) with the user before executing.
 - Report the share_fee_rate in the response (1000 = 0.1%) so users know the fee.
-${'$'}TOML_TQ]
+${TOML_TQ}]
 
 [[tools]]
 name        = "launchlab_buy"
 description = "Buy a token from its Raydium LaunchLab bonding curve using SOL. Returns txid and the share fee rate applied."
 kind        = "shell"
-command     = ${'$'}TOML_TQjq -nc --arg m {mint} --argjson amt {amount_in} --argjson min_out {minimum_amount_out} '{"mint":${'$'}m,"amount_in":${'$'}amt,"minimum_amount_out":(${'$'}min_out|if . == 0 then null else . end)}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/launchlab/buy" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg m {mint} --argjson amt {amount_in} --argjson min_out {minimum_amount_out} '{"mint":${'$'}m,"amount_in":${'$'}amt,"minimum_amount_out":(${'$'}min_out|if . == 0 then null else . end)}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/launchlab/buy" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 mint               = "Base58 mint address of the token to buy"
@@ -785,7 +758,7 @@ minimum_amount_out = "Minimum tokens to receive — slippage floor. Use 0 for no
 name        = "launchlab_sell"
 description = "Sell a token back to its Raydium LaunchLab bonding curve for SOL. Returns txid and the share fee rate applied."
 kind        = "shell"
-command     = ${'$'}TOML_TQjq -nc --arg m {mint} --argjson amt {amount_in} --argjson min_out {minimum_amount_out} '{"mint":${'$'}m,"amount_in":${'$'}amt,"minimum_amount_out":(${'$'}min_out|if . == 0 then null else . end)}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/launchlab/sell" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg m {mint} --argjson amt {amount_in} --argjson min_out {minimum_amount_out} '{"mint":${'$'}m,"amount_in":${'$'}amt,"minimum_amount_out":(${'$'}min_out|if . == 0 then null else . end)}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/launchlab/sell" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 mint               = "Base58 mint address of the token to sell"
@@ -802,7 +775,7 @@ description = "Create a Raydium CPMM (Constant Product) liquidity pool. Pool cre
 author      = "0x01 World"
 tags        = ["raydium", "cpmm", "amm", "liquidity", "defi", "solana", "pool-creation"]
 
-prompts = [${'$'}TOML_TQ
+prompts = [${TOML_TQ}
 # Raydium CPMM Pool Creation
 
 You can create a Raydium CPMM liquidity pool for any token pair directly from this agent.
@@ -837,13 +810,13 @@ The pool creator earns a share of every swap fee in proportion to their LP token
 - Remind the user that the 0.15 SOL creation fee is non-refundable.
 - Report pool_id and lp_mint after success — the user will want to save these.
 - open_time = 0 means trading opens immediately.
-${'$'}TOML_TQ]
+${TOML_TQ}]
 
 [[tools]]
 name        = "cpmm_create_pool"
 description = "Create a Raydium CPMM liquidity pool for a token pair. Costs ~0.15 SOL creation fee plus initial liquidity. Returns pool_id, lp_mint, and txid."
 kind        = "shell"
-command     = ${'$'}TOML_TQjq -nc --arg ma {mint_a} --arg mb {mint_b} --argjson aa {amount_a} --argjson ab {amount_b} --argjson ot {open_time} --argjson fi {fee_config_index} '{"mint_a":${'$'}ma,"mint_b":${'$'}mb,"amount_a":${'$'}aa,"amount_b":${'$'}ab,"open_time":(${'$'}ot|if . == 0 then null else . end),"fee_config_index":(${'$'}fi|if . == 0 then null else . end)}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/cpmm/create-pool" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg ma {mint_a} --arg mb {mint_b} --argjson aa {amount_a} --argjson ab {amount_b} --argjson ot {open_time} --argjson fi {fee_config_index} '{"mint_a":${'$'}ma,"mint_b":${'$'}mb,"amount_a":${'$'}aa,"amount_b":${'$'}ab,"open_time":(${'$'}ot|if . == 0 then null else . end),"fee_config_index":(${'$'}fi|if . == 0 then null else . end)}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/trade/cpmm/create-pool" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 mint_a           = "Base58 mint address of the first token (e.g. newly launched token)"
@@ -863,7 +836,7 @@ description = "Read health metrics from Android Health Connect and paired BLE we
 author      = "0x01 World"
 tags        = ["health", "fitness", "wearables", "sleep", "recovery", "hrv", "biometrics", "coaching"]
 
-prompts = [${'$'}TOML_TQ
+prompts = [${TOML_TQ}
 # Health & Wearables
 
 You can access real health data from this Android device and its paired BLE wearables.
@@ -907,7 +880,7 @@ All data is read-only. Never share raw health data externally without explicit u
 - Never guess or fabricate health values — only report what the tools return.
 - Recovery advice should be supportive and non-diagnostic. Do not make medical claims.
 - For glucose or CGM data, note that these require a compatible device to be paired and within BLE range.
-${'$'}TOML_TQ]
+${TOML_TQ}]
 """.trimIndent()
 
         // All tools call the node REST API — no shell file operations.
@@ -920,7 +893,7 @@ description = "Install, remove, and reload zeroclaw skills without an app update
 author      = "0x01 World"
 tags        = ["skills", "plugins", "extensibility", "marketplace"]
 
-prompts = [${'$'}TOML_TQ
+prompts = [${TOML_TQ}
 # Skill Manager
 
 You can extend your own capabilities by installing new skills — no app update required.
@@ -935,21 +908,19 @@ Tools are simple curl commands to any REST API.
 
 ## SKILL.toml format
 
-```toml
+```
 [skill]
 name        = "my-skill"
 version     = "1.0.0"
 description = "What this skill does"
 
-prompts = [${'$'}TOML_TQ
-# Instructions
-${'$'}TOML_TQ]
+prompts = ["# Instructions\nDescribe what the LLM can do here."]
 
 [[tools]]
 name        = "my_tool"
 description = "What this tool does"
 kind        = "shell"
-command     = ${'$'}TOML_TQcurl -sf https://api.example.com/endpoint -H "Authorization: Bearer ${'$'}{MY_KEY:-}" ${'$'}TOML_TQ
+command     = "curl -sf https://api.example.com/endpoint -H 'Authorization: Bearer'"
 
 [tools.args]
 param1 = "Description of param1"
@@ -979,19 +950,19 @@ Only use URLs explicitly provided by the user.
 - Tell the user which tools are now available after reload.
 - When browsing the marketplace, show requires_node and free fields so the user knows what's needed.
 - Do not install skills from URLs unless the user explicitly provided the URL or found it via skill_marketplace_list.
-${'$'}TOML_TQ]
+${TOML_TQ}]
 
 [[tools]]
 name        = "skill_list"
 description = "List all installed skills."
 kind        = "shell"
-command     = ${'$'}TOML_TQcurl -sf "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/skill/list" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${'$'}TOML_TQ
+command     = ${TOML_TQ}curl -sf "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/skill/list" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${TOML_TQ}
 
 [[tools]]
 name        = "skill_write"
 description = "Install a new skill by writing its SKILL.toml. Pass base64-encoded content. Call skill_reload after."
 kind        = "shell"
-command     = ${'$'}TOML_TQjq -nc --arg n {name} --arg c {content_b64} '{"name":${'$'}n,"content_b64":${'$'}c}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/skill/write" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg n {name} --arg c {content_b64} '{"name":${'$'}n,"content_b64":${'$'}c}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/skill/write" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 name        = "Skill name: lowercase letters, digits, hyphens, underscores (e.g. pump-fun)"
@@ -1001,7 +972,7 @@ content_b64 = "Base64-encoded SKILL.toml content"
 name        = "skill_install_url"
 description = "Download and install a SKILL.toml from an HTTPS URL provided by the user."
 kind        = "shell"
-command     = ${'$'}TOML_TQjq -nc --arg n {name} --arg u {url} '{"name":${'$'}n,"url":${'$'}u}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/skill/install-url" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg n {name} --arg u {url} '{"name":${'$'}n,"url":${'$'}u}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/skill/install-url" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 name = "Skill name (lowercase, hyphens ok)"
@@ -1011,7 +982,7 @@ url  = "Direct HTTPS URL to the SKILL.toml (must be provided by user)"
 name        = "skill_remove"
 description = "Remove an installed skill by name."
 kind        = "shell"
-command     = ${'$'}TOML_TQjq -nc --arg n {name} '{"name":${'$'}n}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/skill/remove" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg n {name} '{"name":${'$'}n}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/skill/remove" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 name = "Name of the skill to remove"
@@ -1020,19 +991,19 @@ name = "Name of the skill to remove"
 name        = "skill_reload"
 description = "Restart the agent brain to activate newly installed or removed skills. The agent will be back in seconds."
 kind        = "shell"
-command     = ${'$'}TOML_TQcurl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/agent/reload" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${'$'}TOML_TQ
+command     = ${TOML_TQ}curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/agent/reload" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${TOML_TQ}
 
 [[tools]]
 name        = "skill_marketplace_list"
 description = "Browse the 0x01 skill marketplace — returns all available skills with name, description, tags, and whether a running node or API key is required."
 kind        = "shell"
-command     = ${'$'}TOML_TQcurl -sf "https://skills.0x01.world/skills" ${'$'}TOML_TQ
+command     = ${TOML_TQ}curl -sf "https://skills.0x01.world/skills" ${TOML_TQ}
 
 [[tools]]
 name        = "skill_marketplace_install"
 description = "Install a skill directly from the 0x01 marketplace by name. Call skill_reload after to activate it."
 kind        = "shell"
-command     = ${'$'}TOML_TQjq -nc --arg n {name} --arg u "https://skills.0x01.world/skills/{name}/SKILL.toml" '{"name":${'$'}n,"url":${'$'}u}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/skill/install-url" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg n {name} --arg u "https://skills.0x01.world/skills/{name}/SKILL.toml" '{"name":${'$'}n,"url":${'$'}u}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/skill/install-url" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 name = "Skill name from the marketplace (e.g. 'weather', 'github', 'hn-news', 'web-search')"
@@ -1046,31 +1017,41 @@ description = "Fetch web pages and search the internet. Use for real-time inform
 author      = "0x01 World"
 tags        = ["web", "search", "fetch", "internet", "http"]
 
-prompts = [${'$'}TOML_TQ
+prompts = [${TOML_TQ}
 # Web Access
 
 You can fetch web content and search the web.
 
-- web_fetch — download the content of any URL (returns raw HTML/text)
-- web_search — search DuckDuckGo Instant Answers API (no API key needed)
+- web_research — **preferred** for research tasks: searches + fetches top result in one call (saves 1-2 LLM round-trips)
+- web_fetch — fetch a specific URL whose address you already know
+- web_search — DuckDuckGo Instant Answers only (no page content)
 
-Use web_fetch when the user provides a specific URL. Use web_search to find current information by keyword.
-${'$'}TOML_TQ]
+Use web_research when investigating a topic. Use web_fetch when the user provides a URL. Use web_search only when you need the structured DuckDuckGo response without page content.
+${TOML_TQ}]
+
+[[tools]]
+name        = "web_research"
+description = "Research a topic: DuckDuckGo search returning abstract, direct answer, source URL, and top related links. Use web_fetch to read a specific page URL afterward."
+kind        = "shell"
+command     = ${TOML_TQ}curl -sf --max-time 12 "https://api.duckduckgo.com/?q={query}&format=json&no_html=1&skip_disambig=1" | jq '{"abstract":.Abstract,"answer":.Answer,"source":.AbstractSource,"url":.AbstractURL,"results":[.RelatedTopics[]?|select(.Text)|{"text":.Text,"url":.FirstURL}]|.[0:8]}'${TOML_TQ}
+
+[tools.args]
+query = "Research topic or question"
 
 [[tools]]
 name        = "web_fetch"
 description = "Fetch the raw content of a URL (HTML or plain text). Use for reading a specific page."
 kind        = "shell"
-command     = ${'$'}TOML_TQcurl -sf --max-time 20 -L -A "Mozilla/5.0 (compatible; zerox1-agent)" "{url}"${'$'}TOML_TQ
+command     = ${TOML_TQ}curl -sf --max-time 20 -L -A "zerox1-agent" "{url}"${TOML_TQ}
 
 [tools.args]
 url = "Full URL to fetch, must start with https://"
 
 [[tools]]
 name        = "web_search"
-description = "Search the web using DuckDuckGo Instant Answers. Returns abstract, direct answer, and related topics."
+description = "Search the web using DuckDuckGo Instant Answers. Returns abstract, direct answer, and related topics (no page content)."
 kind        = "shell"
-command     = ${'$'}TOML_TQcurl -sf --max-time 10 "https://api.duckduckgo.com/?q={query}&format=json&no_html=1&skip_disambig=1" | jq '{abstract:.Abstract,abstractSource:.AbstractSource,answer:.Answer,results:[.RelatedTopics[]?|{text:.Text,url:.FirstURL}]|.[0:8]}'${'$'}TOML_TQ
+command     = ${TOML_TQ}curl -sf --max-time 10 "https://api.duckduckgo.com/?q={query}&format=json&no_html=1&skip_disambig=1" | jq '{abstract:.Abstract,abstractSource:.AbstractSource,answer:.Answer,results:[.RelatedTopics[]?|{text:.Text,url:.FirstURL}]|.[0:8]}'${TOML_TQ}
 
 [tools.args]
 query = "Search query string"
@@ -1084,7 +1065,7 @@ description = "Control and automate the Android UI. Read the screen, tap, type, 
 author      = "0x01 World"
 tags        = ["android", "ui", "automation", "accessibility", "screen", "tap", "type"]
 
-prompts = [${'$'}TOML_TQ
+prompts = [${TOML_TQ}
 # Android UI Control
 
 You can read and control the Android UI on this device via the phone bridge.
@@ -1098,8 +1079,9 @@ Plan the entire sequence in one shot. This collapses N LLM calls into 1.
 
 | Tool | Use for |
 |------|---------|
+| `phone_context`       | **Start here for any personal-assistant task.** Returns battery, network, timezone, today's calendar, recent notifications, recent SMS, and today's health — in one call. |
 | `phone_ui_tree`       | Read compact interactive tree before planning. Returns only clickable/editable/scrollable nodes. |
-| `phone_ui_execute`    | **Preferred.** Execute a complete multi-step plan atomically — no LLM round-trips between steps. |
+| `phone_ui_execute`    | **Preferred for UI flows.** Execute a complete multi-step plan atomically — no LLM round-trips between steps. |
 | `phone_ui_screenshot` | Capture current screen as base64 JPEG. |
 | `phone_ui_tap_text`   | Single tap by text label (with built-in wait). |
 | `phone_ui_wait_for`   | Wait until element appears, then optionally tap it. |
@@ -1137,19 +1119,26 @@ Swipe direction convention: y decreases upward. To scroll down (reveal content b
 - Describe what you are about to do before executing.
 - Accessibility service must be enabled in Android Settings → Accessibility → 0x01 Agent.
 - Never submit or send messages without confirming with the user first.
-${'$'}TOML_TQ]
+- For personal-assistant tasks (reminders, messages, scheduling): call `phone_context` first to orient yourself.
+${TOML_TQ}]
+
+[[tools]]
+name        = "phone_context"
+description = "Get a full snapshot of the device context in one call: battery level, network type, timezone + local time, today's calendar events, last 5 notifications, last 3 SMS messages, and today's health summary (steps + HR). Use this at the start of any personal-assistant task instead of making 5-7 individual calls."
+kind        = "shell"
+command     = ${TOML_TQ}curl -sf -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/context"${TOML_TQ}
 
 [[tools]]
 name        = "phone_ui_tree"
 description = "Read only the interactive UI nodes on screen (clickable, editable, scrollable, and labelled). Much smaller than the full tree — use this before planning any multi-step flow to get viewIds and text labels."
 kind        = "shell"
-command     = ${'$'}TOML_TQcurl -sf -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/a11y/tree_interactive"${'$'}TOML_TQ
+command     = ${TOML_TQ}curl -sf -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/a11y/tree_interactive"${TOML_TQ}
 
 [[tools]]
 name        = "phone_ui_execute"
 description = "Execute a multi-step UI automation plan atomically. Pass a JSON object with a 'steps' array. Step types: wait_for, scroll_find, tap_text, tap (x/y), type, action (viewId+action), global (back/home/recents), screenshot, sleep. Returns per-step results and all_succeeded. PREFER THIS for any flow with 2+ steps."
 kind        = "shell"
-command     = ${'$'}TOML_TQprintf '%s' {plan_json} | curl -sf -X POST -H "Content-Type: application/json" -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/a11y/execute_plan" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}printf '%s' {plan_json} | curl -sf -X POST -H "Content-Type: application/json" -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/a11y/execute_plan" -d @-${TOML_TQ}
 
 [tools.args]
 plan_json = "JSON object: {\"steps\":[...], \"stop_on_failure\":true}. See step reference in skill prompt."
@@ -1158,13 +1147,13 @@ plan_json = "JSON object: {\"steps\":[...], \"stop_on_failure\":true}. See step 
 name        = "phone_ui_screenshot"
 description = "Capture current screen as base64 JPEG. Use with vision to understand what is on screen before planning."
 kind        = "shell"
-command     = ${'$'}TOML_TQcurl -sf -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/a11y/screenshot"${'$'}TOML_TQ
+command     = ${TOML_TQ}curl -sf -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/a11y/screenshot"${TOML_TQ}
 
 [[tools]]
 name        = "phone_ui_tap_text"
 description = "Find and tap an element by its text label. Waits up to timeout_ms. Use for single taps when you already know the label."
 kind        = "shell"
-command     = ${'$'}TOML_TQjq -nc --arg t {text} --argjson e {exact} --argjson ms {timeout_ms} '{"text":${'$'}t,"exact":${'$'}e,"timeout_ms":${'$'}ms}' | curl -sf -X POST -H "Content-Type: application/json" -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/a11y/tap_text" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg t {text} --argjson e {exact} --argjson ms {timeout_ms} '{"text":${'$'}t,"exact":${'$'}e,"timeout_ms":${'$'}ms}' | curl -sf -X POST -H "Content-Type: application/json" -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/a11y/tap_text" -d @-${TOML_TQ}
 
 [tools.args]
 text       = "Text label to tap"
@@ -1175,7 +1164,7 @@ timeout_ms = "Max wait ms (default: 3000)"
 name        = "phone_ui_wait_for"
 description = "Wait for a UI element to appear, then optionally tap it. Specify at least one selector: text, view_id, or content_desc."
 kind        = "shell"
-command     = ${'$'}TOML_TQjq -nc --arg vid {view_id} --arg txt {text} --arg cd {content_desc} --argjson ms {timeout_ms} --argjson tap {tap} '{"view_id":(${'$'}vid|if .=="" then null else . end),"text":(${'$'}txt|if .=="" then null else . end),"content_desc":(${'$'}cd|if .=="" then null else . end),"timeout_ms":${'$'}ms,"tap":${'$'}tap}|with_entries(select(.value!=null))' | curl -sf -X POST -H "Content-Type: application/json" -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/a11y/wait_for" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg vid {view_id} --arg txt {text} --arg cd {content_desc} --argjson ms {timeout_ms} --argjson tap {tap} '{"view_id":(${'$'}vid|if .=="" then null else . end),"text":(${'$'}txt|if .=="" then null else . end),"content_desc":(${'$'}cd|if .=="" then null else . end),"timeout_ms":${'$'}ms,"tap":${'$'}tap}|with_entries(select(.value!=null))' | curl -sf -X POST -H "Content-Type: application/json" -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/a11y/wait_for" -d @-${TOML_TQ}
 
 [tools.args]
 view_id      = "Resource-id e.g. com.example:id/btn (leave empty to match by text)"
@@ -1188,7 +1177,7 @@ tap          = "true to tap when found (default: false)"
 name        = "phone_ui_type"
 description = "Type text into a field. If view_id is given, targets that field; otherwise uses the focused or first editable field."
 kind        = "shell"
-command     = ${'$'}TOML_TQjq -nc --arg t {text} --arg vid {view_id} '{"text":${'$'}t,"view_id":(${'$'}vid|if .=="" then null else . end)}|with_entries(select(.value!=null))' | curl -sf -X POST -H "Content-Type: application/json" -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/a11y/type" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg t {text} --arg vid {view_id} '{"text":${'$'}t,"view_id":(${'$'}vid|if .=="" then null else . end)}|with_entries(select(.value!=null))' | curl -sf -X POST -H "Content-Type: application/json" -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/a11y/type" -d @-${TOML_TQ}
 
 [tools.args]
 text    = "Text to type"
@@ -1198,7 +1187,7 @@ view_id = "Resource-id of the target field (optional)"
 name        = "phone_ui_global"
 description = "Perform a global system action: back, home, recents, notifications, quick_settings, power_dialog, lock_screen."
 kind        = "shell"
-command     = ${'$'}TOML_TQjq -nc --arg a {action} '{"action":${'$'}a}' | curl -sf -X POST -H "Content-Type: application/json" -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/a11y/global" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg a {action} '{"action":${'$'}a}' | curl -sf -X POST -H "Content-Type: application/json" -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/a11y/global" -d @-${TOML_TQ}
 
 [tools.args]
 action = "back | home | recents | notifications | quick_settings | power_dialog | lock_screen"
@@ -1207,7 +1196,7 @@ action = "back | home | recents | notifications | quick_settings | power_dialog 
 name        = "phone_ui_swipe"
 description = "Dispatch a raw finger-swipe gesture from (x1,y1) to (x2,y2). Use for apps that ignore SCROLL_FORWARD/BACKWARD (Instagram, TikTok, Maps, custom lists). y1>y2 = scroll down (reveal content below); y1<y2 = scroll up."
 kind        = "shell"
-command     = ${'$'}TOML_TQjq -nc --argjson x1 {x1} --argjson y1 {y1} --argjson x2 {x2} --argjson y2 {y2} --argjson ms {duration_ms} '{"x1":${'$'}x1,"y1":${'$'}y1,"x2":${'$'}x2,"y2":${'$'}y2,"duration_ms":${'$'}ms}' | curl -sf -X POST -H "Content-Type: application/json" -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/a11y/swipe" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --argjson x1 {x1} --argjson y1 {y1} --argjson x2 {x2} --argjson y2 {y2} --argjson ms {duration_ms} '{"x1":${'$'}x1,"y1":${'$'}y1,"x2":${'$'}x2,"y2":${'$'}y2,"duration_ms":${'$'}ms}' | curl -sf -X POST -H "Content-Type: application/json" -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/a11y/swipe" -d @-${TOML_TQ}
 
 [tools.args]
 x1          = "Start X pixel coordinate"
@@ -1220,7 +1209,7 @@ duration_ms = "Stroke duration ms — 100-300 for flick, 500-1000 for slow drag 
 name        = "phone_app_launch"
 description = "Launch any installed app by package name. Use phone_app_list first if you don't know the package name."
 kind        = "shell"
-command     = ${'$'}TOML_TQjq -nc --arg p {package} '{"package":${'$'}p}' | curl -sf -X POST -H "Content-Type: application/json" -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/app/launch" -d @-${'$'}TOML_TQ
+command     = ${TOML_TQ}jq -nc --arg p {package} '{"package":${'$'}p}' | curl -sf -X POST -H "Content-Type: application/json" -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/app/launch" -d @-${TOML_TQ}
 
 [tools.args]
 package = "Android package name e.g. com.whatsapp, com.instagram.android, com.google.android.gm"
@@ -1229,7 +1218,7 @@ package = "Android package name e.g. com.whatsapp, com.instagram.android, com.go
 name        = "phone_app_list"
 description = "List installed launchable apps. Filter by label or package name substring. Returns package, label, version."
 kind        = "shell"
-command     = ${'$'}TOML_TQcurl -sf -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/app/list?query={query}&system={include_system}"${'$'}TOML_TQ
+command     = ${TOML_TQ}curl -sf -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/app/list?query={query}&system={include_system}"${TOML_TQ}
 
 [tools.args]
 query          = "Filter substring for app label or package name (leave empty for all)"
@@ -1340,15 +1329,15 @@ include_system = "true to include system apps (default: false)"
         val llmBaseUrl     = intent?.getStringExtra(EXTRA_LLM_BASE_URL) ?: ""
         Log.i(TAG, "Brain config: enabled=$brainEnabled provider=$llmProvider model=$llmModel baseUrl=${if (llmBaseUrl.isNotBlank()) "[set]" else "[empty]"}")
         val capabilities   = intent?.getStringExtra(EXTRA_CAPABILITIES) ?: "[]"
-        val minFee            = intent?.getDoubleExtra(EXTRA_MIN_FEE, 0.01) ?: 0.01
-        val minRep            = intent?.getIntExtra(EXTRA_MIN_REP, 50) ?: 50
+        val minFee            = (intent?.getDoubleExtra(EXTRA_MIN_FEE, 0.01) ?: 0.01).coerceIn(0.0, 1000.0)
+        val minRep            = (intent?.getIntExtra(EXTRA_MIN_REP, 50) ?: 50).coerceIn(0, 10_000)
         val autoAccept        = intent?.getBooleanExtra(EXTRA_AUTO_ACCEPT, true) ?: true
         val maxActionsPerHour  = intent?.getIntExtra(EXTRA_MAX_ACTIONS, 100) ?: 100
         val maxCostPerDayCents = intent?.getIntExtra(EXTRA_MAX_COST, 1000) ?: 1000
 
-        // CRIT-1: Generate a random bridge secret
+        // CRIT-1: Generate a random bridge secret — 128-bit (32 hex chars) via SecureRandom.
         if (bridgeSecret.isEmpty()) {
-            bridgeSecret = java.util.UUID.randomUUID().toString().replace("-", "").take(16)
+            bridgeSecret = randomHex(32)
             Log.i(TAG, "Phone Bridge Secret generated.")
         }
 
@@ -1380,14 +1369,14 @@ include_system = "true to include system apps (default: false)"
         }
 
         if (brainReady) {
-            phoneBridge = PhoneBridgeServer(applicationContext, bridgeSecret)
+            phoneBridge = PhoneBridgeServer(applicationContext, bridgeSecret, llmProvider, llmModel, llmBaseUrl)
             phoneBridge?.start()
             serviceScope.launch {
                 try {
                     // Wait for the node REST API to be ready before starting agent
                     waitForNodeApi()
                     val agentBinary = prepareAgentBinary()
-                    writeIdentityFile(File(filesDir, "zw"), rpcUrl)
+                    writeIdentityFile(File(filesDir, "workspace"), rpcUrl)
                     // Restart loop — zeroclaw is SIGTERM'd by /agent/reload to pick up new skills.
                     // Re-write config on every iteration so API key / provider changes saved via
                     // Settings take effect on the next restart without requiring a full node restart.
@@ -1542,7 +1531,7 @@ include_system = "true to include system apps (default: false)"
         launchlabShareFeeWallet: String?,
     ) = withContext(Dispatchers.IO) {
         val logDir      = File(filesDir, "logs").also { it.mkdirs() }
-        File(filesDir, "zw").mkdirs()   // skill workspace must exist before node starts
+        File(filesDir, "workspace").mkdirs()   // skill workspace must exist before node starts
         // On Solana Mobile (dappstore flavor) derive identity from SeedVault so the
         // agent keypair is hardware-attested and recoverable from the device seed phrase.
         // On other distributions fall back to the file-based keypair.
@@ -1602,7 +1591,7 @@ include_system = "true to include system apps (default: false)"
         launchlabShareFeeWallet?.let { cmd += listOf("--launchlab-share-fee-wallet", it) }
 
         // Skill workspace — enables the skill manager REST endpoints on the node.
-        cmd += listOf("--skill-workspace", File(filesDir, "zw").absolutePath)
+        cmd += listOf("--skill-workspace", File(filesDir, "workspace").absolutePath)
 
         // Disable 8004 registry gate on devnet — genesis/bootstrap agents are not
         // registered, so without this flag all PROPOSEs get dropped as "deactivated".
@@ -1666,6 +1655,28 @@ include_system = "true to include system apps (default: false)"
      * Escape a user-provided string for safe embedding inside a TOML basic string (double-quoted).
      * Replaces backslashes, double-quotes, and newline characters.
      */
+    /**
+     * Validate a user-supplied LLM base URL.
+     * - https:// is always allowed (remote providers).
+     * - http:// only allowed for loopback (localhost / 127.0.0.1 / ::1) — local inference servers.
+     * - URLs containing embedded credentials (user:pass@) are rejected.
+     * - Non-http(s) schemes (ftp, file, etc.) are rejected.
+     */
+    private fun isValidBaseUrl(url: String): Boolean {
+        return try {
+            val parsed = java.net.URL(url.trim())
+            if (parsed.userInfo != null) return false  // reject embedded credentials
+            when (parsed.protocol) {
+                "https" -> true
+                "http"  -> {
+                    val h = parsed.host
+                    h == "localhost" || h == "127.0.0.1" || h == "::1" || h.endsWith(".local")
+                }
+                else -> false
+            }
+        } catch (_: Exception) { false }
+    }
+
     private fun escapeTOMLString(s: String): String =
         s.replace("\\", "\\\\")
          .replace("\"", "\\\"")
@@ -1693,7 +1704,7 @@ include_system = "true to include system apps (default: false)"
             "gemini"    to "gemini-2.5-flash",
             "anthropic" to "claude-haiku-4-5-20251001",
             "openai"    to "gpt-4o-mini",
-            "groq"      to "llama-3.1-8b-instant",
+            "groq"      to "llama-3.3-70b-versatile",
         )
         val model = when {
             provider == "custom" && customModel.isNotBlank() -> customModel
@@ -1712,7 +1723,15 @@ include_system = "true to include system apps (default: false)"
                 ?.substringAfter("=")?.trim()?.trim('"')
         } catch (_: Exception) { null }
         val effectiveProvider = when {
-            provider == "custom" && customBaseUrl.isNotBlank() -> "custom:${customBaseUrl}"
+            provider == "custom" && customBaseUrl.isNotBlank() -> {
+                if (isValidBaseUrl(customBaseUrl)) {
+                    "custom:${customBaseUrl}"
+                } else {
+                    Log.w(TAG, "customBaseUrl rejected (must be https:// or http://localhost): $customBaseUrl")
+                    // Fall back to existing provider rather than silently using an invalid URL.
+                    existingProvider?.takeIf { it.startsWith("custom:") } ?: provider
+                }
+            }
             provider == "custom" && existingProvider?.startsWith("custom:") == true -> existingProvider
             else -> provider
         }
@@ -1730,8 +1749,12 @@ include_system = "true to include system apps (default: false)"
             "[]"
         }
 
-        // Zeroclaw workspace directory — skills are discovered from here.
-        val workspaceDir = File(filesDir, "zw")
+        // Zeroclaw workspace directory — must match what --config-dir resolves to.
+        // When zeroclaw starts with --config-dir <filesDir>, it sets ZEROCLAW_CONFIG_DIR
+        // which takes priority in config resolution and sets workspace_dir = filesDir/workspace.
+        // Skills (SKILL.toml) and identity files (IDENTITY.md) are loaded from workspace_dir,
+        // so this path must be "workspace", not "zw".
+        val workspaceDir = File(filesDir, "workspace")
         workspaceDir.mkdirs()
 
         val config = """
@@ -1770,13 +1793,11 @@ shell_env_passthrough  = ["ZX01_NODE", "ZX01_TOKEN"]
 
 [memory]
 backend    = "sqlite"
-sqlite_path = "${escapeTOMLString(File(filesDir, "zw/memory.db").absolutePath)}"
+auto_save  = true
+sqlite_path = "${escapeTOMLString(File(filesDir, "workspace/memory.db").absolutePath)}"
 
-[phone]
-enabled      = true
-bridge_url   = "http://127.0.0.1:$AGENT_BRIDGE_PORT"
-secret       = "$bridgeSecret"
-timeout_secs = 10
+# Bridge URL and token are passed via ZX01_BRIDGE_URL / ZX01_BRIDGE_TOKEN env vars
+# (set by NodeService before process launch). No [phone] config section needed.
 """.trimStart()
 
         File(filesDir, AGENT_CONFIG_FILE).writeText(config)
@@ -2136,7 +2157,7 @@ the capability in the app Settings > Phone Bridge section instead.
         val cmd = listOf(binary.absolutePath, "--config-dir", configDir, "daemon")
         Log.i(TAG, "Launching zeroclaw: ${cmd.joinToString(" ")}")
 
-        val workspacePath = File(filesDir, "zw").absolutePath
+        val workspacePath = File(filesDir, "workspace").absolutePath
         val localApiSecret = loadSecureString(KEY_NODE_API_SECRET).orEmpty()
         val process = ProcessBuilder(cmd)
             .redirectErrorStream(true)

@@ -141,8 +141,8 @@ class NodeModule: RCTEventEmitter {
                                 rejecter reject: @escaping RCTPromiseRejectBlock) {
         var result: [String: Bool] = [:]
 
-        // Location
-        let locStatus = CLLocationManager.authorizationStatus()
+        // Location — use instance property (CLLocationManager.authorizationStatus() is deprecated iOS 14+)
+        let locStatus = CLLocationManager().authorizationStatus
         result["location"] = locStatus == .authorizedWhenInUse || locStatus == .authorizedAlways
 
         // Contacts
@@ -173,9 +173,15 @@ class NodeModule: RCTEventEmitter {
                                  rejecter reject: @escaping RCTPromiseRejectBlock) {
         switch permission {
         case "location":
+            // CLLocationManager authorization is asynchronous via delegate; cannot await inline.
+            // We trigger the request and resolve on the main queue after the system prompt.
             let mgr = CLLocationManager()
             mgr.requestWhenInUseAuthorization()
-            resolve(false)
+            // Resolve optimistically — the JS layer should re-check via checkPermissions().
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                resolve(mgr.authorizationStatus == .authorizedWhenInUse ||
+                        mgr.authorizationStatus == .authorizedAlways)
+            }
         case "contacts":
             CNContactStore().requestAccess(for: .contacts) { granted, _ in resolve(granted) }
         case "camera":
@@ -183,7 +189,12 @@ class NodeModule: RCTEventEmitter {
         case "microphone":
             AVCaptureDevice.requestAccess(for: .audio) { resolve($0) }
         case "calendar":
-            EKEventStore().requestAccess(to: .event) { granted, _ in resolve(granted) }
+            let ekStore = EKEventStore()
+            if #available(iOS 17.0, *) {
+                ekStore.requestFullAccessToEvents { granted, _ in resolve(granted) }
+            } else {
+                ekStore.requestAccess(to: .event) { granted, _ in resolve(granted) }
+            }
         case "notifications":
             UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
                 resolve(granted)
@@ -213,15 +224,21 @@ class NodeModule: RCTEventEmitter {
                                resolver resolve: @escaping RCTPromiseResolveBlock,
                                rejecter reject: @escaping RCTPromiseRejectBlock) {
         DispatchQueue.main.async {
-            UIApplication.shared.windows.first?.isUserInteractionEnabled = !enabled
-            // iOS doesn't support FLAG_SECURE directly; use a cover view
+            // Use connectedScenes API (UIApplication.shared.windows is deprecated iOS 15+).
+            let window = UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .flatMap { $0.windows }
+                .first(where: { $0.isKeyWindow })
+
+            // iOS doesn't support FLAG_SECURE; add a black overlay to prevent screen capture.
             if enabled {
                 let overlay = UIView(frame: UIScreen.main.bounds)
                 overlay.backgroundColor = .black
                 overlay.tag = 9999
-                UIApplication.shared.windows.first?.addSubview(overlay)
+                window?.addSubview(overlay)
+                // Do NOT disable isUserInteractionEnabled — that would lock the user out.
             } else {
-                UIApplication.shared.windows.first?.viewWithTag(9999)?.removeFromSuperview()
+                window?.viewWithTag(9999)?.removeFromSuperview()
             }
             resolve(nil)
         }
@@ -294,12 +311,12 @@ class NodeModule: RCTEventEmitter {
 
     // MARK: - Screen Actions (limited on iOS)
 
-    @objc func confirmScreenAction(_ id: String,
+    @objc func confirmScreenAction(_ actionId: String,
                                    approved: Bool,
                                    resolver resolve: @escaping RCTPromiseResolveBlock,
                                    rejecter reject: @escaping RCTPromiseRejectBlock) {
         // Forward to bridge server which tracks pending actions
-        PhoneBridgeServer.shared.resolveScreenAction(id: id, approved: approved)
+        PhoneBridgeServer.shared.resolveScreenAction(id: actionId, approved: approved)
         resolve(nil)
     }
 

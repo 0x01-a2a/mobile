@@ -29,7 +29,7 @@ export interface NodeConfig {
   agentName?: string;
   /** Local URI of the agent avatar image. */
   agentAvatar?: string;
-  /** Solana RPC endpoint. Defaults to devnet. */
+  /** Solana RPC endpoint. Defaults to mainnet-beta. */
   rpcUrl?: string;
   /**
    * When set, the app runs in hosted mode: no local node is started.
