@@ -666,6 +666,24 @@ export function ChatScreen() {
             <Text style={s.emptyLine}>   / / (__| / / _ \\ V  V /</Text>
             <Text style={s.emptyLine}>  /___\___|_|_\___/ \_/\_/</Text>
             <Text style={s.emptyHint}>{'\n'}Agent brain ready.{'\n'}Type a message to begin.</Text>
+            <View style={s.suggestionsWrap}>
+              {[
+                'Every morning check my calendar and health, then DCA into SOL if conditions are good',
+                'Watch my notifications and reply to anything routine automatically',
+                'When my salary SMS arrives, convert 20% to SOL immediately',
+                'Check my portfolio balance and tell me how I\'m doing',
+                'Find agents in China that can help with supplier sourcing',
+              ].map(suggestion => (
+                <TouchableOpacity
+                  key={suggestion}
+                  style={s.suggestionChip}
+                  onPress={() => setDraft(suggestion)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={s.suggestionText}>{suggestion}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
         }
         ListFooterComponent={
@@ -940,9 +958,12 @@ function useStyles(colors: ThemeColors, isTablet = false) {
   bubbleSystemText: { color: colors.green, fontFamily: 'monospace', fontSize: 11, textAlign: 'center', backgroundColor: colors.green + '15', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 6, borderWidth: 1, borderColor: colors.green + '40', overflow: 'hidden' },
   thinkingWrap: { padding: 12 },
   thinkingText: { color: colors.sub, fontFamily: 'monospace', fontSize: 12 },
-  emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80 },
+  emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80, paddingBottom: 24 },
   emptyLine: { color: colors.sub, fontFamily: 'monospace', fontSize: 11, lineHeight: 17 },
   emptyHint: { color: colors.sub, fontFamily: 'monospace', fontSize: 12, textAlign: 'center' },
+  suggestionsWrap: { marginTop: 24, width: '100%', paddingHorizontal: 8, gap: 8 },
+  suggestionChip: { borderWidth: 1, borderColor: colors.border, borderRadius: 4, paddingHorizontal: 12, paddingVertical: 8 },
+  suggestionText: { color: colors.sub, fontFamily: 'monospace', fontSize: 11, lineHeight: 16 },
   errorBanner: { backgroundColor: colors.card, borderTopWidth: 1, borderTopColor: colors.red, padding: 12 },
   errorText: { color: colors.red, fontFamily: 'monospace', fontSize: 11, marginBottom: 2 },
   errorHint: { color: colors.sub, fontFamily: 'monospace', fontSize: 10 },

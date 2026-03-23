@@ -780,6 +780,8 @@ export function OnboardingScreen({
         minFeeUsdc: parseFloat(minFeeUsdc) || 0.01,
         minReputation: parseInt(minRep, 10) || 50,
         autoAccept,
+        maxActionsPerHour: 100,
+        maxCostPerDayCents: 1000,
         apiKeySet: true,
         customBaseUrl: customBaseUrl.trim() || '',
         customModel: customModel.trim() || '',
