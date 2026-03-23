@@ -49,9 +49,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      ZEROX1_RELEASE_STORE_PASS: ${{ secrets.ZEROX1_RELEASE_STORE_PASS }}
-      ZEROX1_RELEASE_KEY_PASS:   ${{ secrets.ZEROX1_RELEASE_KEY_PASS }}
-      ZEROX1_RELEASE_KEYSTORE:   release.keystore
+      ZEROX1_RELEASE_STORE_PASS:    ${{ secrets.ZEROX1_RELEASE_STORE_PASS }}
+      ZEROX1_RELEASE_KEY_PASS:      ${{ secrets.ZEROX1_RELEASE_KEY_PASS }}
+      ZEROX1_RELEASE_KEYSTORE:      release.keystore
+      ZEROX1_DAPPSTORE_STORE_PASS:  ${{ secrets.ZEROX1_DAPPSTORE_STORE_PASS }}
+      ZEROX1_DAPPSTORE_KEY_PASS:    ${{ secrets.ZEROX1_DAPPSTORE_KEY_PASS }}
+      ZEROX1_DAPPSTORE_KEYSTORE:    dappstore.keystore
       ZEROX1_BAGS_PARTNER_KEY:      ${{ secrets.ZEROX1_BAGS_PARTNER_KEY }}
       ZEROX1_HELIUS_API_KEY:        ${{ secrets.ZEROX1_HELIUS_API_KEY }}
       ZEROX1_JUPITER_FEE_ACCOUNT:          ${{ secrets.ZEROX1_JUPITER_FEE_ACCOUNT }}
@@ -88,9 +91,10 @@ jobs:
           echo "name=$VERSION" >> "$GITHUB_OUTPUT"
           echo "code=$CODE"    >> "$GITHUB_OUTPUT"
 
-      - name: Decode Keystore
+      - name: Decode Keystores
         run: |
-          echo "${{ secrets.ZEROX1_RELEASE_KEYSTORE_BASE64 }}" | base64 --decode > android/app/release.keystore
+          echo "${{ secrets.ZEROX1_RELEASE_KEYSTORE_BASE64 }}"   | base64 --decode > android/app/release.keystore
+          echo "${{ secrets.ZEROX1_DAPPSTORE_KEYSTORE_BASE64 }}" | base64 --decode > android/app/dappstore.keystore
 
       - name: Make Gradlew Executable
         run: chmod +x gradlew
