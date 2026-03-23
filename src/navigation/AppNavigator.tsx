@@ -69,10 +69,9 @@ export function AppNavigator() {
           tabBarInactiveTintColor: colors.sub,
           tabBarLabelStyle: isWideMode ? staticStyles.labelSide : staticStyles.label,
           tabBarIconStyle: isWideMode ? staticStyles.iconSide : undefined,
-          tabBarPressColor: 'transparent',
           tabBarButton: (props) => (
             <Pressable
-              {...props}
+              {...(props as any)}
               android_ripple={null}
             />
           ),

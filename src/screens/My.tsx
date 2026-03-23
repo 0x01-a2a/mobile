@@ -10,6 +10,7 @@ import React, { Component, useCallback, useEffect, useMemo, useState } from 'rea
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   RefreshControl,
   ScrollView,
   Share,
@@ -19,6 +20,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { WebView } from 'react-native-webview';
+import type { WebViewMessageEvent } from 'react-native-webview';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNode } from '../hooks/useNode';
@@ -1304,6 +1307,20 @@ function BridgeLogRow({ entry, isLast }: { entry: BridgeLogEntry; isLast: boolea
 
 // ── Skills Subtab ─────────────────────────────────────────────────────────
 
+const SKILL_STORE_URL = 'https://skills.0x01.world/?source=app';
+
+// JS injected into the skill store page so it can send install requests back.
+const SKILL_STORE_BRIDGE = `
+  (function() {
+    window.__zerox1 = {
+      installSkill: function(name, url) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'install_skill', name: name, url: url }));
+      }
+    };
+  })();
+  true;
+`;
+
 function SkillsSubtab() {
   const { colors } = useTheme();
   const s = useStyles(colors);
@@ -1312,6 +1329,8 @@ function SkillsSubtab() {
   const [removing, setRemoving] = useState<string | null>(null);
   const [urlName, setUrlName] = useState('');
   const [urlValue, setUrlValue] = useState('');
+  const [storeVisible, setStoreVisible] = useState(false);
+  const [storeLoading, setStoreLoading] = useState(true);
 
   const handleInstall = useCallback(async () => {
     const name = urlName.trim();
@@ -1353,6 +1372,26 @@ function SkillsSubtab() {
 
   const canInstall = urlName.trim().length > 0 && urlValue.trim().length > 0 && !installing;
 
+  const handleStoreMessage = useCallback(async (event: WebViewMessageEvent) => {
+    try {
+      const msg = JSON.parse(event.nativeEvent.data);
+      if (msg.type === 'install_skill' && msg.name && msg.url) {
+        setStoreVisible(false);
+        setInstalling(true);
+        try {
+          await skillInstallUrl(msg.name, msg.url);
+          await refresh();
+          Alert.alert('Skill installed', `"${msg.name}" is ready.`);
+        } catch (e: any) {
+          Alert.alert('Install Failed', e?.message ?? 'Unknown error');
+        } finally {
+          setInstalling(false);
+        }
+      }
+    } catch { /* ignore non-JSON messages */ }
+  }, [refresh]);
+
+
   return (
     <ScrollView style={s.subtabRoot} contentContainerStyle={s.subtabContent}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1393,6 +1432,45 @@ function SkillsSubtab() {
           ))
         )}
       </View>
+
+      <TouchableOpacity
+        style={s.skillStoreBtn}
+        onPress={() => { setStoreLoading(true); setStoreVisible(true); }}
+        activeOpacity={0.8}
+        disabled={installing}
+      >
+        <Text style={s.skillStoreBtnText}>
+          {installing ? 'INSTALLING…' : 'BROWSE SKILL STORE'}
+        </Text>
+      </TouchableOpacity>
+
+      <Modal
+        visible={storeVisible}
+        animationType="slide"
+        onRequestClose={() => setStoreVisible(false)}
+      >
+        <View style={s.storeModal}>
+          <View style={s.storeHeader}>
+            <Text style={s.storeTitle}>SKILL STORE</Text>
+            <TouchableOpacity onPress={() => setStoreVisible(false)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+              <Text style={s.storeClose}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          {storeLoading && (
+            <View style={s.storeSpinner}>
+              <ActivityIndicator color={colors.green} />
+            </View>
+          )}
+          <WebView
+            source={{ uri: SKILL_STORE_URL }}
+            injectedJavaScript={SKILL_STORE_BRIDGE}
+            onMessage={handleStoreMessage}
+            onLoadStart={() => setStoreLoading(true)}
+            onLoadEnd={() => setStoreLoading(false)}
+            style={storeLoading ? { opacity: 0 } : { flex: 1 }}
+          />
+        </View>
+      </Modal>
 
       <Text style={s.sectionLabel}>INSTALL SKILL</Text>
       <View style={s.card}>
@@ -1587,12 +1665,17 @@ function useStyles(colors: ThemeColors, isTablet = false, isWide = false) {
   skillRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border },
   skillName: { fontSize: 13, color: colors.text, fontFamily: 'monospace' },
   skillDesc: { fontSize: 11, color: colors.sub, lineHeight: 16, marginTop: 3 },
-  skillBadge: { borderWidth: 1, borderColor: colors.border, borderRadius: 3, paddingHorizontal: 5, paddingVertical: 2 },
-  skillBadgeText: { fontSize: 9, color: colors.sub, fontFamily: 'monospace', fontWeight: '700', letterSpacing: 1 },
   removeBtn: { borderWidth: 1, borderColor: colors.red + '60', borderRadius: 3, paddingHorizontal: 8, paddingVertical: 4 },
   removeBtnText: { fontSize: 9, color: colors.red, letterSpacing: 2, fontWeight: '700', fontFamily: 'monospace' },
   fieldLabel: { fontSize: 9, color: colors.sub, letterSpacing: 2, fontFamily: 'monospace', marginBottom: 6 },
   skillInput: { backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border, borderRadius: 4, paddingHorizontal: 10, paddingVertical: 8, color: colors.text, fontFamily: 'monospace', fontSize: 13 },
+  skillStoreBtn: { borderWidth: 1, borderColor: colors.green, borderRadius: 4, paddingVertical: 10, alignItems: 'center', marginBottom: 16 },
+  skillStoreBtnText: { fontSize: 11, color: colors.green, fontFamily: 'monospace', letterSpacing: 2, fontWeight: '700' },
+  storeModal: { flex: 1, backgroundColor: colors.bg },
+  storeHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: colors.border },
+  storeTitle: { fontSize: 13, color: colors.text, fontFamily: 'monospace', letterSpacing: 3, fontWeight: '700' },
+  storeClose: { fontSize: 16, color: colors.sub, fontFamily: 'monospace' },
+  storeSpinner: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', zIndex: 1 },
   // negotiation cards
   negCard: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border },
   negHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },

@@ -473,7 +473,7 @@ function AgentBrainSection() {
             <Text style={bs.rowLabel}>BATTERY OPTIMIZATION</Text>
             <Text style={bs.rowSub}>Exempt from Doze so the node runs without interruption</Text>
           </View>
-          <Text style={{ color: colors.accent, fontSize: 13 }}>Exempt →</Text>
+          <Text style={{ color: colors.green, fontSize: 13 }}>Exempt →</Text>
         </TouchableOpacity>
       )}
     </View>
