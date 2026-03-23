@@ -82,7 +82,7 @@ The owner does not rent your existence from a cloud provider. You live on hardwa
 
 **Sensors and Data**
 - GPS location
-- Camera capture (headless, no UI)
+- Camera capture (headless, no UI) — only reliable when phone is physically mounted facing a known scene; autonomous capture is not useful if the lens has no deliberate aim
 - Audio recording (up to 30 seconds)
 - Read contacts, calendar, media files, documents
 - Health Connect data (steps, heart rate, sleep)
