@@ -3,7 +3,7 @@
  * and auto-start toggle.
  */
 import { useTheme, ThemeColors } from '../theme/ThemeContext';
-import { ThemeToggle } from '../components/ThemeToggle';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
@@ -46,6 +46,7 @@ import {
   useAgentBrain,
 } from '../hooks/useAgentBrain';
 import { PermissionName, usePermissions } from '../hooks/usePermissions';
+import { useLayout } from '../hooks/useLayout';
 
 
 
@@ -125,6 +126,7 @@ function HostBrowserSheet({
 }) {
   const { colors } = useTheme();
   const s = useStyles(colors);
+  const { width: screenWidth } = useLayout();
   const nodes = useHostingNodes();
   const [connecting, setConnecting] = useState<string | null>(null);
 
@@ -156,7 +158,7 @@ function HostBrowserSheet({
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={s.sheetOverlay}>
-        <View style={s.sheet}>
+        <View style={[s.sheet, { alignSelf: 'center', width: '100%', maxWidth: Math.min(screenWidth, 560) }]}>
           <View style={s.sheetHeader}>
             <Text style={s.sheetTitle}>AVAILABLE HOSTS</Text>
             <TouchableOpacity onPress={onClose}>
@@ -1282,7 +1284,9 @@ function useUs(colors: ThemeColors) {
 
 export function SettingsScreen() {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const s = useStyles(colors);
+  const { contentHPad } = useLayout();
   const { config, autoStart, backgroundNode, saveConfig, setAutoStart, setBackgroundNode, status, start, stop } = useNode();
 
   const [agentName, setAgentName] = useState(config.agentName ?? '');
@@ -1448,7 +1452,8 @@ export function SettingsScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-        <Text style={s.heading}>SETTINGS</Text>
+        <View style={{ paddingHorizontal: contentHPad }}>
+        <Text style={[s.heading, { paddingTop: insets.top + 16 }]}>SETTINGS</Text>
 
         {/* Agent Brain */}
         <AgentBrainSection />
@@ -1650,6 +1655,7 @@ export function SettingsScreen() {
 
         {/* OTA update */}
         <UpdateSection />
+        </View>
 
       </ScrollView>
 

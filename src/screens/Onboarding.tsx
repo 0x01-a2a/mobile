@@ -14,6 +14,7 @@
  */
 import { useTheme, ThemeColors } from '../theme/ThemeContext';
 import { ThemeToggle } from '../components/ThemeToggle';
+import { useLayout } from '../hooks/useLayout';
 import React, { useState, useEffect } from 'react';
 import {
   Alert,
@@ -114,7 +115,8 @@ function StepShell({
   total?: number;
 }) {
   const { colors } = useTheme();
-  const s = useStyles(colors);
+  const { isTablet, isWide, contentHPad, width: screenWidth } = useLayout();
+  const s = useStyles(colors, isTablet, isWide, screenWidth);
   return (
     <KeyboardAvoidingView
       style={s.root}
@@ -124,6 +126,7 @@ function StepShell({
         contentContainerStyle={s.content}
         keyboardShouldPersistTaps="handled"
       >
+        <View style={{ paddingHorizontal: contentHPad }}>
         {step > 0 && (
           <View style={s.progressRow}>
             {Array.from({ length: total }, (_, i) => (
@@ -132,6 +135,7 @@ function StepShell({
           </View>
         )}
         {children}
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -351,7 +355,8 @@ function ProviderStep({
   onNext: () => void;
 }) {
   const { colors } = useTheme();
-  const s = useStyles(colors);
+  const { isTablet, isWide, width: screenWidth } = useLayout();
+  const s = useStyles(colors, isTablet, isWide, screenWidth);
   const providerInfo = PROVIDERS.find(p => p.key === provider)!;
   return (
     <StepShell step={2}>
@@ -675,7 +680,8 @@ export function OnboardingScreen({
   onDone: (config: AgentBrainConfig | null) => void;
 }) {
   const { colors } = useTheme();
-  const s = useStyles(colors);
+  const { isTablet, isWide, contentHPad, width: screenWidth } = useLayout();
+  const s = useStyles(colors, isTablet, isWide, screenWidth);
   const [step, setStep] = useState(0);
   const [agentName, setAgentName] = useState('');
   const [agentAvatar, setAgentAvatar] = useState('');
@@ -1182,10 +1188,10 @@ function OnchainRegistrationStep({
 // Styles
 // ============================================================================
 
-function useStyles(colors: ThemeColors) {
+function useStyles(colors: ThemeColors, isTablet = false, isWide = false, screenWidth = 0) {
   return React.useMemo(() => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: 28, paddingTop: 56, paddingBottom: 48 },
+  content: { padding: isTablet ? 48 : 28, paddingTop: 56, paddingBottom: 48 },
   progressRow: { flexDirection: 'row', gap: 6, marginBottom: 36 },
   pip: { height: 3, flex: 1, backgroundColor: colors.border, borderRadius: 2 },
   pipDone: { backgroundColor: colors.green },
@@ -1245,7 +1251,7 @@ function useStyles(colors: ThemeColors) {
     marginBottom: 20,
   },
   providerCard: {
-    width: Dimensions.get('window').width < 360 ? '100%' : '47%',
+    width: isWide ? '30%' : isTablet ? '47%' : screenWidth < 360 ? '100%' : '47%',
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,

@@ -6,7 +6,7 @@
  * the user owns more than one agent.
  */
 import { useTheme, ThemeColors } from '../theme/ThemeContext';
-import { ThemeToggle } from '../components/ThemeToggle';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
@@ -32,6 +32,7 @@ import { useOwnedAgents, OwnedAgent } from '../hooks/useOwnedAgents';
 import { useBlobs } from '../hooks/useBlobs';
 import { sendEnvelope, setBagsApiKey } from '../hooks/useNodeApi';
 import { useNode } from '../hooks/useNode';
+import { useLayout } from '../hooks/useLayout';
 import type { BountyTask } from './Earn';
 
 const TASK_LOG_KEY = 'zerox1:task_log';
@@ -228,7 +229,8 @@ function LaunchResultCard({ result }: { result: LaunchResult }) {
 
 function Bubble({ msg }: { msg: ChatMessage }) {
   const { colors } = useTheme();
-  const s = useStyles(colors);
+  const { isTablet } = useLayout();
+  const s = useStyles(colors, isTablet);
   const isSystem = msg.role === 'system';
   if (isSystem) {
     return (
@@ -294,7 +296,9 @@ interface TaskEntry {
 
 export function ChatScreen() {
   const { colors } = useTheme();
-  const s = useStyles(colors);
+  const insets = useSafeAreaInsets();
+  const { isTablet, contentHPad } = useLayout();
+  const s = useStyles(colors, isTablet);
   const route = useRoute();
   const navigation = useNavigation<any>();
   const params = (route.params ?? {}) as ChatRouteParams;
@@ -579,10 +583,11 @@ export function ChatScreen() {
     <KeyboardAvoidingView
       style={s.root}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={80}
+      keyboardVerticalOffset={isTablet ? 0 : 80}
     >
+      <View style={[s.chatContainer, { paddingHorizontal: contentHPad }]}>
       {/* Header */}
-      <View style={s.header}>
+      <View style={[s.header, { paddingTop: insets.top + 16 }]}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           {config.agentAvatar && (
             <Image source={{ uri: config.agentAvatar }} style={{ width: 24, height: 24, borderRadius: 12, marginRight: 8, borderWidth: 1, borderColor: colors.border }} />
@@ -876,16 +881,18 @@ export function ChatScreen() {
           </TouchableOpacity>
         </View>
       </View>
+      </View>
     </KeyboardAvoidingView>
   );
 }
 
 // ── Styles ────────────────────────────────────────────────────────────────
 
-function useStyles(colors: ThemeColors) {
+function useStyles(colors: ThemeColors, isTablet = false) {
   return React.useMemo(() => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 52, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: colors.border },
+  chatContainer: { flex: 1 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: colors.border },
   headerTitle: { color: colors.green, fontFamily: 'monospace', fontSize: 13, fontWeight: '700', letterSpacing: 2 },
   resetBtn: { paddingVertical: 4, paddingHorizontal: 8 },
   resetBtnText: { color: colors.sub, fontFamily: 'monospace', fontSize: 11 },
@@ -924,7 +931,7 @@ function useStyles(colors: ThemeColors) {
   rowLeft: { justifyContent: 'flex-start' },
   rowRight: { justifyContent: 'flex-end' },
   roleLabel: { color: colors.sub, fontFamily: 'monospace', fontSize: 9, marginBottom: 2 },
-  bubble: { maxWidth: '78%', borderRadius: 4, padding: 10 },
+  bubble: { maxWidth: isTablet ? '60%' : '78%', borderRadius: 4, padding: 10 },
   bubbleUser: { backgroundColor: colors.green + '15', borderWidth: 1, borderColor: colors.green },
   bubbleAgent: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
   bubbleText: { color: colors.text, fontFamily: 'monospace', fontSize: 13, lineHeight: 19 },
@@ -956,7 +963,7 @@ function useStyles(colors: ThemeColors) {
   // bubble image thumbnail
   bubbleThumb: { width: 180, height: 180, borderRadius: 4, marginBottom: 6, borderWidth: 1, borderColor: colors.border },
   // image preview modal
-  imgPreviewCard: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 6, padding: 20, width: '100%' },
+  imgPreviewCard: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 6, padding: 20, width: '100%', maxWidth: isTablet ? 480 : undefined },
   imgPreviewTitle: { color: colors.green, fontFamily: 'monospace', fontSize: 11, fontWeight: '700', letterSpacing: 2, marginBottom: 12 },
   imgPreviewSquare: { width: '100%', aspectRatio: 1, borderRadius: 4, borderWidth: 1, borderColor: colors.border, marginBottom: 12 },
   imgPreviewHint: { color: colors.sub, fontFamily: 'monospace', fontSize: 11, lineHeight: 16, marginBottom: 10 },

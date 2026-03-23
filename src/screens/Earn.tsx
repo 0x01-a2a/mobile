@@ -38,6 +38,7 @@ import { useAgentBrain } from '../hooks/useAgentBrain';
 import { NodeStatusBanner } from '../components/NodeStatusBanner';
 import { useTheme, ThemeColors } from '../theme/ThemeContext';
 import { ThemeToggle } from '../components/ThemeToggle';
+import { useLayout } from '../hooks/useLayout';
 
 // ── Task tracking (AsyncStorage-backed) ──────────────────────────────────
 
@@ -376,7 +377,8 @@ export function EarnScreen() {
   const [activeTab, setActiveTab] = useState<'bounty' | 'trade' | 'leaderboard'>('bounty');
   const [bagsExpanded, setBagsExpanded] = useState(false);
   const { colors } = useTheme();
-  const s = useStyles(colors);
+  const { isTablet, isWide, contentHPad, numColumns } = useLayout();
+  const s = useStyles(colors, isTablet, isWide);
 
   const { injectSystemMessage } = useZeroclawChat(agents[0]?.id);
 
@@ -735,29 +737,30 @@ export function EarnScreen() {
 
   return (
     <View style={s.root}>
+      <ThemeToggle halfCircle top={insets.top + 16} />
       <NodeStatusBanner />
+      <View style={{ flex: 1, paddingHorizontal: contentHPad }}>
       {/* Tab Header */}
       <View style={[s.header, { paddingTop: insets.top + 16 }]}>
-        <View style={{ position: 'absolute', top: insets.top + 16, right: 20, zIndex: 10 }}><ThemeToggle /></View>
         <View style={s.tabRow}>
-          <TouchableOpacity
-            style={[s.tabBtn, activeTab === 'bounty' && s.tabActive]}
-            onPress={() => setActiveTab('bounty')}
-          >
-            <Text style={[s.tabText, activeTab === 'bounty' && s.tabTextActive]}>{t('earn.tabBounty')}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[s.tabBtn, activeTab === 'trade' && s.tabActive]}
-            onPress={() => setActiveTab('trade')}
-          >
-            <Text style={[s.tabText, activeTab === 'trade' && s.tabTextActive]}>{t('earn.tabTrade')}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[s.tabBtn, activeTab === 'leaderboard' && s.tabActive]}
-            onPress={() => setActiveTab('leaderboard')}
-          >
-            <Text style={[s.tabText, activeTab === 'leaderboard' && s.tabTextActive]}>{t('earn.tabTop')}</Text>
-          </TouchableOpacity>
+            <TouchableOpacity
+              style={[s.tabBtn, activeTab === 'bounty' && s.tabActive]}
+              onPress={() => setActiveTab('bounty')}
+            >
+              <Text style={[s.tabText, activeTab === 'bounty' && s.tabTextActive]}>{t('earn.tabBounty')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[s.tabBtn, activeTab === 'trade' && s.tabActive]}
+              onPress={() => setActiveTab('trade')}
+            >
+              <Text style={[s.tabText, activeTab === 'trade' && s.tabTextActive]}>{t('earn.tabTrade')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[s.tabBtn, activeTab === 'leaderboard' && s.tabActive]}
+              onPress={() => setActiveTab('leaderboard')}
+            >
+              <Text style={[s.tabText, activeTab === 'leaderboard' && s.tabTextActive]}>{t('earn.tabTop')}</Text>
+            </TouchableOpacity>
         </View>
       </View>
 
@@ -890,6 +893,8 @@ export function EarnScreen() {
                 <Text style={[s.sectionLabel, activeTasks.length > 0 && { marginTop: 20 }]}>{t('earn.incomingBounties')}</Text>
                 <FlatList
                   data={bounties}
+                  key={isTablet ? `bounty-${numColumns}` : 'bounty-1'}
+                  numColumns={isTablet ? numColumns : 1}
                   keyExtractor={item => item.conversationId}
                   renderItem={({ item }) => (
                     <BountyCard
@@ -1305,17 +1310,18 @@ export function EarnScreen() {
         </Modal>
       )}
 
+      </View>
     </View>
   );
 }
 
 // ── Styles ────────────────────────────────────────────────────────────────
 
-function useStyles(colors: ThemeColors) {
+function useStyles(colors: ThemeColors, isTablet = false, isWide = false) {
   return React.useMemo(() => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   header: { paddingHorizontal: 20, paddingTop: 16, borderBottomWidth: 1, borderBottomColor: colors.border },
-  tabRow: { flexDirection: 'row', gap: 24, paddingBottom: 0 },
+  tabRow: { flexDirection: 'row', gap: isTablet ? 32 : 20, paddingBottom: 0, justifyContent: 'flex-start' },
   tabBtn: { paddingBottom: 12, borderBottomWidth: 2, borderBottomColor: 'transparent' },
   tabActive: { borderBottomColor: colors.green },
   tabText: { fontSize: 13, fontWeight: '700', color: colors.dim, letterSpacing: 2, fontFamily: 'monospace' },

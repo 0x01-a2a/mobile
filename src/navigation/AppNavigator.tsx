@@ -4,10 +4,11 @@
  * Tabs: Earn | Chat | My | Settings
  */
 import React from 'react';
-import { StyleSheet, Text } from 'react-native';
+import { StyleSheet, Text, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useTranslation } from 'react-i18next';
+import { useLayout } from '../hooks/useLayout';
 
 import { EarnScreen }     from '../screens/Earn';
 import { ChatScreen }     from '../screens/Chat';
@@ -50,18 +51,31 @@ export function AppNavigator() {
   const { t } = useTranslation();
   const { colors } = useTheme();
   const styles = useStyles(colors);
-  
+  const { isTablet, isLandscape } = useLayout();
+
   const bottomPad = insets.bottom || 8;
-  const tabBarStyle = [styles.tabBar, { paddingBottom: bottomPad, height: 72 + (insets.bottom || 0) }];
+  const isWideMode = isTablet && isLandscape;
+  const tabBarStyle = isWideMode
+    ? [styles.tabBar, styles.tabBarSide, { paddingBottom: bottomPad }]
+    : [styles.tabBar, { paddingBottom: bottomPad, height: 72 + (insets.bottom || 0) }];
 
   return (
       <Tab.Navigator
         screenOptions={{
           ...SCREEN_OPTIONS,
           tabBarStyle,
+          tabBarPosition: isWideMode ? 'left' : 'bottom',
           tabBarActiveTintColor:   colors.green,
           tabBarInactiveTintColor: colors.sub,
-          tabBarLabelStyle: staticStyles.label,
+          tabBarLabelStyle: isWideMode ? staticStyles.labelSide : staticStyles.label,
+          tabBarIconStyle: isWideMode ? staticStyles.iconSide : undefined,
+          tabBarPressColor: 'transparent',
+          tabBarButton: (props) => (
+            <Pressable
+              {...props}
+              android_ripple={null}
+            />
+          ),
         }}
       >
       <Tab.Screen name="Earn"     component={EarnScreen}     options={{ tabBarLabel: t('nav.earn'), tabBarIcon: EarnIcon }}     />
@@ -80,6 +94,13 @@ function useStyles(colors: ThemeColors) {
       borderTopWidth:  1,
       paddingTop: 6,
     },
+    tabBarSide: {
+      borderTopWidth: 0,
+      borderRightWidth: 1,
+      borderRightColor: colors.border,
+      paddingTop: 16,
+      width: 100,
+    },
   }), [colors]);
 }
 
@@ -90,9 +111,18 @@ const staticStyles = StyleSheet.create({
     fontFamily: 'monospace',
     marginBottom: 4,
   },
+  labelSide: {
+    fontSize: 9,
+    letterSpacing: 1,
+    fontFamily: 'monospace',
+    marginTop: 4,
+  },
   icon: {
     fontSize: 13,
     fontFamily: 'monospace',
     fontWeight: '700',
+  },
+  iconSide: {
+    fontSize: 16,
   },
 });

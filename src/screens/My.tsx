@@ -6,7 +6,6 @@
  *   Node   — local node controls, hosted banner, reputation detail, inbox.
  */
 import { useTheme, ThemeColors } from '../theme/ThemeContext';
-import { ThemeToggle } from '../components/ThemeToggle';
 import React, { Component, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -53,6 +52,7 @@ import { useOwnedAgents, notifyLinkedAgentsUpdated, OwnedAgent } from '../hooks/
 import { useAgentBrain, CAPABILITY_LABELS } from '../hooks/useAgentBrain';
 import { useBridgeCapabilities, CAPABILITY_KEYS, use8004Badge } from '../hooks/useNodeApi';
 import { NodeStatusBanner } from '../components/NodeStatusBanner';
+import { useLayout } from '../hooks/useLayout';
 
 const BRIDGE_LABELS: Record<string, string> = {
   notifications_read: 'NOTIF', notifications_reply: 'NOTIF-RPL', notifications_dismiss: 'NOTIF-DIS',
@@ -473,6 +473,7 @@ function LinkAgentSection() {
 
 function AgentsSubtab() {
   const { colors } = useTheme();
+  const { isTablet } = useLayout();
   const s = useStyles(colors);
   const agents = useOwnedAgents();
   const [refreshing, setRefreshing] = useState(false);
@@ -501,15 +502,18 @@ function AgentsSubtab() {
       }
     >
       <Text style={s.sectionLabel}>YOUR AGENTS</Text>
+      <View style={isTablet ? { flexDirection: 'row', flexWrap: 'wrap', gap: 8 } : undefined}>
       {agents.map(a => (
+        <View key={a.id || a.mode} style={isTablet ? { width: '48%' } : undefined}>
         <AgentCard
-          key={a.id || a.mode}
           agent={a}
           brainSkills={brainSkills}
           bridgeCaps={bridge.caps}
           bridgeLoading={bridge.loading}
         />
+        </View>
       ))}
+      </View>
       <LinkAgentSection />
       <Text style={s.hint}>
         Each agent runs on a node — your phone or a hosted server.
@@ -567,7 +571,8 @@ function HostedHeader({
 
 function StatCard({ label, value, color }: { label: string; value: string | number; color?: string }) {
   const { colors } = useTheme();
-  const s = useStyles(colors);
+  const { isTablet, isWide } = useLayout();
+  const s = useStyles(colors, isTablet, isWide);
   return (
     <View style={s.statCard}>
       <Text style={[s.statVal, color ? { color } : undefined]}>{value}</Text>
@@ -1442,11 +1447,13 @@ export function MyScreen() {
   const s = useStyles(colors);
   const insets = useSafeAreaInsets();
   const [subtab, setSubtab] = useState<Subtab>('agents');
+  const { contentHPad } = useLayout();
 
   return (
     <View style={s.root}>
       <NodeStatusBanner />
-      <View style={[s.header, { paddingTop: insets.top + 12 }]}>
+      <View style={{ flex: 1, paddingHorizontal: contentHPad }}>
+      <View style={[s.header, { paddingTop: insets.top + 16 }]}>
         <Text style={s.title}>MY</Text>
         <View style={s.tabs}>
           {(['agents', 'node', 'portfolio', 'skills'] as Subtab[]).map(t => (
@@ -1467,13 +1474,14 @@ export function MyScreen() {
       {subtab === 'node' && <ErrorBoundary><NodeSubtab /></ErrorBoundary>}
       {subtab === 'portfolio' && <ErrorBoundary><PortfolioSubtab /></ErrorBoundary>}
       {subtab === 'skills' && <ErrorBoundary><SkillsSubtab /></ErrorBoundary>}
+      </View>
     </View>
   );
 }
 
 // ── Styles ────────────────────────────────────────────────────────────────
 
-function useStyles(colors: ThemeColors) {
+function useStyles(colors: ThemeColors, isTablet = false, isWide = false) {
   return React.useMemo(() => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   header: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 0, borderBottomWidth: 1, borderBottomColor: colors.border },
@@ -1520,7 +1528,7 @@ function useStyles(colors: ThemeColors) {
   btn: { borderRadius: 4, paddingVertical: 12, alignItems: 'center' },
   btnText: { fontSize: 12, fontWeight: '700', letterSpacing: 3 },
   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  statCard: { flex: 1, minWidth: '45%', backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border, borderRadius: 4, padding: 12 },
+  statCard: { flex: 1, minWidth: isWide ? '30%' : '45%', backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border, borderRadius: 4, padding: 12 },
   statVal: { fontSize: 24, fontWeight: '700', color: colors.text, fontFamily: 'monospace' },
   statLabel: { fontSize: 10, color: colors.sub, letterSpacing: 2, marginTop: 4 },
   noData: { color: colors.sub, fontFamily: 'monospace', letterSpacing: 1 },
