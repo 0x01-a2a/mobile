@@ -1,7 +1,6 @@
 package world.zerox1.pilot
 
 import android.content.Context
-import android.net.Uri
 import android.util.Log
 import com.solanamobile.seedvault.WalletContractV1
 import com.solanamobile.seedvault.Bip44DerivationPath
@@ -27,8 +26,8 @@ object SeedVaultIdentity {
 
     // BIP44 path: m/44'/501'/0'/0'  (Solana coin type 501)
     private val DERIVATION_PATH = Bip44DerivationPath.newBuilder()
-        .setAccount(BipLevel.newBuilder().setIndex(0).setHardened(true).build())
-        .setChange(BipLevel.newBuilder().setIndex(0).setHardened(true).build())
+        .setAccount(BipLevel(0, true))
+        .setChange(BipLevel(0, true))
         .build()
 
     /**
@@ -81,7 +80,7 @@ object SeedVaultIdentity {
 
     private fun isSeedVaultAvailable(context: Context): Boolean {
         return try {
-            val uri = Uri.parse(WalletContractV1.WALLET_PROVIDER_CONTENT_URI_BASE)
+            val uri = WalletContractV1.WALLET_PROVIDER_CONTENT_URI_BASE
             val cursor = context.contentResolver.query(uri, null, null, null, null)
             val available = cursor != null
             cursor?.close()
