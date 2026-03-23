@@ -157,7 +157,7 @@ dependencies {
     // Health Connect — reads sleep, HR, HRV, steps, weight from wearables + apps
     implementation("androidx.health.connect:connect-client:1.1.0-rc01")
     // SeedVault — Solana Mobile hardware key derivation (dappstore / Seeker only)
-    dappstoreImplementation("com.solanamobile:seed-vault-wallet-sdk-android:0.9.6")
+    dappstoreImplementation("com.solanamobile:seedvault-wallet-sdk:0.2.10")
     // WorkManager — background polling for ntfy wake events when NodeService is stopped
     implementation("androidx.work:work-runtime-ktx:2.9.1")
 
