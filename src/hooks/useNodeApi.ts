@@ -1198,18 +1198,193 @@ export interface SweepResult {
 /**
  * Transfer USDC from the node's hot wallet to `destination` (base58 wallet).
  * Calls POST /wallet/sweep on the local node API.
+ *
+ * In hosted mode (no local node API reachable) this automatically falls back
+ * to `sweepUsdcOnDevice`, which builds and signs the transaction in-process
+ * using the identity key from Keychain.
  */
 export async function sweepUsdc(destination: string, amount?: number): Promise<SweepResult> {
+  // In hosted mode the local node is not running, so there is no
+  // /wallet/sweep endpoint to call.  Fall back to the on-device path.
+  if (_isHostedMode) {
+    return sweepUsdcOnDevice(destination, amount);
+  }
+
+  // Local mode: delegate to the node API which holds the hot key.
   const res = await fetch(`${_apiBase}/wallet/sweep`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ destination, amount }),
   });
   if (!res.ok) {
+    // If the node API is unreachable (e.g. node stopped but not hosted mode),
+    // attempt the on-device path as a last resort.
+    if (res.status === 0 || res.status >= 500) {
+      return sweepUsdcOnDevice(destination, amount);
+    }
     const text = await res.text();
     throw new Error(text || `HTTP ${res.status}`);
   }
   return res.json();
+}
+
+// Public RPC endpoints used by the on-device sweep path (mainnet).
+const _SWEEP_RPCS = [
+  'https://api.mainnet-beta.solana.com',
+  'https://rpc.ankr.com/solana',
+  'https://solana-rpc.publicnode.com',
+];
+
+async function _rpcPost(rpc: string, body: object): Promise<any> {
+  const res = await fetch(rpc, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json = await res.json();
+  if (json.error) throw new Error(json.error.message ?? 'rpc error');
+  return json;
+}
+
+async function _rpcWithFallback(body: object): Promise<any> {
+  let lastErr: unknown;
+  for (const rpc of _SWEEP_RPCS) {
+    try { return await _rpcPost(rpc, body); } catch (e) { lastErr = e; }
+  }
+  throw lastErr ?? new Error('all RPCs failed');
+}
+
+/**
+ * Build and sign an SPL USDC Transfer transaction in-process, then broadcast
+ * it directly to the Solana mainnet RPC.
+ *
+ * Used when `sweepUsdc` is called in hosted mode (no local node API available).
+ *
+ * Flow:
+ *   1. Export the Ed25519 identity key from the OS Keychain via
+ *      `NodeModule.exportIdentityKey()` — returns a base58 64-byte string
+ *      (seed || pubkey, Phantom-compatible format).
+ *   2. Derive the Solana Keypair directly from those 64 bytes — the Ed25519
+ *      secret and Solana secret key share the same curve and byte layout.
+ *   3. Fetch the current USDC balance from the on-chain ATA.
+ *   4. Build and sign an SPL Token Transfer instruction.
+ *   5. Broadcast via the public Solana RPC.
+ */
+export async function sweepUsdcOnDevice(
+  destination: string,
+  amount?: number,
+): Promise<SweepResult> {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const web3 = require('@solana/web3.js');
+  const { PublicKey, Transaction, TransactionInstruction, Keypair } = web3;
+
+  // ── Step 1: export identity key ─────────────────────────────────────────
+  let keyBase58: string;
+  try {
+    keyBase58 = await NodeModule.exportIdentityKey();
+  } catch (e: any) {
+    throw new Error(`exportIdentityKey failed: ${e?.message ?? e}`);
+  }
+
+  // ── Step 2: derive Solana Keypair ────────────────────────────────────────
+  // exportIdentityKey returns base58-encoded 64 bytes (seed || pubkey),
+  // which is exactly the format Keypair.fromSecretKey() expects.
+  let keypair: typeof Keypair;
+  try {
+    const keyBytes = Uint8Array.from(
+      (web3 as any).bs58
+        ? (web3 as any).bs58.decode(keyBase58)
+        : Buffer.from(keyBase58, 'base64'), // fallback: should not happen
+    );
+    // Use bs58 from @solana/web3.js internals if present; otherwise decode
+    // manually.  Prefer the dedicated decode path to avoid a direct dep.
+    keypair = Keypair.fromSecretKey(keyBytes);
+  } catch {
+    // bs58 not bundled in web3 scope — decode via PublicKey helper trick:
+    // base58 → Uint8Array using Buffer polyfill available in RN.
+    const raw = require('bs58').decode(keyBase58);
+    keypair = Keypair.fromSecretKey(new Uint8Array(raw));
+  }
+
+  const payerPubkey: typeof PublicKey = keypair.publicKey;
+  const payerAddress: string = payerPubkey.toBase58();
+
+  // ── Step 3: resolve ATA addresses ────────────────────────────────────────
+  const ATA_PROGRAM = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJe1bJo');
+  const TOKEN_PROGRAM = new PublicKey(SPL_TOKEN_PROGRAM_ID);
+  const USDC_MINT = new PublicKey(USDC_MINT_MAINNET);
+  const DEST_PUBKEY = new PublicKey(destination);
+
+  const [payerAta] = PublicKey.findProgramAddressSync(
+    [payerPubkey.toBuffer(), TOKEN_PROGRAM.toBuffer(), USDC_MINT.toBuffer()],
+    ATA_PROGRAM,
+  );
+  const [destAta] = PublicKey.findProgramAddressSync(
+    [DEST_PUBKEY.toBuffer(), TOKEN_PROGRAM.toBuffer(), USDC_MINT.toBuffer()],
+    ATA_PROGRAM,
+  );
+
+  // ── Step 4: resolve amount from on-chain balance if not provided ─────────
+  let transferMicrounits: bigint;
+  if (amount !== undefined && amount > 0) {
+    // Caller supplied explicit amount in USDC (not microunits).
+    transferMicrounits = BigInt(Math.round(amount * 1_000_000));
+  } else {
+    // Sweep entire balance: fetch from chain.
+    const tokenResp = await _rpcWithFallback({
+      jsonrpc: '2.0', id: 1, method: 'getTokenAccountsByOwner',
+      params: [payerAddress, { mint: USDC_MINT_MAINNET }, { encoding: 'jsonParsed' }],
+    });
+    const accounts: any[] = tokenResp.result?.value ?? [];
+    let rawBalance = 0;
+    for (const acc of accounts) {
+      const info = acc.account?.data?.parsed?.info;
+      if (info?.mint === USDC_MINT_MAINNET) {
+        rawBalance = info?.tokenAmount?.amount ?? 0;
+        break;
+      }
+    }
+    transferMicrounits = BigInt(rawBalance);
+    if (transferMicrounits <= BigInt(0)) {
+      throw new Error('No USDC balance to sweep');
+    }
+  }
+
+  // ── Step 5: build transaction ────────────────────────────────────────────
+  const { blockhash } = (
+    await _rpcWithFallback({ jsonrpc: '2.0', id: 2, method: 'getLatestBlockhash', params: [] })
+  ).result.value;
+
+  const data = buildSplTransferData(transferMicrounits);
+
+  const keys = [
+    { pubkey: payerAta,  isSigner: false, isWritable: true },
+    { pubkey: destAta,   isSigner: false, isWritable: true },
+    { pubkey: payerPubkey, isSigner: true, isWritable: false },
+  ];
+
+  const ix = new TransactionInstruction({ keys, programId: TOKEN_PROGRAM, data });
+  const tx = new Transaction();
+  tx.recentBlockhash = blockhash;
+  tx.feePayer = payerPubkey;
+  tx.add(ix);
+  tx.sign(keypair);
+
+  const rawTx = tx.serialize();
+
+  // ── Step 6: broadcast ────────────────────────────────────────────────────
+  const sendResp = await _rpcWithFallback({
+    jsonrpc: '2.0', id: 3, method: 'sendTransaction',
+    params: [Buffer.from(rawTx).toString('base64'), { encoding: 'base64' }],
+  });
+  const signature: string = sendResp.result;
+
+  return {
+    signature,
+    amount_usdc: Number(transferMicrounits) / 1_000_000,
+    destination,
+  };
 }
 
 // ============================================================================

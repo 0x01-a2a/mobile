@@ -20,6 +20,10 @@
 		<string>world.zerox1.pilot.node-keepalive</string>
 	</array>
 
+	<!-- APNs environment for VoIP push -->
+	<key>aps-environment</key>
+	<string>development</string>
+
 	<!-- HealthKit -->
 	<key>com.apple.developer.healthkit</key>
 	<true/>

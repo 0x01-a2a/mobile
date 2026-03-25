@@ -326,6 +326,48 @@ class NodeModule: RCTEventEmitter {
         resolve(nil)
     }
 
+    // MARK: - VoIP Push Token
+
+    @objc func getVoipPushToken(_ resolve: @escaping RCTPromiseResolveBlock,
+                                rejecter reject: @escaping RCTPromiseRejectBlock) {
+        let token = KeychainHelper.load(key: "voip_push_token")
+        resolve(token as Any)
+    }
+
+    // MARK: - Keep-alive hints
+
+    /// JS calls this when it knows zeroclaw has accepted a task.
+    /// Delegates to zeroclaw_set_busy() so the Rust layer manages the sentinel
+    /// file rather than duplicating the logic here.
+    @objc func notifyAgentBusy(_ resolve: @escaping RCTPromiseResolveBlock,
+                               rejecter reject: @escaping RCTPromiseRejectBlock) {
+        if let dataDir = NodeService.shared.dataDirPublic {
+            // Pass the explicit dir; Rust will fall back to its stored DATA_DIR
+            // if this is NULL, but being explicit is safer.
+            dataDir.path.withCString { dirPtr in
+                _ = zeroclaw_set_busy(dirPtr)
+            }
+        } else {
+            // No running node — still signal via stored global (no-op if nil).
+            _ = zeroclaw_set_busy(nil)
+        }
+        resolve(nil)
+    }
+
+    /// JS calls this when zeroclaw finishes (or fails) a task.
+    /// Delegates to zeroclaw_set_idle() for symmetric Rust-layer management.
+    @objc func notifyAgentIdle(_ resolve: @escaping RCTPromiseResolveBlock,
+                               rejecter reject: @escaping RCTPromiseRejectBlock) {
+        if let dataDir = NodeService.shared.dataDirPublic {
+            dataDir.path.withCString { dirPtr in
+                _ = zeroclaw_set_idle(dirPtr)
+            }
+        } else {
+            _ = zeroclaw_set_idle(nil)
+        }
+        resolve(nil)
+    }
+
     // MARK: - Event emission
 
     func emitNodeStatus(_ status: String, detail: String = "") {

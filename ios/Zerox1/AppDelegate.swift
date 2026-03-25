@@ -40,6 +40,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // Request notification permissions
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
 
+        // Register VoIP push for instant background wake
+        #if canImport(PushKit)
+        VoIPPushHandler.shared.register()
+        #endif
+
         // Auto-start node if enabled
         let autoStart = UserDefaults.standard.bool(forKey: "zerox1_auto_start")
         if autoStart {
@@ -85,6 +90,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     // MARK: - Config persistence
 
     private func loadSavedConfig() -> [String: Any] {
+        AppDelegate.loadSavedConfigStatic()
+    }
+
+    /// Static variant so VoIPPushHandler (and other non-instance callers) can
+    /// load the persisted node config without a reference to the AppDelegate instance.
+    static func loadSavedConfigStatic() -> [String: Any] {
         var cfg: [String: Any] = [:]
         if let name = UserDefaults.standard.string(forKey: "zerox1_agent_name") {
             cfg["agentName"] = name
