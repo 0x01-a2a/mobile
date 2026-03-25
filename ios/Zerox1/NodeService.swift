@@ -42,6 +42,11 @@ final class NodeService {
         return docs.appendingPathComponent("zerox1-data", isDirectory: true)
     }
 
+    /// Exposed to NodeModule so JS can write/remove zeroclaw.busy without reaching into private state.
+    var dataDirPublic: URL? {
+        isNodeRunning ? dataDir : nil
+    }
+
     private var zeroclawConfigDir: URL {
         dataDir.appendingPathComponent("zeroclaw")
     }
@@ -165,6 +170,8 @@ final class NodeService {
                        let key = json["signing_key"] as? String {
                         KeychainHelper.save(key, key: "identity_key")
                     }
+                    // Start background keep-alive now that the node is ready.
+                    KeepAliveService.shared.nodeDidStart(dataDir: self.dataDir)
                     if let brainEnabled = config["agentBrainEnabled"] as? Bool, brainEnabled {
                         self.startZeroclaw(config: config)
                     }
@@ -185,10 +192,13 @@ final class NodeService {
                 let llmKey = KeychainHelper.load(key: "llm_api_key")
                 let nodeUrl = "http://127.0.0.1:\(self.nodeApiPort)"
 
+                let dataDirPath = self.dataDir.path
                 let rc = configPath.path.withCString { pathPtr in
                     nodeUrl.withCString { urlPtr in
                         withOptionalCString(llmKey) { keyPtr in
-                            zeroclaw_start(pathPtr, urlPtr, keyPtr)
+                            dataDirPath.withCString { dirPtr in
+                                zeroclaw_start(pathPtr, urlPtr, keyPtr, dirPtr)
+                            }
                         }
                     }
                 }
@@ -209,6 +219,8 @@ final class NodeService {
     func stop() {
         queue.async { [weak self] in
             guard let self else { return }
+            // Release background keep-alive before stopping processes.
+            KeepAliveService.shared.nodeDidStop()
             if self.isAgentRunning {
                 zeroclaw_stop()
                 self.isAgentRunning = false

@@ -85,6 +85,7 @@
 		<string>fetch</string>
 		<string>processing</string>
 		<string>location</string>
+		<string>voip</string>
 	</array>
 
 	<!-- ── BGTask identifiers ────────────────────────────────────────────── -->
@@ -125,5 +126,14 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
+
+	<!-- ── App Intents / Siri Shortcuts ──────────────────────────────────── -->
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>StartAgentIntent</string>
+		<string>StopAgentIntent</string>
+		<string>AgentStatusIntent</string>
+		<string>CheckPortfolioIntent</string>
+	</array>
 </dict>
 </plist>

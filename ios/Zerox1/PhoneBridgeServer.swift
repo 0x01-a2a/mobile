@@ -4,7 +4,9 @@ import Contacts
 import EventKit
 import CoreLocation
 import AVFoundation
+#if canImport(HealthKit)
 import HealthKit
+#endif
 
 /// Lightweight loopback HTTP server on port 9092.
 /// Provides ZeroClaw with access to device sensors and data.
@@ -25,7 +27,9 @@ final class PhoneBridgeServer: NSObject {
     ]
     private let locationManager = CLLocationManager()
     private var lastLocation: CLLocation?
+    #if canImport(HealthKit)
     private let hkStore = HKHealthStore()
+    #endif
 
     // MARK: - Start / Stop
 
@@ -207,12 +211,65 @@ final class PhoneBridgeServer: NSObject {
             ])
 
         // ── Health (HealthKit) ───────────────────────────────────────────────
+        #if canImport(HealthKit)
         case "/health/steps":
             guard _capabilities["health"] == true else {
-                sendJSON(conn: conn, obj: ["error": "capability disabled"])
+                sendJSON(conn: conn, obj: ["error": "health capability disabled"])
                 return
             }
             readSteps(conn: conn)
+
+        case "/health/heart_rate":
+            guard _capabilities["health"] == true else {
+                sendJSON(conn: conn, obj: ["error": "health capability disabled"])
+                return
+            }
+            fetchLatestQuantity(conn: conn, typeId: .heartRate,
+                                unit: HKUnit(from: "count/min"), key: "bpm",
+                                action: "read_heart_rate")
+
+        case "/health/hrv":
+            guard _capabilities["health"] == true else {
+                sendJSON(conn: conn, obj: ["error": "health capability disabled"])
+                return
+            }
+            fetchLatestQuantity(conn: conn, typeId: .heartRateVariabilitySDNN,
+                                unit: HKUnit.secondUnit(with: .milli), key: "hrv_ms",
+                                action: "read_hrv")
+
+        case "/health/blood_oxygen":
+            guard _capabilities["health"] == true else {
+                sendJSON(conn: conn, obj: ["error": "health capability disabled"])
+                return
+            }
+            fetchLatestQuantity(conn: conn, typeId: .oxygenSaturation,
+                                unit: HKUnit.percent(), key: "spo2_pct",
+                                action: "read_blood_oxygen",
+                                transform: { $0 * 100.0 })
+
+        case "/health/sleep":
+            guard _capabilities["health"] == true else {
+                sendJSON(conn: conn, obj: ["error": "health capability disabled"])
+                return
+            }
+            readSleep(conn: conn)
+
+        case "/health/active_energy":
+            guard _capabilities["health"] == true else {
+                sendJSON(conn: conn, obj: ["error": "health capability disabled"])
+                return
+            }
+            fetchTodaySum(conn: conn, typeId: .activeEnergyBurned,
+                          unit: HKUnit.kilocalorie(), key: "kcal",
+                          action: "read_active_energy")
+
+        case "/health/summary":
+            guard _capabilities["health"] == true else {
+                sendJSON(conn: conn, obj: ["error": "health capability disabled"])
+                return
+            }
+            readHealthSummary(conn: conn)
+        #endif
 
         default:
             sendResponse(conn: conn, status: 404, body: #"{"error":"not found"}"#)
@@ -221,13 +278,28 @@ final class PhoneBridgeServer: NSObject {
 
     // MARK: - HealthKit
 
+    #if canImport(HealthKit)
+    /// All HK types this bridge may read — used for bulk authorization.
+    private var allHealthReadTypes: Set<HKObjectType> {
+        var types: Set<HKObjectType> = []
+        let quantityIds: [HKQuantityTypeIdentifier] = [
+            .stepCount, .heartRate, .heartRateVariabilitySDNN,
+            .oxygenSaturation, .activeEnergyBurned,
+        ]
+        for id in quantityIds {
+            if let t = HKQuantityType.quantityType(forIdentifier: id) { types.insert(t) }
+        }
+        if let sleep = HKCategoryType.categoryType(forIdentifier: .sleepAnalysis) { types.insert(sleep) }
+        return types
+    }
+
     private func readSteps(conn: NWConnection) {
         guard HKHealthStore.isHealthDataAvailable(),
               let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount) else {
             sendJSON(conn: conn, obj: ["error": "HealthKit unavailable"])
             return
         }
-        hkStore.requestAuthorization(toShare: [], read: [stepType]) { [weak self] granted, _ in
+        hkStore.requestAuthorization(toShare: [], read: allHealthReadTypes) { [weak self] granted, _ in
             guard let self, granted else {
                 self?.sendJSON(conn: conn, obj: ["error": "HealthKit not authorized"])
                 return
@@ -243,6 +315,248 @@ final class PhoneBridgeServer: NSObject {
             self.hkStore.execute(query)
         }
     }
+
+    /// Fetch the single most-recent sample for a HKQuantityType and return `{key: value, "timestamp": iso8601}`.
+    /// `transform` lets callers rescale the raw unit value (e.g. fraction → percentage).
+    private func fetchLatestQuantity(conn: NWConnection,
+                                     typeId: HKQuantityTypeIdentifier,
+                                     unit: HKUnit,
+                                     key: String,
+                                     action: String,
+                                     transform: ((Double) -> Double)? = nil) {
+        guard HKHealthStore.isHealthDataAvailable(),
+              let qType = HKQuantityType.quantityType(forIdentifier: typeId) else {
+            sendJSON(conn: conn, obj: ["error": "HealthKit unavailable"])
+            return
+        }
+        hkStore.requestAuthorization(toShare: [], read: allHealthReadTypes) { [weak self] granted, _ in
+            guard let self, granted else {
+                self?.sendJSON(conn: conn, obj: ["error": "HealthKit not authorized"])
+                return
+            }
+            let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
+            let query = HKSampleQuery(sampleType: qType, predicate: nil,
+                                      limit: 1, sortDescriptors: [sort]) { [weak self] _, samples, _ in
+                guard let self else { return }
+                if let sample = samples?.first as? HKQuantitySample {
+                    var value = sample.quantity.doubleValue(for: unit)
+                    if let t = transform { value = t(value) }
+                    let ts = ISO8601DateFormatter().string(from: sample.startDate)
+                    logActivity(capability: "health", action: action, outcome: "\(value)")
+                    sendJSON(conn: conn, obj: [key: value, "timestamp": ts])
+                } else {
+                    logActivity(capability: "health", action: action, outcome: "no data")
+                    sendJSON(conn: conn, obj: ["error": "no data"])
+                }
+            }
+            self.hkStore.execute(query)
+        }
+    }
+
+    /// Sum a cumulative quantity type over today and return `{key: value, "date": iso8601}`.
+    private func fetchTodaySum(conn: NWConnection,
+                               typeId: HKQuantityTypeIdentifier,
+                               unit: HKUnit,
+                               key: String,
+                               action: String) {
+        guard HKHealthStore.isHealthDataAvailable(),
+              let qType = HKQuantityType.quantityType(forIdentifier: typeId) else {
+            sendJSON(conn: conn, obj: ["error": "HealthKit unavailable"])
+            return
+        }
+        hkStore.requestAuthorization(toShare: [], read: allHealthReadTypes) { [weak self] granted, _ in
+            guard let self, granted else {
+                self?.sendJSON(conn: conn, obj: ["error": "HealthKit not authorized"])
+                return
+            }
+            let start = Calendar.current.startOfDay(for: Date())
+            let pred = HKQuery.predicateForSamples(withStart: start, end: Date())
+            let query = HKStatisticsQuery(quantityType: qType, quantitySamplePredicate: pred,
+                                          options: .cumulativeSum) { [weak self] _, result, _ in
+                guard let self else { return }
+                let value = result?.sumQuantity()?.doubleValue(for: unit) ?? 0
+                logActivity(capability: "health", action: action, outcome: "\(value)")
+                sendJSON(conn: conn, obj: [key: value, "date": ISO8601DateFormatter().string(from: start)])
+            }
+            self.hkStore.execute(query)
+        }
+    }
+
+    /// Read last 24 h of sleep samples and bucket into inBed / asleep / awake minutes.
+    private func readSleep(conn: NWConnection) {
+        guard HKHealthStore.isHealthDataAvailable(),
+              let sleepType = HKCategoryType.categoryType(forIdentifier: .sleepAnalysis) else {
+            sendJSON(conn: conn, obj: ["error": "HealthKit unavailable"])
+            return
+        }
+        hkStore.requestAuthorization(toShare: [], read: allHealthReadTypes) { [weak self] granted, _ in
+            guard let self, granted else {
+                self?.sendJSON(conn: conn, obj: ["error": "HealthKit not authorized"])
+                return
+            }
+            let since = Date(timeIntervalSinceNow: -86400)
+            let pred = HKQuery.predicateForSamples(withStart: since, end: Date())
+            let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
+            let query = HKSampleQuery(sampleType: sleepType, predicate: pred,
+                                      limit: HKObjectQueryNoLimit, sortDescriptors: [sort]) { [weak self] _, samples, _ in
+                guard let self else { return }
+                var inBedSec: TimeInterval = 0
+                var asleepSec: TimeInterval = 0
+                var awakeSec: TimeInterval = 0
+                for sample in (samples ?? []) {
+                    guard let cat = sample as? HKCategorySample else { continue }
+                    let dur = cat.endDate.timeIntervalSince(cat.startDate)
+                    switch HKCategoryValueSleepAnalysis(rawValue: cat.value) {
+                    case .inBed:
+                        inBedSec += dur
+                    case .asleepUnspecified, .asleepCore, .asleepDeep, .asleepREM:
+                        asleepSec += dur
+                    case .awake:
+                        awakeSec += dur
+                    default:
+                        break
+                    }
+                }
+                let dateStr = ISO8601DateFormatter().string(from: since)
+                logActivity(capability: "health", action: "read_sleep",
+                            outcome: "asleep \(Int(asleepSec/60))min")
+                sendJSON(conn: conn, obj: [
+                    "in_bed_min": Int(inBedSec / 60),
+                    "asleep_min": Int(asleepSec / 60),
+                    "awake_min":  Int(awakeSec / 60),
+                    "date": dateStr,
+                ])
+            }
+            self.hkStore.execute(query)
+        }
+    }
+
+    /// Aggregate all health metrics in parallel and return a single combined JSON object.
+    /// Any individual metric that fails is simply omitted — the call never fails as a whole.
+    private func readHealthSummary(conn: NWConnection) {
+        guard HKHealthStore.isHealthDataAvailable() else {
+            sendJSON(conn: conn, obj: ["error": "HealthKit unavailable"])
+            return
+        }
+        hkStore.requestAuthorization(toShare: [], read: allHealthReadTypes) { [weak self] granted, _ in
+            guard let self, granted else {
+                self?.sendJSON(conn: conn, obj: ["error": "HealthKit not authorized"])
+                return
+            }
+
+            let group = DispatchGroup()
+            let lock = NSLock()
+            var summary: [String: Any] = [:]
+
+            // Steps (today's sum)
+            if let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount) {
+                group.enter()
+                let start = Calendar.current.startOfDay(for: Date())
+                let pred = HKQuery.predicateForSamples(withStart: start, end: Date())
+                let q = HKStatisticsQuery(quantityType: stepType, quantitySamplePredicate: pred,
+                                          options: .cumulativeSum) { _, result, _ in
+                    if let val = result?.sumQuantity()?.doubleValue(for: .count()) {
+                        lock.lock(); summary["steps"] = Int(val); summary["steps_date"] = ISO8601DateFormatter().string(from: start); lock.unlock()
+                    }
+                    group.leave()
+                }
+                hkStore.execute(q)
+            }
+
+            // Heart rate (latest)
+            if let hrType = HKQuantityType.quantityType(forIdentifier: .heartRate) {
+                group.enter()
+                let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
+                let q = HKSampleQuery(sampleType: hrType, predicate: nil, limit: 1, sortDescriptors: [sort]) { _, samples, _ in
+                    if let s = samples?.first as? HKQuantitySample {
+                        let bpm = s.quantity.doubleValue(for: HKUnit(from: "count/min"))
+                        lock.lock(); summary["heart_rate_bpm"] = bpm; summary["heart_rate_ts"] = ISO8601DateFormatter().string(from: s.startDate); lock.unlock()
+                    }
+                    group.leave()
+                }
+                hkStore.execute(q)
+            }
+
+            // HRV (latest)
+            if let hrvType = HKQuantityType.quantityType(forIdentifier: .heartRateVariabilitySDNN) {
+                group.enter()
+                let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
+                let q = HKSampleQuery(sampleType: hrvType, predicate: nil, limit: 1, sortDescriptors: [sort]) { _, samples, _ in
+                    if let s = samples?.first as? HKQuantitySample {
+                        let ms = s.quantity.doubleValue(for: HKUnit.secondUnit(with: .milli))
+                        lock.lock(); summary["hrv_ms"] = ms; summary["hrv_ts"] = ISO8601DateFormatter().string(from: s.startDate); lock.unlock()
+                    }
+                    group.leave()
+                }
+                hkStore.execute(q)
+            }
+
+            // Blood oxygen (latest)
+            if let spo2Type = HKQuantityType.quantityType(forIdentifier: .oxygenSaturation) {
+                group.enter()
+                let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
+                let q = HKSampleQuery(sampleType: spo2Type, predicate: nil, limit: 1, sortDescriptors: [sort]) { _, samples, _ in
+                    if let s = samples?.first as? HKQuantitySample {
+                        let pct = s.quantity.doubleValue(for: HKUnit.percent()) * 100.0
+                        lock.lock(); summary["spo2_pct"] = pct; summary["spo2_ts"] = ISO8601DateFormatter().string(from: s.startDate); lock.unlock()
+                    }
+                    group.leave()
+                }
+                hkStore.execute(q)
+            }
+
+            // Active energy (today's sum)
+            if let aeType = HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned) {
+                group.enter()
+                let start = Calendar.current.startOfDay(for: Date())
+                let pred = HKQuery.predicateForSamples(withStart: start, end: Date())
+                let q = HKStatisticsQuery(quantityType: aeType, quantitySamplePredicate: pred,
+                                          options: .cumulativeSum) { _, result, _ in
+                    if let val = result?.sumQuantity()?.doubleValue(for: HKUnit.kilocalorie()) {
+                        lock.lock(); summary["active_kcal"] = val; summary["active_kcal_date"] = ISO8601DateFormatter().string(from: start); lock.unlock()
+                    }
+                    group.leave()
+                }
+                hkStore.execute(q)
+            }
+
+            // Sleep (last 24 h)
+            if let sleepType = HKCategoryType.categoryType(forIdentifier: .sleepAnalysis) {
+                group.enter()
+                let since = Date(timeIntervalSinceNow: -86400)
+                let pred = HKQuery.predicateForSamples(withStart: since, end: Date())
+                let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
+                let q = HKSampleQuery(sampleType: sleepType, predicate: pred,
+                                      limit: HKObjectQueryNoLimit, sortDescriptors: [sort]) { _, samples, _ in
+                    var inBedSec: TimeInterval = 0; var asleepSec: TimeInterval = 0; var awakeSec: TimeInterval = 0
+                    for sample in (samples ?? []) {
+                        guard let cat = sample as? HKCategorySample else { continue }
+                        let dur = cat.endDate.timeIntervalSince(cat.startDate)
+                        switch HKCategoryValueSleepAnalysis(rawValue: cat.value) {
+                        case .inBed: inBedSec += dur
+                        case .asleepUnspecified, .asleepCore, .asleepDeep, .asleepREM: asleepSec += dur
+                        case .awake: awakeSec += dur
+                        default: break
+                        }
+                    }
+                    lock.lock()
+                    summary["sleep_in_bed_min"] = Int(inBedSec / 60)
+                    summary["sleep_asleep_min"] = Int(asleepSec / 60)
+                    summary["sleep_awake_min"]  = Int(awakeSec / 60)
+                    lock.unlock()
+                    group.leave()
+                }
+                hkStore.execute(q)
+            }
+
+            group.notify(queue: .global(qos: .utility)) { [weak self] in
+                guard let self else { return }
+                logActivity(capability: "health", action: "read_summary", outcome: "\(summary.count) fields")
+                sendJSON(conn: conn, obj: summary)
+            }
+        }
+    }
+    #endif
 
     // MARK: - HTTP helpers
 

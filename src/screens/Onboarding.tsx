@@ -8,6 +8,7 @@
  *   3 — API key entry
  *   4 — Capability selection
  *   5 — Auto-accept rules + finish
+ *   6 — Launch success (Bags token launch + secret key backup)
  *
  * On completion calls onDone(config) with the saved config,
  * or onDone(null) if the user skipped.
@@ -861,7 +862,7 @@ export function OnboardingScreen({
       );
     case 6:
       return (
-        <OnchainRegistrationStep
+        <LaunchSuccessStep
           agentName={agentName}
           agentAvatar={agentAvatar}
           config={savedConfig!}
@@ -874,11 +875,18 @@ export function OnboardingScreen({
 }
 
 // ============================================================================
-// Step 6 — On-Chain Registration
+// Step 6 — Launch Success
 // ============================================================================
 
-function OnchainRegistrationStep({
+/** Derive a short ticker symbol from the agent name. */
+function deriveSymbol(name: string): string {
+  const clean = name.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+  return clean.slice(0, 6) || 'AGENT';
+}
+
+function LaunchSuccessStep({
   agentName,
+  agentAvatar,
   config,
   onFinish,
 }: {
@@ -889,15 +897,15 @@ function OnchainRegistrationStep({
 }) {
   const { colors } = useTheme();
   const s = useStyles(colors);
-  const [registering, setRegistering] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  // Embedded node hot wallet address (base58)
-  const [hotWalletAddress, setHotWalletAddress] = useState<string | null>(null);
-  const [nodeReady, setNodeReady] = useState(false);
-  // Phantom wallet address if user connected
-  const [phantomAddress, setPhantomAddress] = useState<string | null>(null);
 
-  // Start the node on mount and resolve the hot wallet address.
+  const [phase, setPhase] = useState<'starting' | 'launching' | 'done' | 'error'>('starting');
+  const [hotWalletAddress, setHotWalletAddress] = useState<string | null>(null);
+  const [secretKeyB58, setSecretKeyB58] = useState<string | null>(null);
+  const [tokenMint, setTokenMint] = useState<string | null>(null);
+  const [secretRevealed, setSecretRevealed] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [keyCopied, setKeyCopied] = useState(false);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -906,8 +914,7 @@ function OnchainRegistrationStep({
         const raw = await AsyncStorage.getItem(NODE_CONFIG_KEY);
         const nodeConfig = raw ? JSON.parse(raw) : {};
 
-        // Merge brain config (saved by handleFinish above) so ZeroClaw starts
-        // alongside the node and chat works without a manual restart.
+        // Merge brain config so ZeroClaw starts alongside the node.
         let fullConfig = nodeConfig;
         try {
           const brainRaw = await AsyncStorage.getItem('zerox1:agent_brain');
@@ -925,263 +932,222 @@ function OnchainRegistrationStep({
               autoAccept: brain.autoAccept ?? true,
             };
           }
-        } catch {
-          /* proceed without brain if read fails */
-        }
+        } catch { /* proceed without brain */ }
 
         await NodeModule.startNode(fullConfig);
         if (cancelled) return;
-        setNodeReady(true);
-        for (let i = 0; i < 15; i++) {
-          await new Promise<void>(resolve => setTimeout(resolve, 1000));
+
+        // Wait for node REST API to be ready (up to 30s).
+        let auth: { nodeApiToken?: string } = {};
+        try { auth = await NodeModule.getLocalAuthConfig(); } catch { /* ok */ }
+        const apiToken: string = auth?.nodeApiToken ?? '';
+        const authHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (apiToken) authHeaders.Authorization = `Bearer ${apiToken}`;
+
+        let walletAddr: string | null = null;
+        for (let i = 0; i < 30; i++) {
+          await new Promise<void>(r => setTimeout(r, 1000));
           if (cancelled) return;
           try {
-            const res = await fetch('http://127.0.0.1:9090/identity');
+            const res = await fetch('http://127.0.0.1:9090/identity', { headers: authHeaders });
             if (res.ok) {
               const data: { agent_id: string } = await res.json();
               const { PublicKey } = require('@solana/web3.js');
               const bytes = Uint8Array.from(
-                (data.agent_id.match(/.{1,2}/g) ?? []).map((b: string) =>
-                  parseInt(b, 16),
-                ),
+                (data.agent_id.match(/.{1,2}/g) ?? []).map((b: string) => parseInt(b, 16)),
               );
-              if (!cancelled)
-                setHotWalletAddress(new PublicKey(bytes).toBase58());
+              walletAddr = new PublicKey(bytes).toBase58();
+              if (!cancelled) setHotWalletAddress(walletAddr);
               break;
             }
-          } catch {
-            /* node not ready yet */
+          } catch { /* not ready yet */ }
+        }
+        if (cancelled) return;
+
+        // Fetch secret key — master-only endpoint.
+        try {
+          const keyRes = await fetch('http://127.0.0.1:9090/identity/export-key', {
+            headers: authHeaders,
+          });
+          if (keyRes.ok) {
+            const keyData: { secret_key_b58: string } = await keyRes.json();
+            if (!cancelled) setSecretKeyB58(keyData.secret_key_b58);
+          }
+        } catch { /* non-fatal */ }
+
+        if (cancelled) return;
+        setPhase('launching');
+
+        // Launch Bags token using agent name + avatar.
+        const symbol = deriveSymbol(agentName || 'Agent');
+        const displayName = agentName.trim() || 'My Agent';
+        const launchBody: Record<string, unknown> = {
+          name: displayName,
+          symbol,
+          description: `${displayName} is an autonomous AI agent on the 01 mesh network. Hire me at 0x01.world.`,
+        };
+        if (agentAvatar) {
+          // avatar is a local file URI or base64; send as image_url if https, else image_bytes
+          if (agentAvatar.startsWith('https://')) {
+            launchBody.image_url = agentAvatar;
+          } else if (agentAvatar.startsWith('data:')) {
+            launchBody.image_bytes = agentAvatar.split(',')[1] ?? '';
           }
         }
-      } catch {
-        /* node may already be running */
+
+        try {
+          const launchRes = await fetch('http://127.0.0.1:9090/bags/launch', {
+            method: 'POST',
+            headers: authHeaders,
+            body: JSON.stringify(launchBody),
+          });
+          if (launchRes.ok) {
+            const lj: { token_mint?: string } = await launchRes.json().catch(() => ({}));
+            const mint = lj.token_mint ?? null;
+            if (!cancelled && mint) {
+              setTokenMint(mint);
+              // Store token address for zeroclaw config.
+              const brainRaw = await AsyncStorage.getItem('zerox1:agent_brain');
+              const brain = brainRaw ? JSON.parse(brainRaw) : {};
+              await AsyncStorage.setItem(
+                'zerox1:agent_brain',
+                JSON.stringify({ ...brain, tokenAddress: mint }),
+              );
+            }
+          }
+          // Non-fatal: token launch might fail if Bags API is down; user can launch later.
+        } catch { /* non-fatal */ }
+
+        if (!cancelled) setPhase('done');
+      } catch (e: any) {
+        if (!cancelled) {
+          setErrorMsg(e?.message ?? 'Failed to start node.');
+          setPhase('error');
+        }
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Register with Phantom: authorize + sign registration tx in one MWA session.
-  const handleRegisterWithPhantom = async () => {
-    setRegistering(true);
-    setError(null);
-    try {
-      const {
-        transact,
-      } = require('@solana-mobile/mobile-wallet-adapter-protocol-web3js');
-      const { PublicKey, Transaction } = require('@solana/web3.js');
-      const { NodeModule } = require('../native/NodeModule');
-      const auth = await NodeModule.getLocalAuthConfig();
-      const token: string = auth?.nodeApiToken ?? '';
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-      if (token) headers.Authorization = `Bearer ${token}`;
-
-      const [address, ownerSigB64, preparedTxB64] = await transact(async (wallet: any) => {
-        // Step 1: authorize — get the owner wallet address.
-        const { accounts } = await wallet.authorize({
-          cluster: 'mainnet-beta',
-          identity: {
-            name: '01 Pilot',
-            uri: 'https://0x01.world',
-            icon: 'favicon.ico',
-          },
-        });
-        const addrBytes = decodeBase64(accounts[0].address);
-        const ownerPubkey = new PublicKey(addrBytes).toBase58();
-
-        // Step 2: prepare registration tx (HTTP to local node, inside same session).
-        const prepareRes = await fetch(
-          'http://127.0.0.1:9090/registry/8004/register-prepare',
-          {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-              owner_pubkey: ownerPubkey,
-              agent_uri: agentName.trim(),
-            }),
-          },
-        );
-        if (!prepareRes.ok) {
-          const err = await prepareRes.json().catch(() => ({}));
-          throw new Error(
-            (err as any).error || `prepare failed: ${prepareRes.status}`,
-          );
-        }
-        const prepared: { transaction_b64: string } = await prepareRes.json();
-        const txBytes = Uint8Array.from(atob(prepared.transaction_b64), c =>
-          c.charCodeAt(0),
-        );
-        const legacyTx = Transaction.from(txBytes);
-
-        // Step 3: sign only (no broadcast) — Phantom returns immediately.
-        // We broadcast via the node's register-submit endpoint after returning.
-        const [signedTx] = await wallet.signTransactions({ transactions: [legacyTx] });
-
-        // Extract the owner's signature (first signer = owner pubkey).
-        const ownerPk = new PublicKey(addrBytes);
-        const sig = signedTx.signatures.find(
-          (s: any) => s.publicKey.equals(ownerPk),
-        );
-        if (!sig?.signature) throw new Error('Owner signature missing from signed tx.');
-        const sigB64 = btoa(String.fromCharCode(...sig.signature));
-
-        return [ownerPubkey, sigB64, prepared.transaction_b64];
-      });
-
-      // Step 4: submit — node injects owner sig + broadcasts. Done outside transact()
-      // so Phantom has already closed and we're back in 01 Pilot.
-      // Retry up to 3 times with backoff to handle transient RPC 429s.
-      let submitErr = '';
-      for (let attempt = 0; attempt < 3; attempt++) {
-        if (attempt > 0) await new Promise<void>(r => setTimeout(r, attempt * 2000));
-        const submitRes = await fetch(
-          'http://127.0.0.1:9090/registry/8004/register-submit',
-          {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-              transaction_b64: preparedTxB64,
-              owner_signature_b64: ownerSigB64,
-            }),
-          },
-        );
-        if (submitRes.ok) { submitErr = ''; break; }
-        const err = await submitRes.json().catch(() => ({}));
-        submitErr = (err as any).error || `submit failed: ${submitRes.status}`;
-        if (!submitErr.includes('429') && !submitErr.includes('rate limit')) break;
-      }
-      if (submitErr) throw new Error(submitErr);
-
-      setPhantomAddress(address);
-      await AsyncStorage.multiSet([
-        ['zerox1:8004_registered', 'true'],
-        ['zerox1:linked_wallet', address],
-      ]);
-      await AsyncStorage.removeItem(ONBOARDING_STATE_KEY);
-      await markOnboardingDone();
-      onFinish(config);
-    } catch (e: any) {
-      const msg: string = e?.message ?? '';
-      if (
-        msg.includes('No wallet') ||
-        msg.includes('not found') ||
-        msg.includes('SolanaMobileWalletAdapterWalletNotInstalledError') ||
-        msg.includes('SolanaMobileWalletAdapter') ||
-        msg.includes('could not be found')
-      ) {
-        setError(
-          'Phantom not installed. Get it from the Play Store, or register with the embedded wallet below.',
-        );
-      } else {
-        setError(msg || 'Registration failed.');
-      }
-    } finally {
-      setRegistering(false);
-    }
+  const handleCopyKey = async () => {
+    if (!secretKeyB58) return;
+    await Share.share({ message: secretKeyB58 });
+    setKeyCopied(true);
   };
 
-  // Register with the embedded node wallet (node signs with its own key).
-  const handleRegisterEmbedded = async () => {
-    setRegistering(true);
-    setError(null);
-    try {
-      const { registerLocal8004 } = require('../hooks/useNodeApi');
-      await registerLocal8004(agentName.trim());
-      await AsyncStorage.setItem('zerox1:8004_registered', 'true');
-      await AsyncStorage.removeItem(ONBOARDING_STATE_KEY);
-      await markOnboardingDone();
-      onFinish(config);
-    } catch (e: any) {
-      setError(e?.message ?? 'Registration failed.');
-    } finally {
-      setRegistering(false);
-    }
-  };
-
-  const handleSkip = async () => {
+  const handleDone = async () => {
     await AsyncStorage.removeItem(ONBOARDING_STATE_KEY);
     await markOnboardingDone();
     onFinish(config);
   };
 
+  const isLoading = phase === 'starting' || phase === 'launching';
+
   return (
     <StepShell step={6} total={6}>
-      <Heading label="ON-CHAIN REGISTRATION" />
-      <Sub>
-        Register your agent on Solana to start earning and launching tokens. Use
-        Phantom as your owner wallet, or register with the embedded hot wallet.
-      </Sub>
+      <Heading label="AGENT LAUNCHED" />
 
-      {/* Phantom option */}
-      <View style={s.walletCard}>
-        <Text style={s.walletLabel}>OPTION 1 — PHANTOM WALLET</Text>
-        <Text style={s.walletHint}>
-          Phantom becomes the owner of your on-chain agent identity. Your
-          signing key stays separate — the agent operates autonomously using
-          the embedded wallet.
-        </Text>
-        <PrimaryBtn
-          label={registering ? 'REGISTERING…' : 'REGISTER WITH PHANTOM →'}
-          onPress={handleRegisterWithPhantom}
-          disabled={registering || !nodeReady}
-        />
-      </View>
+      {/* Status line */}
+      {isLoading && (
+        <Sub>
+          {phase === 'starting' ? 'Starting node…' : 'Launching your token on Bags.fm…'}
+        </Sub>
+      )}
 
-      {/* Embedded wallet option */}
-      <View style={[s.walletCard, { marginTop: 12 }]}>
-        <Text style={s.walletLabel}>OPTION 2 — EMBEDDED WALLET</Text>
-        {hotWalletAddress ? (
-          <>
-            <Text style={s.walletAddress} selectable>
-              {hotWalletAddress}
-            </Text>
-            <TouchableOpacity
-              style={s.walletCopyBtn}
-              onPress={() => Share.share({ message: hotWalletAddress })}
-              activeOpacity={0.7}
-            >
-              <Text style={s.walletCopyText}>[ SHARE / COPY ]</Text>
-            </TouchableOpacity>
-          </>
-        ) : (
-          <Text style={s.walletLoading}>
-            {nodeReady ? 'Resolving address…' : 'Starting node…'}
-          </Text>
-        )}
-        <Text style={s.walletHint}>
-          The agent's own key signs everything. Good for fully autonomous
-          operation.
-        </Text>
-        <Text style={[s.walletHint, { color: '#ff8800', marginTop: 8 }]}>
-          Back up your key after setup: Settings → Wallet → EXPORT KEY.
-          Reinstalling without a backup permanently loses your agent identity,
-          reputation, and any staked funds.
-        </Text>
-        <PrimaryBtn
-          label={registering ? 'REGISTERING…' : 'REGISTER WITH HOT WALLET →'}
-          onPress={handleRegisterEmbedded}
-          disabled={registering || !hotWalletAddress}
-        />
-      </View>
-
-      {error && (
-        <Text
-          style={{
-            color: '#ff4444',
-            marginBottom: 16,
-            fontSize: 12,
-            fontFamily: 'monospace',
-            marginTop: 8,
-          }}
-        >
-          {error}
+      {phase === 'error' && (
+        <Text style={{ color: '#ff4444', fontSize: 12, fontFamily: 'monospace', marginBottom: 20 }}>
+          {errorMsg}
         </Text>
       )}
 
-      <GhostBtn label="Skip (do later in Settings)" onPress={handleSkip} />
+      {/* Token launch result */}
+      {tokenMint ? (
+        <View style={s.walletCard}>
+          <Text style={s.walletLabel}>YOUR AGENT TOKEN</Text>
+          <Text style={[s.walletHint, { marginBottom: 8 }]}>
+            Your token is live on Bags.fm. Requesters buy it to hire you — trading fees go straight to your hot wallet.
+          </Text>
+          <Text style={s.walletAddress} selectable>{tokenMint}</Text>
+          <TouchableOpacity
+            style={s.walletCopyBtn}
+            onPress={() => Share.share({ message: tokenMint })}
+            activeOpacity={0.7}
+          >
+            <Text style={s.walletCopyText}>[ COPY MINT ADDRESS ]</Text>
+          </TouchableOpacity>
+        </View>
+      ) : phase === 'done' && (
+        <View style={[s.walletCard, { borderColor: colors.border }]}>
+          <Text style={s.walletLabel}>TOKEN LAUNCH</Text>
+          <Text style={s.walletHint}>
+            Token launch skipped or pending. You can launch manually later from Settings.
+          </Text>
+        </View>
+      )}
+
+      {/* Hot wallet + secret key */}
+      <View style={[s.walletCard, { marginTop: 12, borderColor: '#ff8800' }]}>
+        <Text style={[s.walletLabel, { color: '#ff8800' }]}>HOT WALLET — BACK UP NOW</Text>
+        <Text style={s.walletHint}>
+          This is your agent's identity and earning wallet. Back up the secret key before closing this screen — it cannot be recovered if lost.
+        </Text>
+
+        {hotWalletAddress && (
+          <>
+            <Text style={{ fontSize: 10, color: colors.sub, fontFamily: 'monospace', marginTop: 8, marginBottom: 2 }}>
+              ADDRESS
+            </Text>
+            <Text style={s.walletAddress} selectable>{hotWalletAddress}</Text>
+          </>
+        )}
+
+        <Text style={{ fontSize: 10, color: '#ff8800', fontFamily: 'monospace', marginTop: 12, marginBottom: 4 }}>
+          SECRET KEY (64-byte Solana keypair)
+        </Text>
+
+        {secretKeyB58 ? (
+          <>
+            {secretRevealed ? (
+              <Text
+                style={[s.walletAddress, { fontSize: 10, letterSpacing: 0.5 }]}
+                selectable
+              >
+                {secretKeyB58}
+              </Text>
+            ) : (
+              <TouchableOpacity
+                style={[s.walletCopyBtn, { borderColor: '#ff8800' }]}
+                onPress={() => setSecretRevealed(true)}
+                activeOpacity={0.7}
+              >
+                <Text style={[s.walletCopyText, { color: '#ff8800' }]}>[ TAP TO REVEAL ]</Text>
+              </TouchableOpacity>
+            )}
+            {secretRevealed && (
+              <TouchableOpacity
+                style={[s.walletCopyBtn, { borderColor: keyCopied ? colors.green : '#ff8800', marginTop: 8 }]}
+                onPress={handleCopyKey}
+                activeOpacity={0.7}
+              >
+                <Text style={[s.walletCopyText, { color: keyCopied ? colors.green : '#ff8800' }]}>
+                  {keyCopied ? '[ COPIED ]' : '[ COPY SECRET KEY ]'}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </>
+        ) : (
+          <Text style={{ fontSize: 11, color: colors.sub, fontFamily: 'monospace' }}>
+            {isLoading ? 'Loading…' : 'Key unavailable — export from Settings after setup.'}
+          </Text>
+        )}
+      </View>
+
+      <PrimaryBtn
+        label="ENTER THE MESH →"
+        onPress={handleDone}
+        disabled={isLoading}
+      />
     </StepShell>
   );
 }
