@@ -803,7 +803,7 @@ export function EarnScreen() {
 
               {caps.length > 0 ? (
                 <View style={{ marginBottom: 10 }}>
-                  <Text style={{ fontSize: 9, color: colors.sub, letterSpacing: 2, fontFamily: 'monospace', marginBottom: 6 }}>ADVERTISING</Text>
+                  <Text style={{ fontSize: 9, color: colors.sub, letterSpacing: 2, fontFamily: 'monospace', marginBottom: 6 }}>OFFERING</Text>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                     {caps.map(cap => (
                       <View key={cap} style={{ backgroundColor: colors.green + '15', borderWidth: 1, borderColor: colors.green + '40', borderRadius: 3, paddingHorizontal: 8, paddingVertical: 3 }}>
@@ -817,7 +817,7 @@ export function EarnScreen() {
               )}
 
               {brainConfig.minFeeUsdc > 0 && (
-                <Text style={s.sub}>min fee ${brainConfig.minFeeUsdc} USDC · auto-accept {brainConfig.autoAccept ? 'on' : 'off'}</Text>
+                <Text style={s.sub}>from ${brainConfig.minFeeUsdc} USD · auto-accept {brainConfig.autoAccept ? 'on' : 'off'}</Text>
               )}
             </View>
 

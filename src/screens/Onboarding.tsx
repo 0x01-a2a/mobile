@@ -44,6 +44,7 @@ import {
   PROVIDERS,
   saveLlmApiKey,
 } from '../hooks/useAgentBrain';
+import { AGGREGATOR_API } from '../hooks/useNodeApi';
 
 export const ONBOARDING_KEY = 'zerox1:onboarding_done';
 const ONBOARDING_STATE_KEY = 'zerox1:onboarding_partial_state';
@@ -294,16 +295,14 @@ function NameStep({
             overflow: 'hidden',
           }}
         >
-          {agentAvatar ? (
-            <Image
-              source={{ uri: agentAvatar }}
-              style={{ width: 80, height: 80 }}
-            />
-          ) : (
-            <Text style={{ color: colors.sub, fontSize: 24 }}>+</Text>
-          )}
+          <Image
+            source={agentAvatar
+              ? { uri: agentAvatar }
+              : require('../../android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png')}
+            style={{ width: 80, height: 80 }}
+          />
         </TouchableOpacity>
-        <Text style={[s.keyLabel, { marginTop: 12 }]}>PROFILE PICTURE</Text>
+        <Text style={[s.keyLabel, { marginTop: 12 }]}>TAP TO CUSTOMIZE</Text>
       </View>
 
       <View style={s.keyCard}>
@@ -694,7 +693,7 @@ export function OnboardingScreen({
     'summarization',
     'qa',
   ]);
-  const [minFeeUsdc, setMinFeeUsdc] = useState('0.01');
+  const [minFeeUsdc, setMinFeeUsdc] = useState('5');
   const [minRep, setMinRep] = useState('50');
   const [autoAccept, setAutoAccept] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -777,7 +776,7 @@ export function OnboardingScreen({
         enabled: true,
         provider,
         capabilities,
-        minFeeUsdc: parseFloat(minFeeUsdc) || 0.01,
+        minFeeUsdc: parseFloat(minFeeUsdc) || 5,
         minReputation: parseInt(minRep, 10) || 50,
         autoAccept,
         maxActionsPerHour: 100,
@@ -928,7 +927,7 @@ function LaunchSuccessStep({
               llmModel: brain.customModel ?? '',
               llmBaseUrl: brain.customBaseUrl ?? '',
               capabilities: JSON.stringify(brain.capabilities ?? []),
-              minFeeUsdc: brain.minFeeUsdc ?? 0.01,
+              minFeeUsdc: brain.minFeeUsdc ?? 5,
               minReputation: brain.minReputation ?? 50,
               autoAccept: brain.autoAccept ?? true,
             };
@@ -946,6 +945,7 @@ function LaunchSuccessStep({
         if (apiToken) authHeaders.Authorization = `Bearer ${apiToken}`;
 
         let walletAddr: string | null = null;
+        let agentIdHex: string | null = null;
         for (let i = 0; i < 30; i++) {
           await new Promise<void>(r => setTimeout(r, 1000));
           if (cancelled) return;
@@ -953,6 +953,7 @@ function LaunchSuccessStep({
             const res = await fetch('http://127.0.0.1:9090/identity', { headers: authHeaders });
             if (res.ok) {
               const data: { agent_id: string } = await res.json();
+              agentIdHex = data.agent_id;
               const { PublicKey } = require('@solana/web3.js');
               const bytes = Uint8Array.from(
                 (data.agent_id.match(/.{1,2}/g) ?? []).map((b: string) => parseInt(b, 16)),
@@ -979,33 +980,27 @@ function LaunchSuccessStep({
         if (cancelled) return;
         setPhase('launching');
 
-        // Launch Bags token using agent name + avatar.
+        // Launch Bags token via aggregator sponsor endpoint (operator wallet pays SOL fees;
+        // agent wallet is fee_claimer for 100% of trading fees).
         const symbol = deriveSymbol(agentName || 'Agent');
         const displayName = agentName.trim() || 'My Agent';
         const launchBody: Record<string, unknown> = {
+          agent_id_hex: agentIdHex ?? '',
           name: displayName,
           symbol,
           description: `${displayName} is an autonomous AI agent on the 01 mesh network. Hire me at 0x01.world.`,
         };
-        if (agentAvatar) {
-          // avatar is a local file URI or base64; send as image_url if https, else image_bytes
-          if (agentAvatar.startsWith('https://')) {
-            launchBody.image_url = agentAvatar;
-          } else if (agentAvatar.startsWith('data:')) {
-            launchBody.image_bytes = agentAvatar.split(',')[1] ?? '';
-          }
+        if (agentAvatar?.startsWith('data:')) {
+          launchBody.image_b64 = agentAvatar.split(',')[1] ?? '';
         }
 
         try {
-          const launchRes = await fetch('http://127.0.0.1:9090/bags/launch', {
+          const launchRes = await fetch(`${AGGREGATOR_API}/sponsor/launch`, {
             method: 'POST',
-            headers: authHeaders,
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(launchBody),
           });
-          if (launchRes.status === 429) {
-            // Shared API key hit rate limit — tell user to set their own in Settings.
-            if (!cancelled) setTokenRateLimited(true);
-          } else if (launchRes.ok) {
+          if (launchRes.ok) {
             const lj: { token_mint?: string } = await launchRes.json().catch(() => ({}));
             const mint = lj.token_mint ?? null;
             if (!cancelled && mint) {
