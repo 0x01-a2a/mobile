@@ -30,6 +30,7 @@ import {
   bagsLaunch, bagsClaim, useBagsPositions, useBagsConfig,
   usePortfolioHistory, usePeers, PortfolioEvent,
   BagsLaunchParams, BagsToken, use8004Badge, useSkrLeague,
+  useAgents,
 } from '../hooks/useNodeApi';
 import { useOwnedAgents, OwnedAgent } from '../hooks/useOwnedAgents';
 import { useNode } from '../hooks/useNode';
@@ -374,7 +375,7 @@ export function EarnScreen() {
   const { status, start } = useNode();
   const [bounties, setBounties] = useState<Bounty[]>([]);
   const [pickerTarget, setPickerTarget] = useState<Bounty | null>(null);
-  const [activeTab, setActiveTab] = useState<'bounty' | 'trade' | 'leaderboard'>('bounty');
+  const [activeTab, setActiveTab] = useState<'earn' | 'trade' | 'leaderboard'>('earn');
   const [bagsExpanded, setBagsExpanded] = useState(false);
   const { colors } = useTheme();
   const { isTablet, isWide, contentHPad, numColumns } = useLayout();
@@ -466,6 +467,9 @@ export function EarnScreen() {
   const [launchTelegram, setLaunchTelegram] = useState('');
   const [launchInitialBuy, setLaunchInitialBuy] = useState('');
   const bagsApiConfigured = bagsConfig !== null;
+
+  // ── Agent leaderboard ──────────────────────────────────────────────────────
+  const allMeshAgents = useAgents('reputation', 50);
 
   // ── SKR League ─────────────────────────────────────────────────────────────
   const skrLeague = useSkrLeague();
@@ -744,10 +748,10 @@ export function EarnScreen() {
       <View style={[s.header, { paddingTop: insets.top + 16 }]}>
         <View style={s.tabRow}>
             <TouchableOpacity
-              style={[s.tabBtn, activeTab === 'bounty' && s.tabActive]}
-              onPress={() => setActiveTab('bounty')}
+              style={[s.tabBtn, activeTab === 'earn' && s.tabActive]}
+              onPress={() => setActiveTab('earn')}
             >
-              <Text style={[s.tabText, activeTab === 'bounty' && s.tabTextActive]}>{t('earn.tabBounty')}</Text>
+              <Text style={[s.tabText, activeTab === 'earn' && s.tabTextActive]}>EARN</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[s.tabBtn, activeTab === 'trade' && s.tabActive]}
@@ -764,180 +768,119 @@ export function EarnScreen() {
         </View>
       </View>
 
-      {/* Bounty Tab */}
-      {activeTab === 'bounty' && (
-        <>
-          {/* ── Earnings summary bar ─────────────────────────────── */}
-          <View style={s.earningsBar}>
-            <View style={s.earningStat}>
-              <Text style={s.earningVal}>
-                ${earningsSummary.totalUsdc >= 1
-                  ? earningsSummary.totalUsdc.toFixed(2)
-                  : earningsSummary.totalUsdc.toFixed(4)}
-              </Text>
-              <Text style={s.earningLabel}>{t('earn.earned')}</Text>
-            </View>
-            <View style={s.earningDivider} />
-            <View style={s.earningStat}>
-              <Text style={s.earningVal}>{activeTasks.length}</Text>
-              <Text style={s.earningLabel}>{t('earn.active')}</Text>
-            </View>
-            <View style={s.earningDivider} />
-            <View style={s.earningStat}>
-              <Text style={s.earningVal}>{earningsSummary.bountyCount}</Text>
-              <Text style={s.earningLabel}>{t('earn.completed')}</Text>
-            </View>
-          </View>
-
-          {/* ── Auto-accept toggle + status ──────────────────────── */}
-          <View style={s.autoAcceptRow}>
-            <TouchableOpacity
-              style={[s.autoAcceptBtn, autoAcceptOn && s.autoAcceptBtnOn]}
-              onPress={toggleAutoAccept}
-              activeOpacity={0.7}
-            >
-              <Text style={[s.autoAcceptText, autoAcceptOn && s.autoAcceptTextOn]}>
-                {autoAcceptOn ? t('earn.autoAcceptOn') : t('earn.autoAcceptOff')}
-              </Text>
-            </TouchableOpacity>
-            <Text style={s.sub}>
-              {isRunning
-                ? `${t('earn.listeningPeers', { count: peers.length })} · ${bounties.length > 0 ? t('earn.pendingBounties', { count: bounties.length }) : t('earn.listening')}`
-                : t('earn.nodeOffline')}
-            </Text>
-          </View>
-
-          <ScrollView
-            style={{ flex: 1 }}
-            contentContainerStyle={s.list}
-            refreshControl={
-              <RefreshControl
-                refreshing={bountyRefreshing}
-                onRefresh={refreshBountyTab}
-                tintColor={colors.green}
-                colors={[colors.green]}
-              />
-            }
-          >
-            {/* ── Context-aware empty / node start ─────────────────── */}
-            {!isRunning && bounties.length === 0 && activeTasks.length === 0 && completedTasks.length === 0 && (
-              <View style={s.emptyInline}>
-                <Text style={s.emptyText}>{t('earn.nodeOfflineMsg')}</Text>
-                <TouchableOpacity
-                  style={s.inlineStartBtn}
-                  onPress={() => start()}
-                  activeOpacity={0.8}
-                >
-                  <Text style={s.acceptText}>{t('common.startNode')}</Text>
-                </TouchableOpacity>
+      {/* Earn Tab — My Agent + Agent Leaderboard */}
+      {activeTab === 'earn' && (() => {
+        const localAgent = agents.find(a => a.mode === 'local');
+        const myToken = bagsPositions[0];
+        const caps: string[] = brainConfig.capabilities ?? [];
+        return (
+          <ScrollView style={s.tradeRoot} contentContainerStyle={s.tradeContent}>
+            {/* ── My Agent advertising card ─────────────────────────── */}
+            <Text style={s.sectionLabel}>MY AGENT</Text>
+            <View style={[s.card, { marginBottom: 20, borderColor: isRunning ? colors.green + '60' : colors.border }]}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.agentName}>{localAgent?.name ?? 'Unnamed agent'}</Text>
+                  <Text style={s.agentId}>{localAgent?.id ? shortId(localAgent.id) : '—'}</Text>
+                </View>
+                <View style={[s.badge, isRunning ? s.badgeLocal : { backgroundColor: colors.dim + '20', borderWidth: 1, borderColor: colors.dim + '60' }]}>
+                  <Text style={[s.badgeText, { color: isRunning ? colors.green : colors.dim }]}>
+                    {isRunning ? 'ONLINE' : 'OFFLINE'}
+                  </Text>
+                </View>
               </View>
-            )}
 
-            {isRunning && bounties.length === 0 && activeTasks.length === 0 && completedTasks.length === 0 && (
+              {myToken ? (
+                <View style={{ marginBottom: 12 }}>
+                  <Text style={{ fontSize: 9, color: colors.sub, letterSpacing: 2, fontFamily: 'monospace', marginBottom: 4 }}>TOKEN</Text>
+                  <Text style={{ fontSize: 13, color: colors.green, fontFamily: 'monospace', fontWeight: '700' }}>
+                    {myToken.symbol} · {shortId(myToken.token_mint)}
+                  </Text>
+                </View>
+              ) : (
+                <Text style={[s.sub, { marginBottom: 12 }]}>No token launched — go to Trade tab to launch</Text>
+              )}
+
+              {caps.length > 0 ? (
+                <View style={{ marginBottom: 10 }}>
+                  <Text style={{ fontSize: 9, color: colors.sub, letterSpacing: 2, fontFamily: 'monospace', marginBottom: 6 }}>ADVERTISING</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                    {caps.map(cap => (
+                      <View key={cap} style={{ backgroundColor: colors.green + '15', borderWidth: 1, borderColor: colors.green + '40', borderRadius: 3, paddingHorizontal: 8, paddingVertical: 3 }}>
+                        <Text style={{ fontSize: 10, color: colors.green, fontFamily: 'monospace' }}>{cap}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              ) : (
+                <Text style={[s.sub, { marginBottom: 8 }]}>No capabilities set — configure in Settings</Text>
+              )}
+
+              {brainConfig.minFeeUsdc > 0 && (
+                <Text style={s.sub}>min fee ${brainConfig.minFeeUsdc} USDC · auto-accept {brainConfig.autoAccept ? 'on' : 'off'}</Text>
+              )}
+            </View>
+
+            {/* ── Agent leaderboard ─────────────────────────────────── */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <Text style={s.sectionLabel}>AGENT LEADERBOARD</Text>
+              <Text style={{ fontSize: 9, color: colors.sub, fontFamily: 'monospace', letterSpacing: 2 }}>
+                {allMeshAgents.length} agents
+              </Text>
+            </View>
+
+            {allMeshAgents.length === 0 ? (
               <View style={s.emptyInline}>
-                <Text style={s.emptyText}>
-                  {t('earn.listeningMsg')}{autoAcceptOn ? t('earn.autoAcceptMsg') : ''}
-                </Text>
+                <Text style={s.emptyText}>No agents found.{'\n'}Connect to the mesh to see rankings.</Text>
               </View>
-            )}
-
-            {/* ── Active tasks ──────────────────────────────────────── */}
-            {activeTasks.length > 0 && (
-              <>
-                <Text style={s.sectionLabel}>{t('earn.activeTasks')}</Text>
-                {activeTasks.map(task => (
-                  <View key={task.conversationId} style={[s.card, s.activeTaskCard]}>
-                    <View style={s.taskStatusRow}>
-                      <View style={s.taskStatusDot} />
-                      <Text style={s.taskStatusText}>
-                        {task.status === 'delivered' ? t('earn.deliveredStatus') : t('earn.inProgress')}
-                      </Text>
+            ) : (
+              allMeshAgents.map((agent, idx) => {
+                const isMe = !!(localAgent?.id && agent.agent_id.toLowerCase() === localAgent.id.toLowerCase());
+                return (
+                  <View key={agent.agent_id} style={[s.card, { marginBottom: 10, borderColor: isMe ? colors.green : colors.border }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                      <Text style={s.rankNum}>#{idx + 1}</Text>
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={s.agentName} numberOfLines={1}>{agent.name || shortId(agent.agent_id)}</Text>
+                          {isMe && (
+                            <View style={{ backgroundColor: colors.green + '20', borderWidth: 1, borderColor: colors.green + '60', borderRadius: 3, paddingHorizontal: 5, paddingVertical: 1 }}>
+                              <Text style={{ fontSize: 8, color: colors.green, fontFamily: 'monospace', fontWeight: '700', letterSpacing: 1 }}>YOU</Text>
+                            </View>
+                          )}
+                        </View>
+                        <Text style={s.agentId}>{shortId(agent.agent_id)}</Text>
+                      </View>
+                      <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={s.lbPrice}>{agent.average_score.toFixed(1)}</Text>
+                        <Text style={[s.lbChange, { color: colors.sub }]}>rep</Text>
+                      </View>
                     </View>
-                    <Text style={s.desc} numberOfLines={2}>{task.description}</Text>
-                    <View style={s.meta}>
-                      <Text style={s.reward}>{task.reward}</Text>
-                      <Text style={s.dot}> · </Text>
-                      <Text style={s.from}>{t('earn.from')} {shortId(task.fromAgent)}</Text>
-                      <Text style={s.dot}> · </Text>
-                      <Text style={s.time}>{timeAgo(task.acceptedAt)}</Text>
-                    </View>
-                    <View style={s.activeTaskActions}>
-                      <TouchableOpacity
-                        style={s.resumeBtn}
-                        onPress={() => navigation.navigate('Chat', {
-                          conversationId: task.conversationId,
-                          task: { description: task.description, reward: task.reward, fromAgent: task.fromAgent } as BountyTask,
-                        })}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={s.resumeText}>{t('earn.resume')}</Text>
-                      </TouchableOpacity>
-                      {task.status !== 'delivered' && (
-                        <TouchableOpacity
-                          style={s.giveUpBtn}
-                          onPress={() => handleAbandonTask(task)}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={s.giveUpText}>{t('earn.giveUp')}</Text>
-                        </TouchableOpacity>
-                      )}
+                    <View style={s.lbMetaRow}>
+                      <Text style={s.lbMetaLabel}>JOBS</Text>
+                      <Text style={s.lbMetaVal}>{agent.feedback_count}</Text>
+                      <Text style={s.lbMetaDot}> · </Text>
+                      <Text style={s.lbMetaLabel}>POS</Text>
+                      <Text style={[s.lbMetaVal, { color: colors.green }]}>{agent.positive_count}</Text>
+                      <Text style={s.lbMetaDot}> · </Text>
+                      <Text style={s.lbMetaLabel}>NEG</Text>
+                      <Text style={[s.lbMetaVal, { color: colors.red }]}>{agent.negative_count}</Text>
+                      {agent.trend ? (
+                        <>
+                          <Text style={s.lbMetaDot}> · </Text>
+                          <Text style={[s.lbMetaVal, { color: agent.trend === 'up' ? colors.green : agent.trend === 'down' ? colors.red : colors.sub }]}>
+                            {agent.trend === 'up' ? '▲' : agent.trend === 'down' ? '▼' : '—'}
+                          </Text>
+                        </>
+                      ) : null}
                     </View>
                   </View>
-                ))}
-              </>
-            )}
-
-            {/* ── Pending bounties ──────────────────────────────────── */}
-            {bounties.length > 0 && (
-              <>
-                <Text style={[s.sectionLabel, activeTasks.length > 0 && { marginTop: 20 }]}>{t('earn.incomingBounties')}</Text>
-                <FlatList
-                  data={bounties}
-                  key={isTablet ? `bounty-${numColumns}` : 'bounty-1'}
-                  numColumns={isTablet ? numColumns : 1}
-                  keyExtractor={item => item.conversationId}
-                  renderItem={({ item }) => (
-                    <BountyCard
-                      bounty={item}
-                      onAccept={() => handleAccept(item)}
-                      onSkip={() => handleSkip(item)}
-                      onReject={() => handleRejectBounty(item)}
-                    />
-                  )}
-                  scrollEnabled={false}
-                />
-              </>
-            )}
-
-            {/* ── Completed tasks ───────────────────────────────────── */}
-            {completedTasks.length > 0 && (
-              <>
-                <Text style={[s.sectionLabel, { marginTop: 20 }]}>{t('earn.completedSection')}</Text>
-                {completedTasks.map(task => (
-                  <View key={task.conversationId} style={[s.card, { marginBottom: 8, opacity: 0.7 }]}>
-                    <Text style={s.desc} numberOfLines={1}>{task.description}</Text>
-                    <View style={s.meta}>
-                      <Text style={s.reward}>{task.reward}</Text>
-                      <Text style={s.dot}> · </Text>
-                      <Text style={s.from}>{t('earn.from')} {shortId(task.fromAgent)}</Text>
-                      <Text style={s.dot}> · </Text>
-                      <Text style={[s.time, { color: colors.green }]}>{t('earn.done')}</Text>
-                    </View>
-                  </View>
-                ))}
-              </>
+                );
+              })
             )}
           </ScrollView>
-
-          {pickerTarget && (
-            <AgentPicker
-              agents={agents}
-              onSelect={a => assignAndNavigate(pickerTarget, a)}
-              onClose={() => setPickerTarget(null)}
-            />
-          )}
-        </>
-      )}
+        );
+      })()}
 
       {/* Trade Tab */}
       {activeTab === 'trade' && (

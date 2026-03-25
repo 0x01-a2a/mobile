@@ -711,7 +711,6 @@ export function OnboardingScreen({
           if (s.agentName) setAgentName(s.agentName);
           if (s.agentAvatar) setAgentAvatar(s.agentAvatar);
           if (s.provider) setProvider(s.provider);
-          if (s.apiKey) setApiKey(s.apiKey);
           if (s.customBaseUrl) setCustomBaseUrl(s.customBaseUrl);
           if (s.customModel) setCustomModel(s.customModel);
           if (s.capabilities) setCapabilities(s.capabilities);
@@ -728,13 +727,13 @@ export function OnboardingScreen({
   // Persist partial state on every change
   useEffect(() => {
     const state = {
-      step, agentName, agentAvatar, provider, apiKey,
+      step, agentName, agentAvatar, provider,
       customBaseUrl, customModel, capabilities, minFeeUsdc,
       minRep, autoAccept
     };
     AsyncStorage.setItem(ONBOARDING_STATE_KEY, JSON.stringify(state))
       .catch(e => console.warn('Failed to save onboarding state:', e));
-  }, [step, agentName, agentAvatar, provider, apiKey, customBaseUrl, customModel, capabilities, minFeeUsdc, minRep, autoAccept]);
+  }, [step, agentName, agentAvatar, provider, customBaseUrl, customModel, capabilities, minFeeUsdc, minRep, autoAccept]);
 
   const toggleCapability = (cap: Capability) => {
     setCapabilities(prev =>
@@ -905,6 +904,8 @@ function LaunchSuccessStep({
   const [secretRevealed, setSecretRevealed] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [keyCopied, setKeyCopied] = useState(false);
+  const [tokenLaunchError, setTokenLaunchError] = useState<string | null>(null);
+  const [tokenRateLimited, setTokenRateLimited] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -1001,7 +1002,10 @@ function LaunchSuccessStep({
             headers: authHeaders,
             body: JSON.stringify(launchBody),
           });
-          if (launchRes.ok) {
+          if (launchRes.status === 429) {
+            // Shared API key hit rate limit — tell user to set their own in Settings.
+            if (!cancelled) setTokenRateLimited(true);
+          } else if (launchRes.ok) {
             const lj: { token_mint?: string } = await launchRes.json().catch(() => ({}));
             const mint = lj.token_mint ?? null;
             if (!cancelled && mint) {
@@ -1014,9 +1018,14 @@ function LaunchSuccessStep({
                 JSON.stringify({ ...brain, tokenAddress: mint }),
               );
             }
+          } else {
+            const errText = await launchRes.text().catch(() => '');
+            if (!cancelled) setTokenLaunchError(errText || `HTTP ${launchRes.status}`);
           }
           // Non-fatal: token launch might fail if Bags API is down; user can launch later.
-        } catch { /* non-fatal */ }
+        } catch (e: any) {
+          if (!cancelled) setTokenLaunchError(e?.message ?? 'Unknown error');
+        }
 
         if (!cancelled) setPhase('done');
       } catch (e: any) {
@@ -1080,9 +1089,27 @@ function LaunchSuccessStep({
       ) : phase === 'done' && (
         <View style={[s.walletCard, { borderColor: colors.border }]}>
           <Text style={s.walletLabel}>TOKEN LAUNCH</Text>
-          <Text style={s.walletHint}>
-            Token launch skipped or pending. You can launch manually later from Settings.
-          </Text>
+          {tokenRateLimited ? (
+            <>
+              <Text style={s.walletHint}>
+                The shared Bags API key is rate-limited right now. Your token was not launched yet — you can retry later.
+              </Text>
+              <Text style={[s.walletHint, { color: '#ffc107', marginTop: 6 }]}>
+                To launch without limits: go to Settings → Bags Fee Sharing → set your own Bags API key from bags.fm.
+              </Text>
+            </>
+          ) : (
+            <>
+              <Text style={s.walletHint}>
+                Token launch skipped or pending. You can launch manually later from Settings.
+              </Text>
+              {tokenLaunchError && (
+                <Text style={{ fontSize: 10, color: '#ff4444', fontFamily: 'monospace', marginTop: 4 }}>
+                  {tokenLaunchError.slice(0, 120)}
+                </Text>
+              )}
+            </>
+          )}
         </View>
       )}
 
@@ -1109,12 +1136,17 @@ function LaunchSuccessStep({
         {secretKeyB58 ? (
           <>
             {secretRevealed ? (
-              <Text
-                style={[s.walletAddress, { fontSize: 10, letterSpacing: 0.5 }]}
-                selectable
-              >
-                {secretKeyB58}
-              </Text>
+              <>
+                <Text style={{ fontSize: 10, color: '#ffc107', fontFamily: 'monospace', marginBottom: 4 }}>
+                  Do not screenshot. Use the copy button.
+                </Text>
+                <Text
+                  style={[s.walletAddress, { fontSize: 10, letterSpacing: 0.5 }]}
+                >
+                  {secretKeyB58}
+                </Text>
+              </>
+
             ) : (
               <TouchableOpacity
                 style={[s.walletCopyBtn, { borderColor: '#ff8800' }]}

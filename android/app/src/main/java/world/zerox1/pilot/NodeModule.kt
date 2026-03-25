@@ -1,9 +1,11 @@
 package world.zerox1.pilot
 
+import android.app.Activity
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.content.pm.PackageManager
 import android.util.Base64
@@ -13,6 +15,8 @@ import androidx.core.content.ContextCompat
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.facebook.react.bridge.*
+import com.facebook.react.bridge.ActivityEventListener
+import com.facebook.react.bridge.BaseActivityEventListener
 import com.facebook.react.bridge.LifecycleEventListener
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.facebook.react.modules.core.PermissionAwareActivity
@@ -48,9 +52,29 @@ import java.security.SecureRandom
 class NodeModule(private val ctx: ReactApplicationContext)
     : ReactContextBaseJavaModule(ctx), LifecycleEventListener {
 
+    // ── Screen capture grant ──────────────────────────────────────────────────
+    @Volatile private var screenCapturePromise: Promise? = null
+
+    private val screenCaptureListener = object : BaseActivityEventListener() {
+        override fun onActivityResult(activity: Activity?, requestCode: Int, resultCode: Int, data: Intent?) {
+            if (requestCode != SCREEN_CAPTURE_REQUEST_CODE) return
+            val promise = screenCapturePromise ?: return
+            screenCapturePromise = null
+            if (resultCode == Activity.RESULT_OK && data != null) {
+                HighlightRecorder.projectionResultCode = resultCode
+                HighlightRecorder.projectionResultData = data
+                promise.resolve(null)
+            } else {
+                promise.reject("CANCELLED", "Screen capture permission denied by user")
+            }
+        }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     companion object {
         private const val TAG = "NodeModule"
         private const val PERMISSION_REQUEST_CODE = 42
+        private const val SCREEN_CAPTURE_REQUEST_CODE = 1337
         private const val SECURE_PREFS_NAME = "zerox1_secure"
         private const val KEY_LLM_API_KEY = "llm_api_key"
         private const val KEY_NODE_API_SECRET = "local_node_api_secret"
@@ -110,6 +134,7 @@ class NodeModule(private val ctx: ReactApplicationContext)
         val filter = IntentFilter(NodeService.ACTION_STATUS)
         ctx.registerReceiver(statusReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
         ctx.addLifecycleEventListener(this)
+        ctx.addActivityEventListener(screenCaptureListener)
         instance = this
     }
 
@@ -119,6 +144,9 @@ class NodeModule(private val ctx: ReactApplicationContext)
         super.invalidate()
         runCatching { ctx.unregisterReceiver(statusReceiver) }
         runCatching { ctx.removeLifecycleEventListener(this) }
+        runCatching { ctx.removeActivityEventListener(screenCaptureListener) }
+        screenCapturePromise?.reject("CANCELLED", "Module invalidated")
+        screenCapturePromise = null
         pendingStartPromise?.reject("CANCELLED", "Module invalidated")
         pendingStartIntent = null
         pendingStartPromise = null
@@ -980,4 +1008,42 @@ class NodeModule(private val ctx: ReactApplicationContext)
     // Required for addListener / removeListeners (RN event emitter contract)
     @ReactMethod fun addListener(eventName: String) {}
     @ReactMethod fun removeListeners(count: Int) {}
+
+    /**
+     * Request screen capture permission for highlight reel recording.
+     *
+     * Shows the system "Start recording?" dialog. The result is stored in
+     * [HighlightRecorder] so subsequent POST /phone/highlight/start calls work.
+     *
+     * Resolves (null) on approval, rejects with CANCELLED on denial.
+     * Safe to call again after denial to re-prompt.
+     */
+    @ReactMethod
+    fun requestScreenCapture(promise: Promise) {
+        val activity = currentActivity ?: run {
+            promise.reject("NO_ACTIVITY", "No current activity")
+            return
+        }
+        if (screenCapturePromise != null) {
+            promise.reject("PENDING", "Screen capture request already pending")
+            return
+        }
+        screenCapturePromise = promise
+        try {
+            val mgr = ctx.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            activity.startActivityForResult(mgr.createScreenCaptureIntent(), SCREEN_CAPTURE_REQUEST_CODE)
+        } catch (e: Exception) {
+            screenCapturePromise = null
+            promise.reject("REQUEST_FAILED", "Failed to launch screen capture dialog: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Returns whether the screen capture grant is currently held.
+     * True → POST /phone/highlight/start will work without re-prompting.
+     */
+    @ReactMethod
+    fun hasScreenCaptureGrant(promise: Promise) {
+        promise.resolve(HighlightRecorder.hasGrant)
+    }
 }

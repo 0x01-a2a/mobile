@@ -103,6 +103,33 @@ class PhoneBridgeServer(
     private val cameraMutex      = kotlinx.coroutines.sync.Mutex()
     private val imuMutex         = kotlinx.coroutines.sync.Mutex()
 
+    // ── TTS engine ────────────────────────────────────────────────────────────
+    // Initialized lazily on first POST /phone/tts. Android TextToSpeech init is
+    // async; we block briefly with a latch so the bridge responds only after the
+    // engine is ready (typically < 200 ms on first call, instant thereafter).
+    @Volatile private var tts: android.speech.tts.TextToSpeech? = null
+    @Volatile private var ttsReady = false
+    private val ttsMutex = kotlinx.coroutines.sync.Mutex()
+
+    private suspend fun getTts(): android.speech.tts.TextToSpeech? {
+        ttsMutex.withLock {
+            if (tts != null) return tts
+            val latch = java.util.concurrent.CountDownLatch(1)
+            var engine: android.speech.tts.TextToSpeech? = null
+            // TextToSpeech must be initialized on a thread that can deliver callbacks;
+            // we use the main looper, which is always available.
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                engine = android.speech.tts.TextToSpeech(context) { status ->
+                    ttsReady = (status == android.speech.tts.TextToSpeech.SUCCESS)
+                    latch.countDown()
+                }
+            }
+            latch.await(3, java.util.concurrent.TimeUnit.SECONDS)
+            tts = engine
+            return tts
+        }
+    }
+
     // ── Read-only TTL cache (Gap 2) ───────────────────────────────────────────
     // Caches successful (HTTP 200) responses for read-only, non-sensitive endpoints
     // to avoid redundant I/O when the LLM makes repeated reads within a short window.
@@ -591,6 +618,14 @@ class PhoneBridgeServer(
 
             // ---- Activity log ----
             method == "GET"  && path == "/phone/activity_log"   -> handleActivityLog(params)
+
+            // ---- TTS (device built-in, free, offline) ----
+            method == "POST" && path == "/phone/tts"            -> handleTts(body)
+
+            // ---- Highlight reels (screen recording) ----
+            method == "POST" && path == "/phone/highlight/start" -> handleHighlightStart()
+            method == "POST" && path == "/phone/highlight/stop"  -> handleHighlightStop()
+            method == "GET"  && path == "/phone/highlight/status" -> handleHighlightStatus()
 
             else -> jsonError("NOT_FOUND: $method $path", 404)
         }
@@ -2797,5 +2832,95 @@ class PhoneBridgeServer(
             "\r\n").toByteArray(Charsets.UTF_8))
         out.write(bytes)
         out.flush()
+    }
+
+    // ── TTS handler ───────────────────────────────────────────────────────────
+
+    /**
+     * POST /phone/tts
+     * Body: { "text": "...", "rate": 1.0, "pitch": 1.0 }
+     *
+     * Speaks [text] via the device's built-in TextToSpeech engine.
+     * Rate and pitch are optional (default 1.0).
+     * Returns immediately with {"ok":true,"queued":true} — speech happens asynchronously.
+     */
+    private fun handleTts(body: JSONObject?): BridgeResponse {
+        val text = body?.optString("text", "")?.trim() ?: ""
+        if (text.isEmpty()) return jsonError("missing_field: text")
+        if (text.length > 4000) return jsonError("text_too_long: max 4000 characters")
+
+        return runBlocking {
+            val engine = getTts() ?: return@runBlocking jsonError("tts_unavailable")
+            if (!ttsReady) return@runBlocking jsonError("tts_not_ready: engine failed to initialize")
+
+            val rate  = (body?.optDouble("rate",  1.0) ?: 1.0).toFloat().coerceIn(0.1f, 4.0f)
+            val pitch = (body?.optDouble("pitch", 1.0) ?: 1.0).toFloat().coerceIn(0.1f, 2.0f)
+
+            engine.setSpeechRate(rate)
+            engine.setPitch(pitch)
+
+            val result = engine.speak(text, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "zerox1_${System.currentTimeMillis()}")
+            if (result == android.speech.tts.TextToSpeech.SUCCESS) {
+                jsonOk(JSONObject().put("queued", true).put("chars", text.length))
+            } else {
+                jsonError("tts_speak_failed: engine returned $result", 500)
+            }
+        }
+    }
+
+    // ── Highlight reel handlers ───────────────────────────────────────────────
+
+    /**
+     * POST /phone/highlight/start
+     * Body: {} (no params)
+     *
+     * Starts screen recording. Requires prior screen capture grant from the user
+     * (requestScreenCapture() called from React Native, user approved system dialog).
+     */
+    private fun handleHighlightStart(): BridgeResponse {
+        if (!HighlightRecorder.hasGrant) {
+            return jsonError(
+                "no_screen_capture_grant: open the app and tap 'Enable Screen Recording' in My Node settings",
+                403
+            )
+        }
+        val err = HighlightRecorder.start(context)
+        return if (err == null) {
+            jsonOk(JSONObject().put("recording", true))
+        } else {
+            jsonError("highlight_start_failed: $err", 500)
+        }
+    }
+
+    /**
+     * POST /phone/highlight/stop
+     * Body: {} (no params)
+     *
+     * Stops screen recording and saves the video to the camera roll (DCIM/Highlights).
+     * Returns { "uri": "content://...", "filename": "Highlight_....mp4" }.
+     */
+    private fun handleHighlightStop(): BridgeResponse {
+        val result = HighlightRecorder.stop(context)
+        return if (result.ok) {
+            jsonOk(JSONObject().apply {
+                put("saved", true)
+                put("uri", result.uri)
+                put("filename", result.filename)
+            })
+        } else {
+            jsonError("highlight_stop_failed: ${result.error}", 500)
+        }
+    }
+
+    /**
+     * GET /phone/highlight/status
+     *
+     * Returns current recording state and whether the screen capture grant is available.
+     */
+    private fun handleHighlightStatus(): BridgeResponse {
+        return jsonOk(JSONObject().apply {
+            put("has_grant", HighlightRecorder.hasGrant)
+            put("recording", HighlightRecorder.isRecording)
+        })
     }
 }

@@ -262,6 +262,23 @@ export const NodeModule = {
    */
   confirmScreenAction: (id: string, approved: boolean): Promise<void> =>
     ZeroxNodeModule.confirmScreenAction(id, approved),
+
+  /**
+   * Prompt the user to grant screen capture permission for highlight reel recording.
+   * Shows the Android system "Start recording?" dialog once. The grant is stored
+   * on-device and used by POST /phone/highlight/start until the process restarts.
+   *
+   * Resolves (null) on approval. Rejects with CANCELLED if the user denies.
+   */
+  requestScreenCapture: (): Promise<void> =>
+    ZeroxNodeModule.requestScreenCapture(),
+
+  /**
+   * Returns true if the agent already has a valid screen capture grant.
+   * If true, highlight recording can start immediately without re-prompting.
+   */
+  hasScreenCaptureGrant: (): Promise<boolean> =>
+    ZeroxNodeModule.hasScreenCaptureGrant(),
 };
 
 // ============================================================================
