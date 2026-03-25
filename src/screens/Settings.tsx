@@ -476,6 +476,23 @@ function AgentBrainSection() {
           <Text style={{ color: colors.green, fontSize: 13 }}>Exempt →</Text>
         </TouchableOpacity>
       )}
+
+      {Platform.OS === 'android' && (
+        <TouchableOpacity
+          style={[bs.row, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }]}
+          onPress={() =>
+            NodeModule.requestScreenCapture()
+              .then(() => Alert.alert('Screen Recording', 'Permission granted. Your agent can now record highlight reels.'))
+              .catch(() => Alert.alert('Screen Recording', 'Permission denied. Grant it again from this button when ready.'))
+          }
+        >
+          <View style={bs.rowLeft}>
+            <Text style={bs.rowLabel}>SCREEN RECORDING</Text>
+            <Text style={bs.rowSub}>Allow agent to record highlight reels for the camera roll</Text>
+          </View>
+          <Text style={{ color: colors.green, fontSize: 13 }}>Grant →</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -827,7 +844,7 @@ function BagsFeeSection({
         <View style={bfs.rowLeft}>
           <Text style={bfs.rowLabel}>BAGS API KEY</Text>
           <Text style={bfs.rowSub}>
-            Required to launch tokens via Bags.fm. Stored in OS Keychain.
+            The app includes a shared key for onboarding. Set your own if you hit a rate limit or use Bags features heavily. Free at bags.fm. Stored in OS Keychain.
           </Text>
         </View>
       </View>
