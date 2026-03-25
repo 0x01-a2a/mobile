@@ -81,7 +81,7 @@ const DEFAULT_CONFIG: AgentBrainConfig = {
   enabled: false,
   provider: 'gemini',
   capabilities: ['summarization', 'qa'],
-  minFeeUsdc: 0.01,
+  minFeeUsdc: 5,
   minReputation: 50,
   autoAccept: true,
   maxActionsPerHour: 100,

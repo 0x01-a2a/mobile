@@ -77,7 +77,7 @@ async function withBrainConfig(base: NodeConfig): Promise<NodeConfig> {
       llmModel: brain.customModel ?? '',
       llmBaseUrl: brain.customBaseUrl ?? '',
       capabilities: JSON.stringify(brain.capabilities ?? []),
-      minFeeUsdc: brain.minFeeUsdc ?? 0.01,
+      minFeeUsdc: brain.minFeeUsdc ?? 5,
       minReputation: brain.minReputation ?? 50,
       autoAccept: brain.autoAccept ?? true,
     };

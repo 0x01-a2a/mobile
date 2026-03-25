@@ -88,8 +88,8 @@ export function configureNodeApi(opts: {
   if (opts.hosted !== undefined) _isHostedMode = opts.hosted;
 }
 
-const AGGREGATOR_API = 'https://api.0x01.world';
-const AGGREGATOR_WS = 'wss://api.0x01.world';
+export const AGGREGATOR_API = 'https://api.0x01.world';
+export const AGGREGATOR_WS = 'wss://api.0x01.world';
 
 // ============================================================================
 // Types (mirrors node API responses)
