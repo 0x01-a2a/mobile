@@ -160,6 +160,9 @@ class NtfyWakeWorker(
                 putExtra(NodeService.EXTRA_BAGS_FEE_BPS, bagsFeeBps)
                 prefs.getString("bags_wallet", null)?.let { putExtra(NodeService.EXTRA_BAGS_WALLET, it) }
             }
+            prefs.getString("bags_partner_wallet", null)?.let {
+                putExtra(NodeService.EXTRA_BAGS_PARTNER_WALLET, it)
+            }
             try {
                 val masterKey = MasterKey.Builder(context)
                     .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
