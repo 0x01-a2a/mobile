@@ -214,6 +214,7 @@ function AgentBrainSection() {
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [newKey, setNewKey] = useState('');
   const [dirty, setDirty] = useState(false);
+  const [baseUrlError, setBaseUrlError] = useState<string | null>(null);
 
   if (loading) return null;
 
@@ -348,13 +349,35 @@ function AgentBrainSection() {
             <TextInput
               style={bs.customFieldInput}
               value={config.customBaseUrl || ''}
-              onChangeText={v => saveAndDirty({ ...config, customBaseUrl: v })}
+              onChangeText={v => {
+                saveAndDirty({ ...config, customBaseUrl: v });
+                if (!v.trim()) {
+                  setBaseUrlError(null);
+                } else {
+                  try {
+                    const parsed = new URL(v);
+                    const isLocalhost = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
+                    if (parsed.protocol !== 'https:' && !(isLocalhost && parsed.protocol === 'http:')) {
+                      setBaseUrlError('URL must use https:// (http:// allowed for localhost only)');
+                    } else {
+                      setBaseUrlError(null);
+                    }
+                  } catch {
+                    setBaseUrlError('Enter a valid URL (e.g. https://api.openai.com/v1)');
+                  }
+                }
+              }}
               placeholder="e.g. https://api.openai.com/v1"
               placeholderTextColor={colors.sub}
               autoCapitalize="none"
               autoCorrect={false}
               spellCheck={false}
             />
+            {baseUrlError && (
+              <Text style={{ fontSize: 10, color: '#ff8800', fontFamily: 'monospace', marginTop: 6 }}>
+                {baseUrlError}
+              </Text>
+            )}
           </View>
           <View style={bs.customField}>
             <Text style={bs.customFieldLabel}>MODEL (optional)</Text>

@@ -100,9 +100,9 @@ object HighlightRecorder {
                     cleanupRecorder()
                 }
             }
-            proj.registerCallback(cb, Handler(Looper.getMainLooper()))
+            proj?.registerCallback(cb, Handler(Looper.getMainLooper()))
 
-            virtualDisplay = proj.createVirtualDisplay(
+            virtualDisplay = proj?.createVirtualDisplay(
                 "HighlightRecorder",
                 width, height, dpi,
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,

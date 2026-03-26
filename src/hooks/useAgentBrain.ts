@@ -79,11 +79,11 @@ export interface AgentBrainConfig {
 
 const DEFAULT_CONFIG: AgentBrainConfig = {
   enabled: false,
-  provider: 'gemini',
+  provider: 'anthropic',
   capabilities: ['summarization', 'qa'],
   minFeeUsdc: 5,
   minReputation: 50,
-  autoAccept: true,
+  autoAccept: false,
   maxActionsPerHour: 100,
   maxCostPerDayCents: 1000,
   apiKeySet: false,

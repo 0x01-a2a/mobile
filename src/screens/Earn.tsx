@@ -30,7 +30,7 @@ import {
   bagsLaunch, bagsClaim, useBagsPositions, useBagsConfig,
   usePortfolioHistory, usePeers, PortfolioEvent,
   BagsLaunchParams, BagsToken, use8004Badge, useSkrLeague,
-  useAgents,
+  useAgents, useBountyFeed, BountyEntry,
 } from '../hooks/useNodeApi';
 import { useOwnedAgents, OwnedAgent } from '../hooks/useOwnedAgents';
 import { useNode } from '../hooks/useNode';
@@ -40,6 +40,21 @@ import { NodeStatusBanner } from '../components/NodeStatusBanner';
 import { useTheme, ThemeColors } from '../theme/ThemeContext';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { useLayout } from '../hooks/useLayout';
+
+// ── Module-level shared tick for deadline countdown timers ─────────────────
+// All BountyCard instances share one setInterval instead of creating one each.
+let _tickListeners: Array<() => void> = [];
+let _tickInterval: ReturnType<typeof setInterval> | null = null;
+
+function startTick() {
+  if (_tickInterval !== null) return;
+  _tickInterval = setInterval(() => { _tickListeners.forEach(fn => fn()); }, 1000);
+}
+function addTickListener(fn: () => void): () => void {
+  _tickListeners.push(fn);
+  startTick();
+  return () => { _tickListeners = _tickListeners.filter(f => f !== fn); };
+}
 
 // ── Task tracking (AsyncStorage-backed) ──────────────────────────────────
 
@@ -252,17 +267,14 @@ function BountyCard({
   const { colors } = useTheme();
   const s = useStyles(colors);
   const senderRegistered = use8004Badge(bounty.sender);
-  const [remaining, setRemaining] = useState<number | null>(
-    bounty.deadlineAt ? Math.max(0, Math.floor((bounty.deadlineAt - Date.now()) / 1000)) : null,
-  );
-
+  const [, setTick] = useState(0);
   useEffect(() => {
     if (!bounty.deadlineAt) return;
-    const id = setInterval(() => {
-      setRemaining(Math.max(0, Math.floor((bounty.deadlineAt! - Date.now()) / 1000)));
-    }, 1000);
-    return () => clearInterval(id);
+    return addTickListener(() => setTick(t => t + 1));
   }, [bounty.deadlineAt]);
+  const remaining = bounty.deadlineAt
+    ? Math.max(0, Math.floor((bounty.deadlineAt - Date.now()) / 1000))
+    : null;
 
   const urgent = remaining !== null && remaining <= 30;
   const remainStr = remaining === null ? null
@@ -306,6 +318,66 @@ function BountyCard({
         </TouchableOpacity>
       </View>
     </View>
+  );
+}
+
+// ── Aggregator bounty feed card ───────────────────────────────────────────
+
+function AggregatorBountyCard({
+  bounty,
+  onRespond,
+  colors,
+}: {
+  bounty: BountyEntry;
+  onRespond: (bounty: BountyEntry) => void;
+  colors: ThemeColors;
+}) {
+  const deadlineRemaining = bounty.deadline_at > 0
+    ? Math.max(0, Math.floor((bounty.deadline_at * 1000 - Date.now()) / 1000))
+    : null;
+  const expired = deadlineRemaining !== null && deadlineRemaining === 0;
+
+  if (expired) return null;
+
+  const fmtDeadline = deadlineRemaining === null
+    ? 'No deadline'
+    : deadlineRemaining > 3600
+      ? `${Math.floor(deadlineRemaining / 3600)}h left`
+      : `${Math.floor(deadlineRemaining / 60)}m left`;
+
+  return (
+    <TouchableOpacity
+      style={{
+        backgroundColor: colors.card,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: 4,
+        padding: 12,
+        marginBottom: 8,
+      }}
+      onPress={() => onRespond(bounty)}
+      activeOpacity={0.8}
+    >
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+        <Text style={{ fontSize: 9, color: colors.green, fontFamily: 'monospace', letterSpacing: 1 }}>
+          {bounty.required_capability.toUpperCase()}
+        </Text>
+        <Text style={{ fontSize: 9, color: colors.sub, fontFamily: 'monospace' }}>
+          {fmtDeadline}
+        </Text>
+      </View>
+      <Text style={{ color: colors.text, fontSize: 13, fontFamily: 'monospace', lineHeight: 18, marginBottom: 8 }} numberOfLines={3}>
+        {bounty.task_summary}
+      </Text>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={{ fontSize: 11, color: colors.amber, fontFamily: 'monospace', fontWeight: '700' }}>
+          UP TO ${bounty.max_budget_usd.toFixed(2)}
+        </Text>
+        <Text style={{ fontSize: 9, color: colors.sub, fontFamily: 'monospace' }}>
+          {bounty.sender.slice(0, 8)}…
+        </Text>
+      </View>
+    </TouchableOpacity>
   );
 }
 
@@ -469,11 +541,14 @@ export function EarnScreen() {
   const bagsApiConfigured = bagsConfig !== null;
 
   // ── Agent leaderboard ──────────────────────────────────────────────────────
-  const allMeshAgents = useAgents('reputation', 50);
+  const allMeshAgents = useAgents('reputation', 50).filter(a => !/^0+$/.test(a.agent_id));
 
   // ── SKR League ─────────────────────────────────────────────────────────────
   const skrLeague = useSkrLeague();
   const [bountyRefreshing, setBountyRefreshing] = useState(false);
+
+  // ── Aggregator bounty feed ─────────────────────────────────────────────────
+  const { bounties: aggregatorBounties, loading: aggregatorBountyLoading, reload: reloadAggregatorBounties } = useBountyFeed();
 
   const handlePickImage = useCallback(() => {
     launchImageLibrary(
@@ -616,7 +691,7 @@ export function EarnScreen() {
   );
 
   const onEnvelope = useCallback((env: InboundEnvelope) => {
-    if (env.msg_type !== 'PROPOSE' && env.msg_type !== 'DISCOVER') return;
+    if (env.msg_type !== 'PROPOSE') return;
     const terms = decodeTerms(env.payload_b64);
     if (!terms) return;
     const deadlineSecs = typeof terms.deadline_secs === 'number' ? terms.deadline_secs : null;
@@ -772,6 +847,7 @@ export function EarnScreen() {
       {activeTab === 'earn' && (() => {
         const localAgent = agents.find(a => a.mode === 'local');
         const myToken = bagsPositions[0];
+        const fallbackMint = !myToken ? (brainConfig as any).tokenAddress as string | undefined : undefined;
         const caps: string[] = brainConfig.capabilities ?? [];
         return (
           <ScrollView style={s.tradeRoot} contentContainerStyle={s.tradeContent}>
@@ -795,6 +871,13 @@ export function EarnScreen() {
                   <Text style={{ fontSize: 9, color: colors.sub, letterSpacing: 2, fontFamily: 'monospace', marginBottom: 4 }}>TOKEN</Text>
                   <Text style={{ fontSize: 13, color: colors.green, fontFamily: 'monospace', fontWeight: '700' }}>
                     {myToken.symbol} · {shortId(myToken.token_mint)}
+                  </Text>
+                </View>
+              ) : fallbackMint ? (
+                <View style={{ marginBottom: 12 }}>
+                  <Text style={{ fontSize: 9, color: colors.sub, letterSpacing: 2, fontFamily: 'monospace', marginBottom: 4 }}>TOKEN</Text>
+                  <Text style={{ fontSize: 13, color: colors.green, fontFamily: 'monospace', fontWeight: '700' }}>
+                    {shortId(fallbackMint)}
                   </Text>
                 </View>
               ) : (
@@ -878,6 +961,44 @@ export function EarnScreen() {
                 );
               })
             )}
+
+            {/* ── Open bounties from aggregator ─────────────────────── */}
+            <View style={{ marginTop: 24 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <Text style={s.sectionLabel}>OPEN BOUNTIES</Text>
+                <TouchableOpacity onPress={reloadAggregatorBounties}>
+                  <Text style={{ fontSize: 10, color: colors.sub, fontFamily: 'monospace', letterSpacing: 1 }}>REFRESH</Text>
+                </TouchableOpacity>
+              </View>
+              {aggregatorBountyLoading ? (
+                <Text style={s.sub}>loading...</Text>
+              ) : aggregatorBounties.length === 0 ? (
+                <Text style={s.sub}>No open bounties</Text>
+              ) : (
+                aggregatorBounties.map(b => (
+                  <AggregatorBountyCard
+                    key={b.id}
+                    bounty={b}
+                    onRespond={(bounty) => {
+                      Alert.alert(
+                        'Respond to Bounty',
+                        `Send a PROPOSE to ${bounty.sender.slice(0, 8)}… for "${bounty.required_capability}" task?\n\nBudget: up to $${bounty.max_budget_usd.toFixed(2)}`,
+                        [
+                          { text: 'Cancel', style: 'cancel' },
+                          {
+                            text: 'Open Chat',
+                            onPress: () => {
+                              Alert.alert('Conversation ID', bounty.conversation_id);
+                            },
+                          },
+                        ],
+                      );
+                    }}
+                    colors={colors}
+                  />
+                ))
+              )}
+            </View>
           </ScrollView>
         );
       })()}

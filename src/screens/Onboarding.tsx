@@ -2,12 +2,10 @@
  * Onboarding — first-launch setup for the 01 Pilot agent runtime (ZeroClaw).
  *
  * Steps:
- *   0 — Welcome (enable or skip)
+ *   0 — Welcome (wallet + enable or skip)
  *   1 — Agent name
  *   2 — LLM provider selection
- *   3 — API key entry
- *   4 — Capability selection
- *   5 — Auto-accept rules + finish
+ *   3 — API key entry → finish (capabilities and rules use defaults)
  *   6 — Launch success (Bags token launch + secret key backup)
  *
  * On completion calls onDone(config) with the saved config,
@@ -25,7 +23,6 @@ import {
   ScrollView,
   Share,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -37,8 +34,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   AgentBrainConfig,
   ALL_CAPABILITIES,
-  Capability,
-  CAPABILITY_LABELS,
   LlmProvider,
   ProviderInfo,
   PROVIDERS,
@@ -110,7 +105,7 @@ const C = {
 function StepShell({
   children,
   step,
-  total = 5,
+  total = 3,
 }: {
   children: React.ReactNode;
   step: number;
@@ -205,29 +200,33 @@ function BackBtn({ onPress }: { onPress: () => void }) {
 // ============================================================================
 
 function WelcomeStep({
+  phantomWallet,
+  onChangePhantomWallet,
   onEnable,
   onSkip,
 }: {
+  phantomWallet: string;
+  onChangePhantomWallet: (v: string) => void;
   onEnable: () => void;
   onSkip: () => void;
 }) {
   const { colors } = useTheme();
   const s = useStyles(colors);
+  const walletValid = phantomWallet.trim().length >= 32;
   return (
     <StepShell step={0}>
       <Text style={s.logo}>[*]</Text>
       <Heading label="AGENT BRAIN" />
       <Sub>
-        Your 01 Pilot agent can make decisions on its own — accept tasks, earn
-        USDC, build reputation — while your phone is locked.{'\n\n'}
-        It needs an LLM provider to reason with. You bring your own API key; it
-        never leaves this device.
+        Your 01 Pilot agent earns on your behalf — accepting tasks, building
+        reputation, and settling payments on Solana — while your phone is
+        locked.
       </Sub>
 
       <View style={s.featureList}>
         {[
           'Accepts tasks from the mesh automatically',
-          'Earns USDC for completed work',
+          'Earns in your agent token, sweepable to your wallet',
           'Builds on-chain reputation over time',
           'Runs while you sleep',
         ].map(f => (
@@ -236,6 +235,28 @@ function WelcomeStep({
             <Text style={s.featureText}>{f}</Text>
           </View>
         ))}
+      </View>
+
+      {/* Phantom wallet — optional but unlocks sweep + portfolio view */}
+      <View style={{ marginTop: 24, marginBottom: 8 }}>
+        <Text style={{ fontSize: 9, color: colors.sub, fontFamily: 'monospace', letterSpacing: 2, marginBottom: 8 }}>
+          CONNECT OWNER WALLET (OPTIONAL)
+        </Text>
+        <TextInput
+          style={[s.keyInput, { borderWidth: 1, borderColor: walletValid ? colors.green + '80' : colors.border, borderRadius: 4, padding: 12, marginBottom: 0 }]}
+          value={phantomWallet}
+          onChangeText={onChangePhantomWallet}
+          placeholder="Paste your Phantom wallet address"
+          placeholderTextColor={colors.sub}
+          autoCapitalize="none"
+          autoCorrect={false}
+          returnKeyType="done"
+        />
+        <Text style={{ fontSize: 10, color: colors.sub, fontFamily: 'monospace', marginTop: 6, lineHeight: 15 }}>
+          {walletValid
+            ? '✓ Earnings sweep and portfolio tracking enabled'
+            : 'Your Solana base58 address — enables earnings sweep and portfolio view. You can add this later in Settings.'}
+        </Text>
       </View>
 
       <PrimaryBtn label="ENABLE AGENT BRAIN →" onPress={onEnable} />
@@ -424,6 +445,7 @@ function KeyStep({
   onChangeModel,
   onBack,
   onNext,
+  saving,
 }: {
   provider: LlmProvider;
   apiKey: string;
@@ -434,6 +456,7 @@ function KeyStep({
   onChangeModel: (v: string) => void;
   onBack: () => void;
   onNext: () => void;
+  saving?: boolean;
 }) {
   const { colors } = useTheme();
   const s = useStyles(colors);
@@ -508,161 +531,9 @@ function KeyStep({
       <Text style={s.keyHint}>Get yours at {providerInfo.hint}</Text>
 
       <PrimaryBtn
-        label="CONTINUE →"
+        label={saving ? 'SETTING UP…' : 'FINISH SETUP'}
         onPress={handleNext}
-        disabled={!apiKey.trim()}
-      />
-    </StepShell>
-  );
-}
-
-// ============================================================================
-// Step 4 — Capabilities
-// ============================================================================
-
-function CapabilitiesStep({
-  capabilities,
-  onToggle,
-  onBack,
-  onNext,
-}: {
-  capabilities: Capability[];
-  onToggle: (c: Capability) => void;
-  onBack: () => void;
-  onNext: () => void;
-}) {
-  const { colors } = useTheme();
-  const s = useStyles(colors);
-  return (
-    <StepShell step={4}>
-      <BackBtn onPress={onBack} />
-      <Heading label="CAPABILITIES" />
-      <Sub>
-        Enabled capabilities are advertised to the mesh. Other agents will send
-        tasks that match what you offer.
-      </Sub>
-
-      <View style={s.capList}>
-        {ALL_CAPABILITIES.map(cap => {
-          const active = capabilities.includes(cap);
-          return (
-            <TouchableOpacity
-              key={cap}
-              style={[s.capRow, active && s.capRowActive]}
-              onPress={() => onToggle(cap)}
-              activeOpacity={0.8}
-            >
-              <View style={[s.capCheck, active && s.capCheckActive]}>
-                {active && <Text style={s.capCheckMark}>✓</Text>}
-              </View>
-              <Text style={[s.capLabel, active && s.capLabelActive]}>
-                {CAPABILITY_LABELS[cap]}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      <PrimaryBtn
-        label="CONTINUE →"
-        onPress={onNext}
-        disabled={capabilities.length === 0}
-      />
-    </StepShell>
-  );
-}
-
-// ============================================================================
-// Step 5 — Rules
-// ============================================================================
-
-function RulesStep({
-  minFeeUsdc,
-  minRep,
-  autoAccept,
-  onMinFee,
-  onMinRep,
-  onAutoAccept,
-  onBack,
-  onFinish,
-  saving,
-}: {
-  minFeeUsdc: string;
-  minRep: string;
-  autoAccept: boolean;
-  onMinFee: (v: string) => void;
-  onMinRep: (v: string) => void;
-  onAutoAccept: (v: boolean) => void;
-  onBack: () => void;
-  onFinish: () => void;
-  saving: boolean;
-}) {
-  const { colors } = useTheme();
-  const s = useStyles(colors);
-  return (
-    <StepShell step={5}>
-      <BackBtn onPress={onBack} />
-      <Heading label="AUTO-ACCEPT RULES" />
-      <Sub>
-        Your agent uses these rules to decide whether to take a task without
-        asking you. You can change them anytime in Settings.
-      </Sub>
-
-      <View style={s.ruleCard}>
-        <View style={s.ruleRow}>
-          <View style={s.ruleLeft}>
-            <Text style={s.ruleLabel}>MIN FEE (USDC)</Text>
-            <Text style={s.ruleSub}>Reject tasks paying less than this</Text>
-          </View>
-          <TextInput
-            style={s.ruleInput}
-            value={minFeeUsdc}
-            onChangeText={onMinFee}
-            keyboardType="decimal-pad"
-            placeholder="0.01"
-            placeholderTextColor={colors.sub}
-          />
-        </View>
-
-        <View style={[s.ruleRow, { borderBottomWidth: 0 }]}>
-          <View style={s.ruleLeft}>
-            <Text style={s.ruleLabel}>MIN REPUTATION</Text>
-            <Text style={s.ruleSub}>
-              Only work with agents above this score
-            </Text>
-          </View>
-          <TextInput
-            style={s.ruleInput}
-            value={minRep}
-            onChangeText={onMinRep}
-            keyboardType="number-pad"
-            placeholder="50"
-            placeholderTextColor={colors.sub}
-          />
-        </View>
-      </View>
-
-      <View style={s.toggleCard}>
-        <View style={s.toggleLeft}>
-          <Text style={s.ruleLabel}>AUTO-ACCEPT</Text>
-          <Text style={s.ruleSub}>
-            {autoAccept
-              ? 'Agent accepts qualifying tasks without your approval'
-              : 'Agent asks you before accepting any task'}
-          </Text>
-        </View>
-        <Switch
-          value={autoAccept}
-          onValueChange={onAutoAccept}
-          trackColor={{ false: colors.border, true: colors.green + '66' }}
-          thumbColor={autoAccept ? colors.green : '#333'}
-        />
-      </View>
-
-      <PrimaryBtn
-        label={saving ? 'SAVING…' : 'FINISH SETUP'}
-        onPress={onFinish}
-        disabled={saving}
+        disabled={!apiKey.trim() || saving}
       />
     </StepShell>
   );
@@ -683,19 +554,13 @@ export function OnboardingScreen({
   const { isTablet, isWide, contentHPad, width: screenWidth } = useLayout();
   const s = useStyles(colors, isTablet, isWide, screenWidth);
   const [step, setStep] = useState(0);
+  const [phantomWallet, setPhantomWallet] = useState('');
   const [agentName, setAgentName] = useState('');
   const [agentAvatar, setAgentAvatar] = useState('');
   const [provider, setProvider] = useState<LlmProvider>('anthropic');
   const [apiKey, setApiKey] = useState('');
   const [customBaseUrl, setCustomBaseUrl] = useState('');
   const [customModel, setCustomModel] = useState('');
-  const [capabilities, setCapabilities] = useState<Capability[]>([
-    'summarization',
-    'qa',
-  ]);
-  const [minFeeUsdc, setMinFeeUsdc] = useState('5');
-  const [minRep, setMinRep] = useState('50');
-  const [autoAccept, setAutoAccept] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedConfig, setSavedConfig] = useState<AgentBrainConfig | null>(null);
 
@@ -712,10 +577,6 @@ export function OnboardingScreen({
           if (s.provider) setProvider(s.provider);
           if (s.customBaseUrl) setCustomBaseUrl(s.customBaseUrl);
           if (s.customModel) setCustomModel(s.customModel);
-          if (s.capabilities) setCapabilities(s.capabilities);
-          if (s.minFeeUsdc) setMinFeeUsdc(s.minFeeUsdc);
-          if (s.minRep) setMinRep(s.minRep);
-          if (s.autoAccept !== undefined) setAutoAccept(s.autoAccept);
         }
       } catch (e) {
         console.warn('Failed to load onboarding state:', e);
@@ -725,20 +586,10 @@ export function OnboardingScreen({
 
   // Persist partial state on every change
   useEffect(() => {
-    const state = {
-      step, agentName, agentAvatar, provider,
-      customBaseUrl, customModel, capabilities, minFeeUsdc,
-      minRep, autoAccept
-    };
+    const state = { step, agentName, agentAvatar, provider, customBaseUrl, customModel };
     AsyncStorage.setItem(ONBOARDING_STATE_KEY, JSON.stringify(state))
       .catch(e => console.warn('Failed to save onboarding state:', e));
-  }, [step, agentName, agentAvatar, provider, customBaseUrl, customModel, capabilities, minFeeUsdc, minRep, autoAccept]);
-
-  const toggleCapability = (cap: Capability) => {
-    setCapabilities(prev =>
-      prev.includes(cap) ? prev.filter(c => c !== cap) : [...prev, cap],
-    );
-  };
+  }, [step, agentName, agentAvatar, provider, customBaseUrl, customModel]);
 
   const handleSkip = async () => {
     await AsyncStorage.removeItem(ONBOARDING_STATE_KEY);
@@ -775,10 +626,10 @@ export function OnboardingScreen({
       const config: AgentBrainConfig = {
         enabled: true,
         provider,
-        capabilities,
-        minFeeUsdc: parseFloat(minFeeUsdc) || 5,
-        minReputation: parseInt(minRep, 10) || 50,
-        autoAccept,
+        capabilities: ALL_CAPABILITIES,
+        minFeeUsdc: 5,
+        minReputation: 50,
+        autoAccept: false,
         maxActionsPerHour: 100,
         maxCostPerDayCents: 1000,
         apiKeySet: true,
@@ -799,7 +650,26 @@ export function OnboardingScreen({
 
   switch (step) {
     case 0:
-      return <WelcomeStep onEnable={() => setStep(1)} onSkip={handleSkip} />;
+      return (
+        <WelcomeStep
+          phantomWallet={phantomWallet}
+          onChangePhantomWallet={setPhantomWallet}
+          onEnable={async () => {
+            const addr = phantomWallet.trim();
+            if (addr) {
+              await AsyncStorage.setItem('zerox1:linked_wallet', addr).catch(() => {});
+            }
+            setStep(1);
+          }}
+          onSkip={async () => {
+            const addr = phantomWallet.trim();
+            if (addr) {
+              await AsyncStorage.setItem('zerox1:linked_wallet', addr).catch(() => {});
+            }
+            handleSkip();
+          }}
+        />
+      );
     case 1:
       return (
         <NameStep
@@ -832,29 +702,7 @@ export function OnboardingScreen({
           onChangeUrl={setCustomBaseUrl}
           onChangeModel={setCustomModel}
           onBack={() => setStep(2)}
-          onNext={() => setStep(4)}
-        />
-      );
-    case 4:
-      return (
-        <CapabilitiesStep
-          capabilities={capabilities}
-          onToggle={toggleCapability}
-          onBack={() => setStep(3)}
-          onNext={() => setStep(5)}
-        />
-      );
-    case 5:
-      return (
-        <RulesStep
-          minFeeUsdc={minFeeUsdc}
-          minRep={minRep}
-          autoAccept={autoAccept}
-          onMinFee={setMinFeeUsdc}
-          onMinRep={setMinRep}
-          onAutoAccept={setAutoAccept}
-          onBack={() => setStep(4)}
-          onFinish={handleFinish}
+          onNext={handleFinish}
           saving={saving}
         />
       );
@@ -954,11 +802,18 @@ function LaunchSuccessStep({
             if (res.ok) {
               const data: { agent_id: string } = await res.json();
               agentIdHex = data.agent_id;
-              const { PublicKey } = require('@solana/web3.js');
-              const bytes = Uint8Array.from(
-                (data.agent_id.match(/.{1,2}/g) ?? []).map((b: string) => parseInt(b, 16)),
-              );
-              walletAddr = new PublicKey(bytes).toBase58();
+              const hexId: string = data.agent_id ?? '';
+              if (hexId.length !== 64 || !/^[0-9a-fA-F]{64}$/.test(hexId)) {
+                // Skip wallet address derivation if agent_id format is unexpected
+              } else {
+                const { PublicKey } = require('@solana/web3.js');
+                const bytes = Uint8Array.from(
+                  (hexId.match(/.{1,2}/g)!).map((b: string) => parseInt(b, 16)),
+                );
+                try {
+                  walletAddr = new PublicKey(bytes).toBase58();
+                } catch { /* invalid key bytes */ }
+              }
               if (!cancelled) setHotWalletAddress(walletAddr);
               break;
             }
