@@ -151,5 +151,11 @@ export function useAgentBrain() {
     await AsyncStorage.setItem(BRAIN_STORAGE_KEY, JSON.stringify(next));
   }, []);
 
-  return { config, loading, save };
+  const reload = useCallback(() => {
+    AsyncStorage.getItem(BRAIN_STORAGE_KEY)
+      .then(v => { if (v) setConfig(JSON.parse(v)); })
+      .catch(() => {});
+  }, []);
+
+  return { config, loading, save, reload };
 }

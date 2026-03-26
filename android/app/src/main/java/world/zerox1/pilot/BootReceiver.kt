@@ -36,6 +36,9 @@ class BootReceiver : BroadcastReceiver() {
                 putExtra(NodeService.EXTRA_BAGS_FEE_BPS, bagsFeeBps)
                 prefs.getString("bags_wallet", null)?.let { putExtra(NodeService.EXTRA_BAGS_WALLET, it) }
             }
+            prefs.getString("bags_partner_wallet", null)?.let {
+                putExtra(NodeService.EXTRA_BAGS_PARTNER_WALLET, it)
+            }
             // bags API keys are stored in EncryptedSharedPreferences
             try {
                 val masterKey = MasterKey.Builder(context)

@@ -31,6 +31,7 @@ import {
 } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { DEFAULT_AGENT_ICON_B64, DEFAULT_AGENT_ICON_URI } from '../assets/defaultAgentIcon';
 import {
   AgentBrainConfig,
   ALL_CAPABILITIES,
@@ -317,9 +318,7 @@ function NameStep({
           }}
         >
           <Image
-            source={agentAvatar
-              ? { uri: agentAvatar }
-              : require('../../android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png')}
+            source={{ uri: agentAvatar || DEFAULT_AGENT_ICON_URI }}
             style={{ width: 80, height: 80 }}
           />
         </TouchableOpacity>
@@ -845,8 +844,11 @@ function LaunchSuccessStep({
           symbol,
           description: `${displayName} is an autonomous AI agent on the 01 mesh network. Hire me at 0x01.world.`,
         };
+        // Use custom avatar if set, otherwise default 0x01 mascot icon.
         if (agentAvatar?.startsWith('data:')) {
           launchBody.image_b64 = agentAvatar.split(',')[1] ?? '';
+        } else {
+          launchBody.image_b64 = DEFAULT_AGENT_ICON_B64;
         }
 
         try {

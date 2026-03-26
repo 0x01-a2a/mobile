@@ -80,6 +80,7 @@ class NodeModule(private val ctx: ReactApplicationContext)
         private const val KEY_NODE_API_SECRET = "local_node_api_secret"
         private const val KEY_GATEWAY_TOKEN = "local_gateway_token"
         private const val KEY_BAGS_API_KEY = "bags_api_key"
+        private const val KEY_BAGS_PARTNER_WALLET = "bags_partner_wallet"
         private const val KEY_BAGS_PARTNER_KEY = "bags_partner_key"
         /** GitHub releases API URL — returns latest release metadata + APK asset URL. */
         private const val RELEASES_API_URL =
@@ -304,6 +305,7 @@ class NodeModule(private val ctx: ReactApplicationContext)
                 if (config.hasKey("bagsFeesBps"))       putExtra(NodeService.EXTRA_BAGS_FEE_BPS,  config.getInt("bagsFeesBps"))
                 config.getString("bagsWallet")?.let    { putExtra(NodeService.EXTRA_BAGS_WALLET,  it) }
                 config.getString("bagsApiKey")?.let    { putExtra(NodeService.EXTRA_BAGS_API_KEY, it) }
+                config.getString("bagsPartnerWallet")?.let { putExtra(NodeService.EXTRA_BAGS_PARTNER_WALLET, it) }
                 config.getString("bagsPartnerKey")?.let { putExtra(NodeService.EXTRA_BAGS_PARTNER_KEY, it) }
             }
             // Android 12+ may throw ForegroundServiceStartNotAllowedException here
@@ -340,6 +342,7 @@ class NodeModule(private val ctx: ReactApplicationContext)
             config.getString("capabilities")?.let   { prefs.putString("capabilities",   it) }
             if (config.hasKey("bagsFeesBps"))        prefs.putInt("bags_fee_bps",       config.getInt("bagsFeesBps"))
             config.getString("bagsWallet")?.let     { prefs.putString("bags_wallet",    it) }
+            config.getString("bagsPartnerWallet")?.let { prefs.putString(KEY_BAGS_PARTNER_WALLET, it) }
             // bags API keys stored in EncryptedSharedPreferences (not plaintext)
             val ep = securePrefs().edit()
             config.getString("bagsApiKey")?.let     { ep.putString(KEY_BAGS_API_KEY,     it) }

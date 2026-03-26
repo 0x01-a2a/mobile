@@ -83,6 +83,7 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode Integer.parseInt(System.getenv("VERSION_CODE") ?: "1")
         versionName System.getenv("VERSION_NAME") ?: "0.4.0"
+        buildConfigField "String", "DEFAULT_BAGS_PARTNER_WALLET", "\"${System.getenv("ZEROX1_BAGS_PARTNER_WALLET") ?: ""}\""
         buildConfigField "String", "DEFAULT_BAGS_PARTNER_KEY", "\"${System.getenv("ZEROX1_BAGS_PARTNER_KEY") ?: ""}\""
         buildConfigField "String", "DEFAULT_BAGS_API_KEY", "\"${System.getenv("ZEROX1_BAGS_API_KEY") ?: ""}\""
         buildConfigField "String", "HELIUS_API_KEY", "\"${System.getenv("ZEROX1_HELIUS_API_KEY") ?: ""}\""

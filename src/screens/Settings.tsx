@@ -47,6 +47,7 @@ import {
 } from '../hooks/useAgentBrain';
 import { PermissionName, usePermissions } from '../hooks/usePermissions';
 import { useLayout } from '../hooks/useLayout';
+import { DEFAULT_AGENT_ICON_URI } from '../assets/defaultAgentIcon';
 
 
 
@@ -1531,11 +1532,10 @@ export function SettingsScreen() {
               }}
               style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', marginRight: 16 }}
             >
-              {agentAvatar ? (
-                <Image source={{ uri: agentAvatar }} style={{ width: 64, height: 64 }} />
-              ) : (
-                <Text style={{ color: colors.sub, fontSize: 20 }}>+</Text>
-              )}
+              <Image
+                source={{ uri: agentAvatar || DEFAULT_AGENT_ICON_URI }}
+                style={{ width: 64, height: 64 }}
+              />
             </TouchableOpacity>
             <Text style={{ fontSize: 11, color: colors.sub, letterSpacing: 2 }}>PROFILE PICTURE</Text>
           </View>

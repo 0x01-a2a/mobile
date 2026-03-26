@@ -448,6 +448,7 @@ export function EarnScreen() {
   const [bounties, setBounties] = useState<Bounty[]>([]);
   const [pickerTarget, setPickerTarget] = useState<Bounty | null>(null);
   const [activeTab, setActiveTab] = useState<'earn' | 'trade' | 'leaderboard'>('earn');
+  const [leaderboardCollapsed, setLeaderboardCollapsed] = useState(true);
   const [bagsExpanded, setBagsExpanded] = useState(false);
   const { colors } = useTheme();
   const { isTablet, isWide, contentHPad, numColumns } = useLayout();
@@ -456,7 +457,7 @@ export function EarnScreen() {
   const { injectSystemMessage } = useZeroclawChat(agents[0]?.id);
 
   // ── Auto-accept ──────────────────────────────────────────────────────────────
-  const { config: brainConfig, save: saveBrain } = useAgentBrain();
+  const { config: brainConfig, save: saveBrain, reload: reloadBrain } = useAgentBrain();
   const autoAcceptOn = brainConfig.autoAccept;
   const toggleAutoAccept = useCallback(async () => {
     const next = { ...brainConfig, autoAccept: !brainConfig.autoAccept };
@@ -687,7 +688,9 @@ export function EarnScreen() {
     useCallback(() => {
       // Reload task log so status changes made in Chat (delivered/abandoned) are reflected.
       loadTaskLog().then(setTaskLog);
-    }, [])
+      // Sync brain config (minFee, autoAccept, etc.) changed in Settings.
+      reloadBrain();
+    }, [reloadBrain])
   );
 
   const onEnvelope = useCallback((env: InboundEnvelope) => {
@@ -905,14 +908,17 @@ export function EarnScreen() {
             </View>
 
             {/* ── Agent leaderboard ─────────────────────────────────── */}
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <TouchableOpacity
+              onPress={() => setLeaderboardCollapsed(c => !c)}
+              style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: leaderboardCollapsed ? 0 : 10 }}
+            >
               <Text style={s.sectionLabel}>AGENT LEADERBOARD</Text>
               <Text style={{ fontSize: 9, color: colors.sub, fontFamily: 'monospace', letterSpacing: 2 }}>
-                {allMeshAgents.length} agents
+                {allMeshAgents.length} agents  {leaderboardCollapsed ? '▶' : '▼'}
               </Text>
-            </View>
+            </TouchableOpacity>
 
-            {allMeshAgents.length === 0 ? (
+            {!leaderboardCollapsed && (allMeshAgents.length === 0 ? (
               <View style={s.emptyInline}>
                 <Text style={s.emptyText}>No agents found.{'\n'}Connect to the mesh to see rankings.</Text>
               </View>
@@ -960,7 +966,7 @@ export function EarnScreen() {
                   </View>
                 );
               })
-            )}
+            ))}
 
             {/* ── Open bounties from aggregator ─────────────────────── */}
             <View style={{ marginTop: 24 }}>

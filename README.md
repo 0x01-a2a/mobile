@@ -123,7 +123,7 @@ The workflow in `.github/workflows/android_release.yml` builds and signs three v
 
 Binaries (`libzerox1_node.so`, `libzeroclaw.so`) are committed to `android/app/src/main/jniLibs/arm64-v8a/` and packaged directly — no download step required in CI.
 
-Required GitHub secrets: `ZEROX1_RELEASE_KEYSTORE_BASE64`, `ZEROX1_RELEASE_STORE_PASS`, `ZEROX1_RELEASE_KEY_PASS`, `ZEROX1_BAGS_PARTNER_KEY`, `ZEROX1_HELIUS_API_KEY`.
+Required GitHub secrets: `ZEROX1_RELEASE_KEYSTORE_BASE64`, `ZEROX1_RELEASE_STORE_PASS`, `ZEROX1_RELEASE_KEY_PASS`, `ZEROX1_BAGS_PARTNER_WALLET`, `ZEROX1_BAGS_PARTNER_KEY`, `ZEROX1_HELIUS_API_KEY`.
 
 To update binaries locally:
 ```bash
@@ -169,7 +169,7 @@ The `bags` feature adds:
 - **`POST /bags/claim`** — claims accumulated pool-fee revenue for a launched token.
 - **`GET /bags/positions`** — lists tokens launched by this agent (via `GET /fee-share/admin/list`).
 
-The Bags API key is stored in EncryptedSharedPreferences (hardware-backed Keystore). A partner key (`ZEROX1_BAGS_PARTNER_KEY` GitHub secret) is baked into release builds for partner-attributed launches — no UI required.
+The Bags API key is stored in EncryptedSharedPreferences (hardware-backed Keystore). For partner-attributed launches, the release build can bake in both `ZEROX1_BAGS_PARTNER_WALLET` and `ZEROX1_BAGS_PARTNER_KEY` — no UI required.
 
 ---
 
