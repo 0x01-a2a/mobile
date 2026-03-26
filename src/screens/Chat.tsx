@@ -184,13 +184,24 @@ interface LaunchResult {
 }
 
 function tryParseLaunchResult(text: string): LaunchResult | null {
-  const match = text.match(/\{[^{}]*"token_mint"[^{}]*\}/);
-  if (!match) return null;
-  try {
-    const obj = JSON.parse(match[0]);
-    if (typeof obj.token_mint !== 'string' || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(obj.token_mint)) return null;
-    return obj as LaunchResult;
-  } catch {}
+  // Find all {...} spans that contain "token_mint" and try to parse them.
+  const idx = text.indexOf('"token_mint"');
+  if (idx === -1) return null;
+  // Walk backwards to find the opening brace.
+  for (let start = idx - 1; start >= 0; start--) {
+    if (text[start] !== '{') continue;
+    // Walk forwards to find the matching closing brace.
+    let depth = 0;
+    for (let end = start; end < text.length; end++) {
+      if (text[end] === '{') depth++;
+      else if (text[end] === '}') { depth--; if (depth === 0) {
+        try {
+          const obj = JSON.parse(text.slice(start, end + 1));
+          if (typeof obj.token_mint === 'string' && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(obj.token_mint)) return obj as LaunchResult;
+        } catch { /* not valid JSON, keep searching */ }
+      }}
+    }
+  }
   return null;
 }
 

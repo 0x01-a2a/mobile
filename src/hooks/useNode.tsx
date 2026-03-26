@@ -263,6 +263,8 @@ function useNodeInternal() {
         token: token ?? undefined,
         hosted: true,
       });
+      configRef.current = effective;
+      await AsyncStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(effective));
       setStatus('running');
     } else {
       if (!_startLock) {
@@ -280,11 +282,11 @@ function useNodeInternal() {
         _startLock,
         new Promise<void>((_, reject) => setTimeout(() => reject(new Error('Node start timed out')), 30_000)),
       ]);
+      // Only persist config after startNode has successfully completed.
+      configRef.current = effective;
+      await AsyncStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(effective));
       setStatus('running');
     }
-
-    configRef.current = effective;
-    await AsyncStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(effective));
   }, [config]);
 
   const stop = useCallback(async () => {

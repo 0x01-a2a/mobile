@@ -233,6 +233,52 @@ export function useZeroclawChat(agentId?: string, conversationId?: string): UseZ
       clearTimeout(timer);
 
       if (!resp.ok) {
+        // If the session is invalid (server restarted), clear it and retry once without a session.
+        if ((resp.status === 401 || resp.status === 404) && sessionRef.current) {
+          sessionRef.current = null;
+          await AsyncStorage.removeItem(sessionKeyRef.current).catch(() => {});
+          const retryController = new AbortController();
+          const retryTimer = setTimeout(() => retryController.abort(), REQUEST_TIMEOUT);
+          const retryResp = await fetch(`${GATEWAY_URL}/api/chat`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${gatewayTokenRef.current}`,
+            },
+            body: JSON.stringify({
+              message: messageText,
+              context: systemContextRef.current,
+            }),
+            signal: retryController.signal,
+          });
+          clearTimeout(retryTimer);
+          if (!retryResp.ok) {
+            const retryBody = await retryResp.text().catch(() => '');
+            throw new Error(`Gateway error ${retryResp.status}${retryBody ? ': ' + retryBody : ''}`);
+          }
+          const retryData: { reply: string; model?: string; session_id?: string } =
+            await retryResp.json();
+          if (retryData.session_id) {
+            sessionRef.current = retryData.session_id;
+            await AsyncStorage.setItem(sessionKeyRef.current, retryData.session_id);
+          }
+          const retryMsg: ChatMessage = {
+            id: genId(),
+            role: 'assistant',
+            text: retryData.reply,
+            ts: Date.now(),
+          };
+          setMessages(prev => {
+            const next = [...prev, retryMsg];
+            AsyncStorage.setItem(messagesKeyRef.current, JSON.stringify(next.slice(-MAX_STORED_MESSAGES))).catch(() => {});
+            return next;
+          });
+          if (AppState.currentState !== 'active') {
+            const preview = retryData.reply.replace(/\s+/g, ' ').slice(0, 120);
+            NodeModule.showChatNotification(preview).catch(() => {});
+          }
+          return;
+        }
         const body = await resp.text().catch(() => '');
         throw new Error(`Gateway error ${resp.status}${body ? ': ' + body : ''}`);
       }

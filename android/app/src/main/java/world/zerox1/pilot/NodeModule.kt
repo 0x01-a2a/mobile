@@ -56,7 +56,7 @@ class NodeModule(private val ctx: ReactApplicationContext)
     @Volatile private var screenCapturePromise: Promise? = null
 
     private val screenCaptureListener = object : BaseActivityEventListener() {
-        override fun onActivityResult(activity: Activity?, requestCode: Int, resultCode: Int, data: Intent?) {
+        override fun onActivityResult(activity: Activity, requestCode: Int, resultCode: Int, data: Intent?) {
             if (requestCode != SCREEN_CAPTURE_REQUEST_CODE) return
             val promise = screenCapturePromise ?: return
             screenCapturePromise = null
@@ -1020,7 +1020,7 @@ class NodeModule(private val ctx: ReactApplicationContext)
      */
     @ReactMethod
     fun requestScreenCapture(promise: Promise) {
-        val activity = currentActivity ?: run {
+        val activity = reactApplicationContext.currentActivity ?: run {
             promise.reject("NO_ACTIVITY", "No current activity")
             return
         }

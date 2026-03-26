@@ -6,7 +6,7 @@
  *   Node   — local node controls, hosted banner, reputation detail, inbox.
  */
 import { useTheme, ThemeColors } from '../theme/ThemeContext';
-import React, { Component, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { Component, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -31,9 +31,12 @@ import {
   NegotiationThread,
   PortfolioEvent,
   Skill,
+  TaskLogEntry,
   TokenBalance,
   clearTokenFromKeychain,
+  deleteTaskEntry,
   groupNegotiations,
+  markTaskShared,
   probeRtt,
   skillInstallUrl,
   skillRemove,
@@ -48,6 +51,7 @@ import {
   usePortfolioHistory,
   useSkills,
   useSolPrice,
+  useTaskLog,
   PendingSwap,
   usePendingSwaps,
 } from '../hooks/useNodeApi';
@@ -645,6 +649,10 @@ function NodeSubtab() {
     setNodeRefreshing(false);
   }, []);
 
+  const [taskTick, setTaskTick] = useState(0);
+  const { entries: taskEntries, loading: taskLoading } = useTaskLog(taskTick);
+  const [shareEntry, setShareEntry] = useState<TaskLogEntry | null>(null);
+
   const running = status === 'running';
   const isError = status === 'error';
   const dotColor = running ? colors.green : isError ? colors.amber : colors.red;
@@ -770,7 +778,287 @@ function NodeSubtab() {
           </View>
         </>
       )}
+
+      {/* Task audit log */}
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, marginTop: 4 }}>
+        <Text style={s.sectionLabel}>COMPLETED TASKS</Text>
+        {taskLoading && <ActivityIndicator size="small" color={colors.sub} />}
+      </View>
+      {taskEntries.length === 0 ? (
+        <View style={{ paddingVertical: 16, paddingHorizontal: 4 }}>
+          <Text style={s.noData}>No tasks logged yet.{'\n'}ZeroClaw writes here after each delivery.</Text>
+        </View>
+      ) : (
+        taskEntries.map((entry, i) => (
+          <TaskLogRow
+            key={entry.id}
+            entry={entry}
+            agentName={displayName}
+            onShare={() => setShareEntry(entry)}
+            onDelete={async () => {
+              const ok = await deleteTaskEntry(entry.id, null);
+              if (ok) setTaskTick(t => t + 1);
+            }}
+            isLast={i === taskEntries.length - 1}
+          />
+        ))
+      )}
+
+      {shareEntry && (
+        <ShareCardModal
+          entry={shareEntry}
+          agentName={displayName}
+          agentId={displayId ?? ''}
+          onClose={() => setShareEntry(null)}
+          onShared={async () => {
+            await markTaskShared(shareEntry.id);
+            setShareEntry(null);
+            setTaskTick(t => t + 1);
+          }}
+        />
+      )}
     </ScrollView>
+  );
+}
+
+// ── Task log helpers ──────────────────────────────────────────────────────
+
+const CATEGORY_COLORS: Record<string, string> = {
+  research: '#4a9eff',
+  code: '#a259f7',
+  writing: '#f7a259',
+  trade: '#59f7a2',
+  data: '#f7d959',
+  other: '#8a8a8a',
+};
+
+function categoryColor(cat: string): string {
+  return CATEGORY_COLORS[cat.toLowerCase()] ?? CATEGORY_COLORS.other;
+}
+
+function fmtDate(ts: number): string {
+  const d = new Date(ts * 1000);
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function fmtDuration(min: number): string {
+  if (min <= 0) return '';
+  if (min < 60) return `${min}m`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+// ── TaskLogRow ────────────────────────────────────────────────────────────
+
+interface TaskLogRowProps {
+  entry: TaskLogEntry;
+  agentName: string;
+  onShare: () => void;
+  onDelete: () => void;
+  isLast: boolean;
+}
+
+function TaskLogRow({ entry, onShare, onDelete, isLast }: TaskLogRowProps) {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
+  const catColor = categoryColor(entry.category);
+  return (
+    <View style={[s.card, { marginBottom: isLast ? 20 : 10 }]}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <View style={{ backgroundColor: catColor + '20', borderWidth: 1, borderColor: catColor + '60', borderRadius: 3, paddingHorizontal: 7, paddingVertical: 2 }}>
+            <Text style={{ fontSize: 9, color: catColor, fontFamily: 'monospace', letterSpacing: 1, fontWeight: '700' }}>
+              {entry.category.toUpperCase()}
+            </Text>
+          </View>
+          {entry.outcome === 'delivered' && (
+            <View style={{ backgroundColor: colors.green + '15', borderWidth: 1, borderColor: colors.green + '40', borderRadius: 3, paddingHorizontal: 7, paddingVertical: 2 }}>
+              <Text style={{ fontSize: 9, color: colors.green, fontFamily: 'monospace', letterSpacing: 1 }}>DELIVERED</Text>
+            </View>
+          )}
+          {entry.outcome === 'disputed' && (
+            <View style={{ backgroundColor: colors.amber + '15', borderWidth: 1, borderColor: colors.amber + '40', borderRadius: 3, paddingHorizontal: 7, paddingVertical: 2 }}>
+              <Text style={{ fontSize: 9, color: colors.amber, fontFamily: 'monospace', letterSpacing: 1 }}>DISPUTED</Text>
+            </View>
+          )}
+          {entry.shared && (
+            <Text style={{ fontSize: 9, color: colors.sub, fontFamily: 'monospace' }}>↑ shared</Text>
+          )}
+        </View>
+        <Text style={{ fontSize: 10, color: colors.sub, fontFamily: 'monospace' }}>{fmtDate(entry.timestamp)}</Text>
+      </View>
+
+      <Text style={{ fontSize: 13, color: colors.text, lineHeight: 18, marginBottom: 8 }} numberOfLines={3}>
+        {entry.summary}
+      </Text>
+
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <View style={{ flexDirection: 'row', gap: 12 }}>
+          {entry.amount_usd > 0 && (
+            <Text style={{ fontSize: 11, color: colors.green, fontFamily: 'monospace', fontWeight: '700' }}>
+              +${entry.amount_usd.toFixed(0)} USD
+            </Text>
+          )}
+          {entry.duration_min > 0 && (
+            <Text style={{ fontSize: 11, color: colors.sub, fontFamily: 'monospace' }}>
+              {fmtDuration(entry.duration_min)}
+            </Text>
+          )}
+        </View>
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          <TouchableOpacity onPress={onShare} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Text style={{ fontSize: 11, color: colors.green, fontFamily: 'monospace', fontWeight: '700' }}>SHARE ↗</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={onDelete} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Text style={{ fontSize: 11, color: colors.sub, fontFamily: 'monospace' }}>DEL</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// ── ShareCardModal ────────────────────────────────────────────────────────
+
+interface ShareCardModalProps {
+  entry: TaskLogEntry;
+  agentName: string;
+  agentId: string;
+  onClose: () => void;
+  onShared: () => void;
+}
+
+function ShareCardModal({ entry, agentName, agentId, onClose, onShared }: ShareCardModalProps) {
+  const { colors } = useTheme();
+  const catColor = categoryColor(entry.category);
+  const shortAgent = agentId.length > 16 ? `${agentId.slice(0, 8)}…${agentId.slice(-6)}` : agentId;
+
+  const handleShare = async () => {
+    const lines: string[] = [];
+    lines.push(`My AI agent ${agentName} just completed a ${entry.category} task.`);
+    lines.push('');
+    lines.push(`"${entry.summary}"`);
+    lines.push('');
+    if (entry.amount_usd > 0) lines.push(`Earned: $${entry.amount_usd.toFixed(0)} USD`);
+    if (entry.duration_min > 0) lines.push(`Time: ${fmtDuration(entry.duration_min)}`);
+    lines.push('');
+    lines.push(`Verified on 0x01 mesh · ${fmtDate(entry.timestamp)}`);
+    lines.push(`Agent: ${shortAgent}`);
+    lines.push('0x01.world');
+
+    try {
+      const result = await Share.share({ message: lines.join('\n') });
+      if (result.action === Share.sharedAction) {
+        onShared();
+      }
+    } catch {
+      // user dismissed — do nothing
+    }
+  };
+
+  return (
+    <Modal
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' }}>
+        <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={onClose} />
+        <View style={{ backgroundColor: '#0a0a0a', borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20, paddingBottom: 36 }}>
+          {/* Card preview */}
+          <View style={{
+            backgroundColor: '#111',
+            borderWidth: 1,
+            borderColor: catColor + '60',
+            borderRadius: 8,
+            padding: 20,
+            marginBottom: 20,
+          }}>
+            {/* Header */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <View>
+                <Text style={{ fontSize: 14, color: '#fff', fontWeight: '700', fontFamily: 'monospace' }}>
+                  {agentName}
+                </Text>
+                <Text style={{ fontSize: 10, color: '#666', fontFamily: 'monospace', marginTop: 2 }}>
+                  {shortAgent}
+                </Text>
+              </View>
+              <View style={{ alignItems: 'flex-end' }}>
+                <Text style={{ fontSize: 9, color: '#444', fontFamily: 'monospace', letterSpacing: 2 }}>0X01</Text>
+                <Text style={{ fontSize: 9, color: '#444', fontFamily: 'monospace', letterSpacing: 1 }}>MESH</Text>
+              </View>
+            </View>
+
+            {/* Category badge */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <View style={{ backgroundColor: catColor + '20', borderWidth: 1, borderColor: catColor, borderRadius: 3, paddingHorizontal: 8, paddingVertical: 3 }}>
+                <Text style={{ fontSize: 9, color: catColor, fontFamily: 'monospace', fontWeight: '700', letterSpacing: 2 }}>
+                  {entry.category.toUpperCase()}
+                </Text>
+              </View>
+              <View style={{ backgroundColor: colors.green + '15', borderWidth: 1, borderColor: colors.green + '40', borderRadius: 3, paddingHorizontal: 8, paddingVertical: 3 }}>
+                <Text style={{ fontSize: 9, color: colors.green, fontFamily: 'monospace', letterSpacing: 1 }}>
+                  {entry.outcome.toUpperCase()}
+                </Text>
+              </View>
+            </View>
+
+            {/* Summary */}
+            <Text style={{ fontSize: 14, color: '#e8e8e8', lineHeight: 20, marginBottom: 16 }}>
+              {entry.summary}
+            </Text>
+
+            {/* Stats row */}
+            <View style={{ flexDirection: 'row', gap: 20, marginBottom: 16 }}>
+              {entry.amount_usd > 0 && (
+                <View>
+                  <Text style={{ fontSize: 20, color: colors.green, fontFamily: 'monospace', fontWeight: '700' }}>
+                    ${entry.amount_usd.toFixed(0)}
+                  </Text>
+                  <Text style={{ fontSize: 9, color: '#666', fontFamily: 'monospace', letterSpacing: 1 }}>USD EARNED</Text>
+                </View>
+              )}
+              {entry.duration_min > 0 && (
+                <View>
+                  <Text style={{ fontSize: 20, color: '#fff', fontFamily: 'monospace', fontWeight: '700' }}>
+                    {fmtDuration(entry.duration_min)}
+                  </Text>
+                  <Text style={{ fontSize: 9, color: '#666', fontFamily: 'monospace', letterSpacing: 1 }}>DURATION</Text>
+                </View>
+              )}
+            </View>
+
+            {/* Footer */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: '#222', paddingTop: 12 }}>
+              <Text style={{ fontSize: 9, color: '#555', fontFamily: 'monospace' }}>
+                {fmtDate(entry.timestamp)}
+              </Text>
+              <Text style={{ fontSize: 9, color: '#555', fontFamily: 'monospace', letterSpacing: 1 }}>
+                0X01.WORLD
+              </Text>
+            </View>
+          </View>
+
+          {/* Actions */}
+          <TouchableOpacity
+            onPress={handleShare}
+            style={{ backgroundColor: colors.green, borderRadius: 6, paddingVertical: 14, alignItems: 'center', marginBottom: 10 }}
+          >
+            <Text style={{ fontSize: 13, color: '#000', fontFamily: 'monospace', fontWeight: '700', letterSpacing: 2 }}>
+              SHARE ↗
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={onClose}
+            style={{ paddingVertical: 12, alignItems: 'center' }}
+          >
+            <Text style={{ fontSize: 12, color: colors.sub, fontFamily: 'monospace' }}>CANCEL</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -857,7 +1145,6 @@ function InboxRow({ env }: { env: InboundEnvelope }) {
 
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 const USDC_MINTS = new Set([
-  '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
   'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
 ]);
 
@@ -910,7 +1197,7 @@ function PortfolioSubtab() {
   // Sweep destination: Phantom wallet (owner) if registered, otherwise prompt
   const sweepDest = phantom.address;
 
-  const totalUsdc = tokens.find(t => t.mint.startsWith('4zMMC') || t.mint === 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v')?.amount ?? 0;
+  const totalUsdc = tokens.find(t => USDC_MINTS.has(t.mint))?.amount ?? 0;
 
   const handleSweep = () => {
     if (!sweepDest) return;
@@ -934,7 +1221,7 @@ function PortfolioSubtab() {
             setSweeping(true);
             try {
               const res = await sweepUsdc(sweepDest, atomicAmount);
-              const txLine = res.signature ? `\n\nTx: ${res.signature}` : res.via === 'kora' ? '\n\n(gasless via Kora)' : '';
+              const txLine = res?.signature ? `\n\nTx: ${res.signature}` : res?.via === 'kora' ? '\n\n(gasless via Kora)' : '';
               Alert.alert('Success', `Swept ${res.amount_usdc} USDC to ${sweepDest}${txLine}`);
               setSweepAmount('');
             } catch (e: any) {
@@ -1331,6 +1618,7 @@ function SkillsSubtab() {
   const [urlValue, setUrlValue] = useState('');
   const [storeVisible, setStoreVisible] = useState(false);
   const [storeLoading, setStoreLoading] = useState(true);
+  const installCooldownRef = useRef<number>(0);
 
   const handleInstall = useCallback(async () => {
     const name = urlName.trim();
@@ -1376,6 +1664,8 @@ function SkillsSubtab() {
     try {
       const msg = JSON.parse(event.nativeEvent.data);
       if (msg.type === 'install_skill' && msg.name && msg.url) {
+        if (Date.now() - installCooldownRef.current < 2000) return;
+        installCooldownRef.current = Date.now();
         setStoreVisible(false);
         setInstalling(true);
         try {

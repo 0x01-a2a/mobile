@@ -166,7 +166,7 @@ export interface NegotiationThread {
   latestAmount?: number; // amount from latest COUNTER or ACCEPT
 }
 
-const NEGOTIATION_TYPES = new Set(['DISCOVER', 'PROPOSE', 'COUNTER', 'ACCEPT', 'REJECT', 'DELIVER']);
+const NEGOTIATION_TYPES = new Set(['PROPOSE', 'COUNTER', 'ACCEPT', 'REJECT', 'DELIVER']);
 
 function _parseNegotiationMsg(env: InboundEnvelope): NegotiationMsg {
   const base: NegotiationMsg = {
@@ -396,13 +396,15 @@ export function useNetworkStats(intervalMs = 15_000) {
 export function useInbox(
   onEnvelope: (env: InboundEnvelope) => void,
   enabled = true,
-) {
+): { authError: boolean } {
   const wsRef = useRef<WebSocket | null>(null);
   const handlerRef = useRef(onEnvelope);
   const reconnectDelay = useRef(1_000);
   // M-1: Store the reconnect timer so we can cancel it on unmount.
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedRef = useRef(true);
+  const reconnectAttemptsRef = useRef(0);
+  const [authError, setAuthError] = useState<boolean>(false);
   handlerRef.current = onEnvelope;
 
   const reconnect = useCallback(() => {
@@ -431,7 +433,10 @@ export function useInbox(
       } else {
         ws = new WebSocket(`${_wsBase}/ws/inbox`);
       }
-      ws.onopen = () => { reconnectDelay.current = 1_000; };
+      ws.onopen = () => {
+        reconnectDelay.current = 1_000;
+        reconnectAttemptsRef.current = 0;
+      };
       ws.onmessage = (e) => {
         try {
           const env: InboundEnvelope = JSON.parse(e.data);
@@ -444,10 +449,16 @@ export function useInbox(
         // we don't spin forever with a bad hosted token (local mode retries).
         if (_isHostedMode && (msg.includes('401') || msg.includes('403') || msg.includes('Unauthorized') || msg.includes('Forbidden'))) {
           reconnectDelay.current = -1; // sentinel: do not reconnect (hosted mode only)
+          setAuthError(true);
         }
       };
       ws.onclose = () => {
         if (reconnectDelay.current < 0 || !mountedRef.current) return; // auth failure or unmounted — stop
+        reconnectAttemptsRef.current += 1;
+        if (reconnectAttemptsRef.current > 20) {
+          reconnectDelay.current = -1; // give up after ~20 attempts
+          return;
+        }
         const delay = reconnectDelay.current;
         reconnectDelay.current = Math.min(delay * 2, 30_000);
         reconnectTimerRef.current = setTimeout(reconnect, delay);
@@ -459,6 +470,7 @@ export function useInbox(
   useEffect(() => {
     mountedRef.current = true;
     reconnectDelay.current = 1_000; // reset backoff on enabled change
+    reconnectAttemptsRef.current = 0;
     reconnect();
     return () => {
       mountedRef.current = false;
@@ -471,6 +483,8 @@ export function useInbox(
       wsRef.current = null;
     };
   }, [reconnect]);
+
+  return { authError };
 }
 
 /** Polls GET /identity — returns own agent_id and name. */
@@ -788,7 +802,7 @@ export async function registerLocal8004(agentUri: string = ''): Promise<{ signat
     // Translate the low-level Solana fee error into something actionable.
     if (msg.includes('no record of a prior credit') || msg.includes('Attempt to debit')) {
       throw new Error(
-        'Your agent wallet has no SOL.\n\nSend a small amount of SOL (devnet or mainnet, matching your RPC) to your agent wallet to cover the registration fee (~0.01 SOL), then try again.\n\nYour wallet address is shown under My Agent → Hot Wallet.',
+        'Your agent wallet has no SOL.\n\nSend a small amount of SOL to your agent wallet to cover the registration fee (~0.01 SOL), then try again.\n\nYour wallet address is shown under My Agent → Hot Wallet.',
       );
     }
     throw new Error(msg);
@@ -1295,7 +1309,7 @@ export async function sweepUsdcOnDevice(
     const keyBytes = Uint8Array.from(
       (web3 as any).bs58
         ? (web3 as any).bs58.decode(keyBase58)
-        : Buffer.from(keyBase58, 'base64'), // fallback: should not happen
+        : Uint8Array.from(atob(keyBase58), c => c.charCodeAt(0)), // fallback: should not happen
     );
     // Use bs58 from @solana/web3.js internals if present; otherwise decode
     // manually.  Prefer the dedicated decode path to avoid a direct dep.
@@ -1376,7 +1390,7 @@ export async function sweepUsdcOnDevice(
   // ── Step 6: broadcast ────────────────────────────────────────────────────
   const sendResp = await _rpcWithFallback({
     jsonrpc: '2.0', id: 3, method: 'sendTransaction',
-    params: [Buffer.from(rawTx).toString('base64'), { encoding: 'base64' }],
+    params: [btoa(String.fromCharCode(...rawTx)), { encoding: 'base64' }],
   });
   const signature: string = sendResp.result;
 
@@ -2300,8 +2314,7 @@ async function deriveAta(owner: unknown, _tokenProgram: unknown): Promise<unknow
   const { PublicKey } = web3;
   const ATA_PROGRAM_ID = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJe1bJo');
   const SPL_TOKEN = new PublicKey(SPL_TOKEN_PROGRAM_ID);
-  // USDC devnet — caller selects the right network at a higher level.
-  const USDC_MINT = new PublicKey('4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU');
+  const USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
   const [ata] = PublicKey.findProgramAddressSync(
     [
       (owner as { toBuffer: () => Uint8Array }).toBuffer(),
@@ -2316,4 +2329,134 @@ async function deriveAta(owner: unknown, _tokenProgram: unknown): Promise<unknow
 /** @internal — exported for tests only */
 export function _buildSplTransferData(amount: bigint): Uint8Array {
   return buildSplTransferData(amount);
+}
+
+// ============================================================================
+// Task audit log
+// ============================================================================
+
+export interface TaskLogEntry {
+  id: number;
+  timestamp: number;
+  category: string;
+  outcome: string;
+  amount_usd: number;
+  duration_min: number;
+  summary: string;
+  shared: boolean;
+}
+
+/** Fetch task log entries from the node. Returns [] if node is unreachable or log not configured. */
+export async function fetchTaskLog(limit = 50, before_id?: number): Promise<TaskLogEntry[]> {
+  try {
+    const headers: Record<string, string> = {};
+    if (_hostedToken) headers['Authorization'] = `Bearer ${_hostedToken}`;
+    const qs = before_id != null ? `?limit=${limit}&before_id=${before_id}` : `?limit=${limit}`;
+    const res = await fetch(`${_apiBase}/tasks/log${qs}`, { headers });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch { return []; }
+}
+
+/** Mark a task log entry as shared. */
+export async function markTaskShared(id: number): Promise<boolean> {
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (_hostedToken) headers['Authorization'] = `Bearer ${_hostedToken}`;
+    const res = await fetch(`${_apiBase}/tasks/log/${id}/shared`, { method: 'PATCH', headers });
+    return res.ok;
+  } catch { return false; }
+}
+
+/** Delete a task log entry. */
+export async function deleteTaskEntry(id: number, apiSecret: string | null): Promise<boolean> {
+  try {
+    const headers: Record<string, string> = {};
+    if (apiSecret) headers['Authorization'] = `Bearer ${apiSecret}`;
+    else if (_hostedToken) headers['Authorization'] = `Bearer ${_hostedToken}`;
+    const res = await fetch(`${_apiBase}/tasks/log/${id}`, { method: 'DELETE', headers });
+    return res.ok;
+  } catch { return false; }
+}
+
+/** Poll the task audit log. Re-fetches on mount and when refreshTick changes. */
+export function useTaskLog(refreshTick = 0) {
+  const [entries, setEntries] = useState<TaskLogEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const data = await fetchTaskLog(50);
+    setEntries(data);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load, refreshTick]);
+
+  return { entries, loading, reload: load };
+}
+
+// ============================================================================
+// Bounty feed + capability search (aggregator-backed)
+// ============================================================================
+
+export interface BountyEntry {
+  id: number;
+  sender: string;               // hex agent_id
+  required_capability: string;
+  max_budget_usd: number;
+  deadline_at: number;          // unix epoch seconds, 0 = no deadline
+  task_summary: string;
+  conversation_id: string;
+  ts: number;
+}
+
+export function useBountyFeed(capability?: string, refreshTick = 0): {
+  bounties: BountyEntry[];
+  loading: boolean;
+  reload: () => void;
+} {
+  const [bounties, setBounties] = useState<BountyEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [tick, setTick] = useState(0);
+
+  const reload = useCallback(() => setTick(t => t + 1), []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    const url = capability
+      ? `${AGGREGATOR_API}/bounties?capability=${encodeURIComponent(capability)}&limit=50`
+      : `${AGGREGATOR_API}/bounties?limit=50`;
+    fetch(url)
+      .then(r => r.ok ? r.json() : [])
+      .then((data: BountyEntry[]) => { if (!cancelled) setBounties(Array.isArray(data) ? data : []); })
+      .catch(() => { if (!cancelled) setBounties([]); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [capability, tick, refreshTick]);
+
+  return { bounties, loading, reload };
+}
+
+export function useAgentSearch(capability: string): {
+  results: AgentSummary[];
+  loading: boolean;
+} {
+  const [results, setResults] = useState<AgentSummary[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!capability.trim()) { setResults([]); return; }
+    let cancelled = false;
+    setLoading(true);
+    fetch(`${AGGREGATOR_API}/agents/search?capability=${encodeURIComponent(capability.trim())}&limit=30`)
+      .then(r => r.ok ? r.json() : [])
+      .then((data: AgentSummary[]) => { if (!cancelled) setResults(Array.isArray(data) ? data : []); })
+      .catch(() => { if (!cancelled) setResults([]); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [capability]);
+
+  return { results, loading };
 }
