@@ -24,6 +24,7 @@ let _apiBase = 'http://127.0.0.1:9090';
 let _wsBase = 'ws://127.0.0.1:9090';
 let _hostedToken: string | null = null;
 let _isHostedMode = false;
+let _heliusRpcUrl: string | null = null;
 
 // Skip HTTP polls while the screen is off — saves CPU and radio wakeups.
 let _appActive = AppState.currentState === 'active';
@@ -81,11 +82,15 @@ export function configureNodeApi(opts: {
   wsBase?: string;
   token?: string;
   hosted?: boolean;
+  heliusApiKey?: string | null;
 }) {
   if (opts.apiBase) _apiBase = opts.apiBase;
   if (opts.wsBase) _wsBase = opts.wsBase;
   if (opts.token !== undefined) _hostedToken = opts.token;
   if (opts.hosted !== undefined) _isHostedMode = opts.hosted;
+  if (opts.heliusApiKey) {
+    _heliusRpcUrl = `https://mainnet.helius-rpc.com/?api-key=${opts.heliusApiKey}`;
+  }
 }
 
 export const AGGREGATOR_API = 'https://api.0x01.world';
@@ -946,12 +951,10 @@ export function usePhantomBalance(): PhantomBalance {
   useEffect(() => {
     if (!address) return;
     let cancelled = false;
-    // Multiple public RPC endpoints — try in order until one succeeds.
-    const RPCS = [
-      'https://api.mainnet-beta.solana.com',
-      'https://rpc.ankr.com/solana',
-      'https://solana-rpc.publicnode.com',
-    ];
+    // RPC endpoints — Helius first when available (set via configureNodeApi).
+    const RPCS = _heliusRpcUrl
+      ? [_heliusRpcUrl, 'https://api.mainnet-beta.solana.com', 'https://solana-rpc.publicnode.com']
+      : ['https://api.mainnet-beta.solana.com', 'https://solana-rpc.publicnode.com'];
 
     const rpcPost = async (rpc: string, body: object) => {
       const res = await fetch(rpc, {
@@ -1213,12 +1216,15 @@ export async function sweepUsdc(destination: string, amount?: number): Promise<S
   return res.json();
 }
 
-// Public RPC endpoints used by the on-device sweep path (mainnet).
-const _SWEEP_RPCS = [
-  'https://api.mainnet-beta.solana.com',
-  'https://rpc.ankr.com/solana',
-  'https://solana-rpc.publicnode.com',
-];
+// RPC endpoints used by the on-device sweep path (mainnet).
+// Helius is prepended at runtime when an API key is available.
+function _sweepRpcs(): string[] {
+  const base = [
+    'https://api.mainnet-beta.solana.com',
+    'https://solana-rpc.publicnode.com',
+  ];
+  return _heliusRpcUrl ? [_heliusRpcUrl, ...base] : base;
+}
 
 async function _rpcPost(rpc: string, body: object): Promise<any> {
   const res = await fetch(rpc, {
@@ -1234,7 +1240,7 @@ async function _rpcPost(rpc: string, body: object): Promise<any> {
 
 async function _rpcWithFallback(body: object): Promise<any> {
   let lastErr: unknown;
-  for (const rpc of _SWEEP_RPCS) {
+  for (const rpc of _sweepRpcs()) {
     try { return await _rpcPost(rpc, body); } catch (e) { lastErr = e; }
   }
   throw lastErr ?? new Error('all RPCs failed');
