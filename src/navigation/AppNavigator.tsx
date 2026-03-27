@@ -1,7 +1,7 @@
 /**
  * AppNavigator — bottom tab navigation for the 0x01 node app.
  *
- * Tabs: Earn | Chat | My | Settings
+ * Tabs: Today | Inbox | Chat | You
  */
 import React from 'react';
 import { StyleSheet, Text, Pressable } from 'react-native';
@@ -10,19 +10,19 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useTranslation } from 'react-i18next';
 import { useLayout } from '../hooks/useLayout';
 
-import { EarnScreen }     from '../screens/Earn';
+import TodayScreen        from '../screens/Today';
+import InboxScreen        from '../screens/Inbox';
 import { ChatScreen }     from '../screens/Chat';
-import { MyScreen }       from '../screens/My';
-import { SettingsScreen } from '../screens/Settings';
+import YouScreen          from '../screens/You';
 import { useTheme, ThemeColors } from '../theme/ThemeContext';
 
 const Tab = createBottomTabNavigator();
 
 const ICONS: Record<string, string> = {
-  Earn:     '[~]',
-  Chat:     '[>]',
-  My:       '[*]',
-  Settings: '[=]',
+  Today: '[~]',
+  Inbox: '[>]',
+  Chat:  '[>]',
+  You:   '[*]',
 };
 
 // Stable per-tab icon renderers defined at module scope to avoid
@@ -37,10 +37,10 @@ function makeTabIcon(name: string) {
   };
 }
 
-const EarnIcon     = makeTabIcon('Earn');
-const ChatIcon     = makeTabIcon('Chat');
-const MyIcon       = makeTabIcon('My');
-const SettingsIcon = makeTabIcon('Settings');
+const TodayIcon = makeTabIcon('Today');
+const InboxIcon = makeTabIcon('Inbox');
+const ChatIcon  = makeTabIcon('Chat');
+const YouIcon   = makeTabIcon('You');
 
 const SCREEN_OPTIONS = {
   headerShown: false,
@@ -77,10 +77,10 @@ export function AppNavigator() {
           ),
         }}
       >
-      <Tab.Screen name="Earn"     component={EarnScreen}     options={{ tabBarLabel: t('nav.earn'), tabBarIcon: EarnIcon }}     />
-      <Tab.Screen name="Chat"     component={ChatScreen}     options={{ tabBarLabel: t('nav.chat'), tabBarIcon: ChatIcon }}     />
-      <Tab.Screen name="My"       component={MyScreen}       options={{ tabBarLabel: t('nav.my'), tabBarIcon: MyIcon }}       />
-      <Tab.Screen name="Settings" component={SettingsScreen} options={{ tabBarLabel: t('nav.settings'), tabBarIcon: SettingsIcon }} />
+      <Tab.Screen name="Today" component={TodayScreen} options={{ title: 'Today', tabBarLabel: 'Today', tabBarIcon: TodayIcon }} />
+      <Tab.Screen name="Inbox" component={InboxScreen} options={{ title: 'Inbox', tabBarLabel: 'Inbox', tabBarIcon: InboxIcon }} />
+      <Tab.Screen name="Chat"  component={ChatScreen}  options={{ title: 'Chat',  tabBarLabel: 'Chat',  tabBarIcon: ChatIcon  }} />
+      <Tab.Screen name="You"   component={YouScreen}   options={{ title: 'You',   tabBarLabel: 'You',   tabBarIcon: YouIcon   }} />
     </Tab.Navigator>
   );
 }
