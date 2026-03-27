@@ -86,6 +86,7 @@ android {
         buildConfigField "String", "DEFAULT_BAGS_PARTNER_WALLET", "\"${System.getenv("ZEROX1_BAGS_PARTNER_WALLET") ?: ""}\""
         buildConfigField "String", "DEFAULT_BAGS_PARTNER_KEY", "\"${System.getenv("ZEROX1_BAGS_PARTNER_KEY") ?: ""}\""
         buildConfigField "String", "DEFAULT_BAGS_API_KEY", "\"${System.getenv("ZEROX1_BAGS_API_KEY") ?: ""}\""
+        buildConfigField "String", "DEFAULT_JUPITER_API_KEY", "\"${System.getenv("ZEROX1_JUPITER_API_KEY") ?: ""}\""
         buildConfigField "String", "HELIUS_API_KEY", "\"${System.getenv("ZEROX1_HELIUS_API_KEY") ?: ""}\""
         buildConfigField "String", "DEFAULT_JUPITER_FEE_ACCOUNT", "\"${System.getenv("ZEROX1_JUPITER_FEE_ACCOUNT") ?: ""}\""
         buildConfigField "String", "DEFAULT_LAUNCHLAB_SHARE_FEE_WALLET", "\"${System.getenv("ZEROX1_LAUNCHLAB_SHARE_FEE_WALLET") ?: ""}\""

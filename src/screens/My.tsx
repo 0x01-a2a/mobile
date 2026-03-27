@@ -45,7 +45,6 @@ import {
   useHotKeyBalance,
   useIdentity,
   useInbox,
-  useOwnReputation,
   usePhantomBalance,
   useDexPrices,
   usePortfolioHistory,
@@ -156,7 +155,6 @@ interface AgentCardProps {
 function AgentCard({ agent, brainSkills, bridgeCaps, bridgeLoading }: AgentCardProps) {
   const { colors } = useTheme();
   const s = useStyles(colors);
-  const rep = useOwnReputation(agent.id || null, 60_000);
   // For local/hosted agents: read from AsyncStorage (set during onboarding registration).
   // For linked agents: query 8004 by their agent ID.
   const [ownRegistered, setOwnRegistered] = useState(false);
@@ -210,18 +208,6 @@ function AgentCard({ agent, brainSkills, bridgeCaps, bridgeLoading }: AgentCardP
           </Text>
         </View>
       </View>
-      {rep && (
-        <View style={s.agentCardStats}>
-          <Text style={[s.agentScore, { color: rep.total_score >= 0 ? colors.green : colors.red }]}>
-            {rep.total_score > 0 ? '+' : ''}{rep.total_score}
-          </Text>
-          <Text style={s.agentScoreLabel}> REP</Text>
-          <Text style={s.agentDot}> · </Text>
-          <Text style={[s.agentTrend, { color: trendColor(rep.trend, colors) }]}>
-            {trendArrow(rep.trend)} {rep.trend}
-          </Text>
-        </View>
-      )}
       {skills.length > 0 && (
         <View style={s.skillBadgeRow}>
           {skills.map(sk => (
@@ -592,7 +578,6 @@ function NodeSubtab() {
   const s = useStyles(colors);
   const { status, loading, start, stop, config, saveConfig } = useNode();
   const identity = useIdentity();
-  const rep = useOwnReputation(identity?.agent_id ?? null);
   const { swaps: pendingSwaps, confirm: confirmSwap, reject: rejectSwap } = usePendingSwaps();
   const bridgeLog = useBridgeActivityLog(30);
   const [inbox, setInbox] = useState<InboundEnvelope[]>([]);
@@ -656,7 +641,6 @@ function NodeSubtab() {
   const running = status === 'running';
   const isError = status === 'error';
   const dotColor = running ? colors.green : isError ? colors.amber : colors.red;
-  const scoreColor = rep && rep.total_score >= 0 ? colors.green : colors.red;
   const displayId = isHosted ? hostedAgentId : identity?.agent_id ?? null;
   const displayName = isHosted
     ? (hostedAgentId ? `hosted:${hostedAgentId.slice(0, 8)}` : 'hosted agent')
@@ -701,28 +685,6 @@ function NodeSubtab() {
               {running ? 'STOP NODE' : 'START NODE'}
             </Text>
           </TouchableOpacity>
-        )}
-      </View>
-
-      <Text style={s.sectionLabel}>REPUTATION</Text>
-      <View style={s.card}>
-        {rep ? (
-          <>
-            <View style={s.statsGrid}>
-              <StatCard label="SCORE" value={(rep.total_score > 0 ? '+' : '') + rep.total_score} color={scoreColor} />
-              <StatCard label="VERDICTS" value={rep.verdict_count} />
-              <StatCard label="POSITIVE" value={rep.positive_count} color={colors.green} />
-              <StatCard label="NEGATIVE" value={rep.negative_count} color={colors.red} />
-            </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12 }}>
-              <Text style={[{ fontSize: 18, fontWeight: '700' }, { color: trendColor(rep.trend, colors) }]}>
-                {trendArrow(rep.trend)}
-              </Text>
-              <Text style={{ fontSize: 12, color: colors.sub, fontFamily: 'monospace' }}> {rep.trend}</Text>
-            </View>
-          </>
-        ) : (
-          <Text style={s.noData}>no reputation data yet</Text>
         )}
       </View>
 

@@ -97,19 +97,9 @@ export const AGGREGATOR_WS = 'wss://api.0x01.world';
 
 export interface PeerSnapshot {
   agent_id: string;
-  name: string;
-  last_seen: number;
-  lease_ok: boolean;
-}
-
-export interface ReputationSnapshot {
-  agent_id: string;
-  feedback_count: number;
-  total_score: number;
-  positive_count: number;
-  negative_count: number;
-  verdict_count: number;
-  trend: string;
+  peer_id?: string;
+  last_active_epoch: number;
+  lease_ok?: boolean;
 }
 
 export interface InboundEnvelope {
@@ -351,25 +341,6 @@ export function usePeers(intervalMs = 15_000) {
   return peers;
 }
 
-/** Fetches own reputation from the aggregator-facing API. */
-export function useOwnReputation(agentId: string | null, intervalMs = 30_000) {
-  const [rep, setRep] = useState<ReputationSnapshot | null>(null);
-
-  useEffect(() => {
-    if (!agentId) return;
-    let cancelled = false;
-    const poll = async () => {
-      if (!_appActive) return;
-      const data = await apiFetch<ReputationSnapshot>(`/reputation/${agentId}`);
-      if (!cancelled && data) setRep(data);
-    };
-    poll();
-    const id = setInterval(poll, intervalMs);
-    return () => { cancelled = true; clearInterval(id); };
-  }, [agentId, intervalMs]);
-
-  return rep;
-}
 
 /** Polls GET /stats/network from the aggregator. */
 export function useNetworkStats(intervalMs = 15_000) {
@@ -1474,7 +1445,9 @@ export function usePendingSwaps(): {
   }, [fetch_]);
 
   const confirm = useCallback(async (swapId: string) => {
-    const res = await fetch(`${_apiBase}/trade/swap/confirm/${swapId}`, { method: 'POST' });
+    const headers: Record<string, string> = {};
+    if (_hostedToken) headers['Authorization'] = `Bearer ${_hostedToken}`;
+    const res = await fetch(`${_apiBase}/trade/swap/confirm/${swapId}`, { method: 'POST', headers });
     if (!res.ok) {
       const text = await res.text();
       throw new Error(text || `HTTP ${res.status}`);
@@ -1484,7 +1457,9 @@ export function usePendingSwaps(): {
   }, [fetch_]);
 
   const reject = useCallback(async (swapId: string) => {
-    await fetch(`${_apiBase}/trade/swap/reject/${swapId}`, { method: 'POST' });
+    const headers: Record<string, string> = {};
+    if (_hostedToken) headers['Authorization'] = `Bearer ${_hostedToken}`;
+    await fetch(`${_apiBase}/trade/swap/reject/${swapId}`, { method: 'POST', headers });
     await fetch_();
   }, [fetch_]);
 
@@ -1608,11 +1583,6 @@ export function useBridgeCapabilities(): {
   return { caps, loading, toggle };
 }
 
-/** Poll the bridge activity log every 10 seconds while screen is active. */
-export async function fetchBridgeActivityLog(limit = 100): Promise<BridgeLogEntry[]> {
-  const data = await apiFetch<BridgeLogEntry[]>(`/bridge/log?limit=${limit}`);
-  return data ?? [];
-}
 
 /**
  * Executes a token swap via the node's internal Jupiter integration.
@@ -1793,6 +1763,8 @@ export interface BagsToken {
   symbol: string;
   txid: string;
   launched_at: number;
+  /** Claimable SOL from Bags pool trading fees (totalClaimableLamportsUserShare / 1e9). */
+  claimable_sol: number;
 }
 
 export interface BagsLaunchParams {
@@ -1816,7 +1788,7 @@ export interface BagsLaunchResult {
 
 export interface BagsClaimResult {
   claimed_txs: number;
-  total_claimed_usdc: number;
+  txids: string[];
 }
 
 /** POST /bags/launch — create and launch a new token on Bags.fm. */
@@ -1875,7 +1847,7 @@ export function useBagsPositions(intervalMs = 60_000): BagsToken[] {
     const poll = async () => {
       if (!_appActive) return;
       const data = await apiFetch<BagsToken[]>('/bags/positions');
-      if (!cancelled && data) setTokens(Array.isArray(data) ? data : []);
+      if (!cancelled && Array.isArray(data)) setTokens(data);
     };
     poll();
     const id = setInterval(poll, intervalMs);
