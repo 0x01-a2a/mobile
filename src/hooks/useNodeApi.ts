@@ -128,7 +128,7 @@ function _readBidAmount(raw: Uint8Array): number {
   return (lo >>> 0) + (hi >>> 0) * 4294967296;
 }
 
-function _decodeBidPayload(
+export function decodeBidPayload(
   payloadB64: string,
 ): { amount: number; body: Record<string, unknown> } | null {
   try {
@@ -169,7 +169,7 @@ function _parseNegotiationMsg(env: InboundEnvelope): NegotiationMsg {
     sender: env.sender,
     slot: env.slot,
   };
-  const decoded = _decodeBidPayload(env.payload_b64);
+  const decoded = decodeBidPayload(env.payload_b64);
   if (!decoded) return base;
   const { amount, body } = decoded;
   return {
