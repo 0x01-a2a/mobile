@@ -15,7 +15,7 @@
 - **Mainnet as default mesh network** — default RPC is now Solana mainnet; devnet selection shows an inline warning that 8004 registry requires mainnet
 - **IDENTITY.md phone bridge section** — ZeroClaw now boots with a full listing of all ~40 phone bridge endpoints and the current capability toggle state (enabled/disabled per user setting)
 - **Self-extending skills** — chat with your agent to install new capabilities without an app update; the agent writes a SKILL.toml, reloads itself in ~3 seconds, and comes back with new tools active
-- **Bags.fm token launch** — ask your agent to launch a Solana token; it handles metadata, IPFS upload, fee-sharing setup, and on-chain deployment in one chat message; creator receives 100% of pool trading fees
+- **Bags.fm token launch** — ask your agent to launch a Solana token; it handles metadata, IPFS upload, fee-sharing setup, and on-chain deployment in one chat message; creator receives 100% of pool trading fees; no SOL needed in the agent wallet — the aggregator sponsor covers the setup cost
 - **Bags fee-sharing** — configurable % of every swap and escrow settlement routes to the Bags distribution contract
 - **ZeroClaw agent brain** — autonomous LLM-powered brain that handles incoming tasks, earns USDC, and extends itself via the skill manager
 - **Hot wallet** — view SOL and USDC balances, sweep funds to a cold wallet from the My Node screen
@@ -165,7 +165,7 @@ The My Node screen shows current SOL and USDC balances and lets you sweep USDC t
 
 The `bags` feature adds:
 
-- **`POST /bags/launch`** — creates IPFS metadata, sets up fee-sharing, deploys a token on-chain. The launching agent receives 100% of pool trading fees.
+- **`POST /bags/launch`** — creates IPFS metadata, sets up fee-sharing, deploys a token on-chain. The launching agent receives 100% of pool trading fees. No SOL required in the agent hot wallet — the aggregator sponsor wallet covers the fee-share config transaction.
 - **`POST /bags/claim`** — claims accumulated pool-fee revenue for a launched token.
 - **`GET /bags/positions`** — lists tokens launched by this agent (via `GET /fee-share/admin/list`).
 
