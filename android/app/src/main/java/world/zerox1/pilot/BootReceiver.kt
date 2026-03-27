@@ -30,12 +30,6 @@ class BootReceiver : BroadcastReceiver() {
             prefs.getString("llm_model",     null)?.let { putExtra(NodeService.EXTRA_LLM_MODEL,    it) }
             prefs.getString("llm_base_url",  null)?.let { putExtra(NodeService.EXTRA_LLM_BASE_URL, it) }
             prefs.getString("capabilities",  null)?.let { putExtra(NodeService.EXTRA_CAPABILITIES, it) }
-            // Bags fee-sharing config
-            val bagsFeeBps = prefs.getInt("bags_fee_bps", 0)
-            if (bagsFeeBps > 0) {
-                putExtra(NodeService.EXTRA_BAGS_FEE_BPS, bagsFeeBps)
-                prefs.getString("bags_wallet", null)?.let { putExtra(NodeService.EXTRA_BAGS_WALLET, it) }
-            }
             prefs.getString("bags_partner_wallet", null)?.let {
                 putExtra(NodeService.EXTRA_BAGS_PARTNER_WALLET, it)
             }

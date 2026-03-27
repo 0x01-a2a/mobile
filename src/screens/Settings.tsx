@@ -31,7 +31,6 @@ import {
   registerAsHosted,
   useBridgeCapabilities,
   useHostingNodes,
-  useBagsConfig,
   saveBagsApiKey,
   clearBagsApiKey,
   loadBagsApiKey,
@@ -766,35 +765,21 @@ function useDcs(colors: ThemeColors) {
   }), [colors]);
 }
 
-// ── Bags Fee Sharing section ──────────────────────────────────────────────────
+// ── Bags API Key section ──────────────────────────────────────────────────────
 
 function BagsFeeSection({
   isLocalMode,
-  bagsFeePercent,
-  onBagsFeePercentChange,
-  bagsWallet,
-  onBagsWalletChange,
-  bagsEnabled,
-  onBagsEnabledChange,
   bagsApiKeySet,
   onBagsApiKeySave,
   onBagsApiKeyClear,
 }: {
   isLocalMode: boolean;
-  bagsFeePercent: string;
-  onBagsFeePercentChange: (v: string) => void;
-  bagsWallet: string;
-  onBagsWalletChange: (v: string) => void;
-  bagsEnabled: boolean;
-  onBagsEnabledChange: (v: boolean) => void;
   bagsApiKeySet: boolean;
   onBagsApiKeySave: (key: string) => Promise<void>;
   onBagsApiKeyClear: () => void;
 }) {
   const { colors } = useTheme();
   const bfs = useBfs(colors);
-  const s = useStyles(colors);
-  const liveConfig = useBagsConfig();
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [keyDraft, setKeyDraft] = useState('');
 
@@ -804,64 +789,12 @@ function BagsFeeSection({
     <View style={bfs.section}>
       <View style={bfs.headerRow}>
         <View style={{ flex: 1 }}>
-          <Text style={bfs.sectionTitle}>BAGS FEE SHARING</Text>
+          <Text style={bfs.sectionTitle}>BAGS API KEY</Text>
           <Text style={bfs.sectionSub}>
-            Route a % of swap + escrow revenue to BAGS holders
+            Used for token launches on Bags.fm. Free at bags.fm.
           </Text>
         </View>
-        <Switch
-          value={bagsEnabled}
-          onValueChange={onBagsEnabledChange}
-          trackColor={{ false: colors.border, true: '#9c27b0' + '66' }}
-          thumbColor={bagsEnabled ? '#9c27b0' : colors.border}
-        />
       </View>
-
-      {bagsEnabled && (
-        <>
-          <View style={bfs.row}>
-            <View style={bfs.rowLeft}>
-              <Text style={bfs.rowLabel}>FEE %</Text>
-              <Text style={bfs.rowSub}>% of each swap output / escrow to share (max 5%)</Text>
-            </View>
-            <TextInput
-              style={bfs.feeInput}
-              value={bagsFeePercent}
-              onChangeText={onBagsFeePercentChange}
-              keyboardType="decimal-pad"
-              placeholder="0.5"
-              placeholderTextColor={colors.sub}
-            />
-          </View>
-          <View style={[bfs.row, { borderBottomWidth: 0 }]}>
-            <View style={bfs.rowLeft}>
-              <Text style={bfs.rowLabel}>DISTRIBUTION WALLET</Text>
-              <Text style={bfs.rowSub}>
-                Base58 Solana pubkey. Leave empty to resolve from Bags API.
-              </Text>
-            </View>
-          </View>
-          <View style={[bfs.row, { borderBottomWidth: 0, paddingTop: 0 }]}>
-            <TextInput
-              style={[bfs.feeInput, { flex: 1, fontFamily: 'monospace', fontSize: 11 }]}
-              value={bagsWallet}
-              onChangeText={onBagsWalletChange}
-              placeholder="auto (from bags.fm)"
-              placeholderTextColor={colors.sub}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-          </View>
-          {liveConfig?.enabled && (
-            <View style={bfs.liveRow}>
-              <Text style={bfs.liveDot}>●</Text>
-              <Text style={bfs.liveText}>
-                live: {(liveConfig.fee_bps / 100).toFixed(2)}% → {liveConfig.distribution_wallet ? `${liveConfig.distribution_wallet.slice(0, 8)}…${liveConfig.distribution_wallet.slice(-6)}` : 'auto'}
-              </Text>
-            </View>
-          )}
-        </>
-      )}
 
       {/* Bags API Key — Keychain-protected */}
       <View style={[bfs.row, { borderBottomWidth: 0, paddingTop: 12 }]}>
@@ -1348,27 +1281,14 @@ export function SettingsScreen() {
       : 'https://api.mainnet-beta.solana.com';
   const [showBrowser, setShowBrowser] = useState(false);
 
-  // Bags fee-sharing state
-  const [bagsEnabled, setBagsEnabled] = useState(false);
-  const [bagsFeePercent, setBagsFeePercent] = useState('0.5');
-  const [bagsWallet, setBagsWallet] = useState('');
+  // Bags API key state
   const [bagsApiKeySet, setBagsApiKeySet] = useState(false);
 
-  // Load bags settings on mount; migrate plaintext key from AsyncStorage → Keychain
+  // Load bags API key status on mount; migrate plaintext key from AsyncStorage → Keychain
   useEffect(() => {
     (async () => {
       const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-      const [enabled, feeRaw, wallet, legacyKey] = await Promise.all([
-        AsyncStorage.getItem('zerox1:bags_enabled'),
-        AsyncStorage.getItem('zerox1:bags_fee_percent'),
-        AsyncStorage.getItem('zerox1:bags_wallet'),
-        AsyncStorage.getItem('zerox1:bags_api_key'),
-      ]);
-      if (enabled !== null) setBagsEnabled(enabled === 'true');
-      if (feeRaw !== null) setBagsFeePercent(feeRaw);
-      if (wallet !== null) setBagsWallet(wallet);
-
-      // Migrate plaintext key to Keychain if present
+      const legacyKey = await AsyncStorage.getItem('zerox1:bags_api_key');
       if (legacyKey) {
         await saveBagsApiKey(legacyKey);
         await AsyncStorage.removeItem('zerox1:bags_api_key');
@@ -1388,34 +1308,6 @@ export function SettingsScreen() {
     setMeshNetwork(rpcToNetwork(config.rpcUrl ?? 'https://api.mainnet-beta.solana.com'));
     setNodeApiUrl(config.nodeApiUrl ?? '');
   }, [config]);
-
-  const handleBagsEnabledChange = (v: boolean) => {
-    setBagsEnabled(v);
-    const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-    AsyncStorage.setItem('zerox1:bags_enabled', String(v)).catch((e: any) =>
-      console.error('Failed to persist bags_enabled:', e),
-    );
-  };
-
-  const handleBagsFeePercentChange = (v: string) => {
-    setBagsFeePercent(v);
-    // Only persist valid values (0–5 %) to avoid storing garbage in AsyncStorage.
-    const pct = parseFloat(v);
-    if (!isNaN(pct) && pct >= 0 && pct <= 5) {
-      const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-      AsyncStorage.setItem('zerox1:bags_fee_percent', v).catch((e: any) =>
-        console.error('Failed to persist bags_fee_percent:', e),
-      );
-    }
-  };
-
-  const handleBagsWalletChange = (v: string) => {
-    setBagsWallet(v);
-    const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-    AsyncStorage.setItem('zerox1:bags_wallet', v).catch((e: any) =>
-      console.error('Failed to persist bags_wallet:', e),
-    );
-  };
 
   const handleBagsApiKeySave = async (key: string) => {
     await saveBagsApiKey(key);
@@ -1460,15 +1352,6 @@ export function SettingsScreen() {
         return;
       }
     }
-    // Validate bags fee percent
-    if (bagsEnabled) {
-      const feePct = parseFloat(bagsFeePercent);
-      if (isNaN(feePct) || feePct < 0 || feePct > 5) {
-        Alert.alert('Invalid Bags Fee', 'Fee must be between 0 and 5%.');
-        return;
-      }
-    }
-    const bagsFeesBps = bagsEnabled ? Math.round(parseFloat(bagsFeePercent || '0') * 100) : 0;
     const newConfig = {
       ...config,
       agentName: agentName.trim() || undefined,
@@ -1476,8 +1359,6 @@ export function SettingsScreen() {
       relayAddr: relayAddr.trim() || undefined,
       rpcUrl: networkToRpc(meshNetwork),
       nodeApiUrl: trimmedNodeApiUrl,
-      bagsFeesBps,
-      bagsWallet: bagsWallet.trim() || undefined,
       // bagsApiKey is in Keychain; merged into config at startNode time via withBagsConfig
     };
     await saveConfig(newConfig);
@@ -1508,15 +1389,9 @@ export function SettingsScreen() {
         {/* Data collection battery budget */}
         <DataCollectionSection />
 
-        {/* Bags fee-sharing (local node only) */}
+        {/* Bags API key (local node only) */}
         <BagsFeeSection
           isLocalMode={!nodeApiUrl.trim()}
-          bagsFeePercent={bagsFeePercent}
-          onBagsFeePercentChange={handleBagsFeePercentChange}
-          bagsWallet={bagsWallet}
-          onBagsWalletChange={handleBagsWalletChange}
-          bagsEnabled={bagsEnabled}
-          onBagsEnabledChange={handleBagsEnabledChange}
           bagsApiKeySet={bagsApiKeySet}
           onBagsApiKeySave={handleBagsApiKeySave}
           onBagsApiKeyClear={handleBagsApiKeyClear}

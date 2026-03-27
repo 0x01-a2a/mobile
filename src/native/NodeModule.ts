@@ -61,11 +61,6 @@ export interface NodeConfig {
   /** Maximum LLM spend per day in US cents (default 1000 = $10). */
   maxCostPerDayCents?: number;
 
-  // ── Bags fee-sharing ──────────────────────────────────────────────────────
-  /** Fee in basis points to route to the Bags distribution contract (0 = off, max 500). */
-  bagsFeesBps?: number;
-  /** Base58 Solana pubkey of the Bags distribution wallet. Omit to auto-resolve from bags.fm. */
-  bagsWallet?: string;
   /** Bags.fm API key — enables POST /bags/launch, POST /bags/claim, GET /bags/positions. */
   bagsApiKey?: string;
   /** Optional Bags partner wallet for partner-attributed launches. */
