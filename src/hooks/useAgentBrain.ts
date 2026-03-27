@@ -15,7 +15,7 @@ import { Platform } from 'react-native';
 // Types
 // ============================================================================
 
-export type LlmProvider = 'anthropic' | 'openai' | 'gemini' | 'groq' | 'custom';
+export type LlmProvider = 'anthropic' | 'openai' | 'gemini' | 'zai' | 'minimax' | 'custom';
 
 export type Capability =
   | 'summarization'
@@ -56,7 +56,8 @@ export const PROVIDERS: ProviderInfo[] = [
   { key: 'gemini', label: 'Gemini', model: 'gemini-2.5-flash', hint: 'aistudio.google.com' },
   { key: 'anthropic', label: 'Claude', model: 'claude-haiku-4-5-20251001', hint: 'console.anthropic.com' },
   { key: 'openai', label: 'OpenAI', model: 'gpt-4o-mini', hint: 'platform.openai.com' },
-  { key: 'groq', label: 'Groq', model: 'llama-3.3-70b-versatile', hint: 'console.groq.com' },
+  { key: 'zai', label: 'Z.AI (GLM)', model: 'glm-5.1', hint: 'api.z.ai' },
+  { key: 'minimax', label: 'MiniMax', model: 'MiniMax-M2.7', hint: 'api.minimax.io' },
   { key: 'custom', label: 'Custom', model: 'Any supported SDK model', hint: 'Your custom endpoint URL' },
 ];
 
