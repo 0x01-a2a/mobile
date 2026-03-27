@@ -5,10 +5,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import TodayScreen from '../Today';
 
 jest.mock('../../hooks/useNode', () => ({
-  useNode: () => ({ status: 'running', config: {} }),
-}));
-jest.mock('../../hooks/useAgentBrain', () => ({
-  useAgentBrain: () => ({ config: { name: 'Aria' }, loading: false }),
+  useNode: () => ({ status: 'running', config: { agentName: 'Aria' } }),
 }));
 jest.mock('../../hooks/useNodeApi', () => ({
   useTaskLog: () => ({
