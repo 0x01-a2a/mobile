@@ -25,6 +25,7 @@ interface BountyCard {
   amountMicro: number;
   fromAgent: string;
   expiresAt: number;
+  capabilities: string[];
 }
 
 function fmtMicro(microUsdc: number): string {
@@ -59,13 +60,17 @@ function envelopeToCard(env: InboundEnvelope): BountyCard | null {
     decoded?.body?.['message'] !== undefined
       ? String(decoded.body['message'])
       : 'Task';
+  const capabilities: string[] = Array.isArray(decoded?.body?.['capabilities'])
+    ? (decoded.body['capabilities'] as string[]).slice(0, 5)
+    : [];
   return {
     sender: env.sender,
     conversationId: env.conversation_id,
     description,
     amountMicro,
-    fromAgent: env.sender.slice(0, 8),
+    fromAgent: `Agent_${env.sender.slice(0, 4).toUpperCase()}`,
     expiresAt: Math.floor(Date.now() / 1000) + 300,
+    capabilities,
   };
 }
 
@@ -116,7 +121,7 @@ export default function InboxScreen() {
     const entry: TaskEntry = {
       conversationId: card.conversationId,
       description: card.description,
-      reward: fmtMicro(card.amountMicro),
+      reward: `+${fmtMicro(card.amountMicro)}`,
       fromAgent: card.fromAgent,
       status: 'active',
       acceptedAt: Date.now(),
@@ -156,9 +161,7 @@ export default function InboxScreen() {
       <View style={s.header}>
         <Text style={s.title}>Inbox</Text>
         <Text style={s.subtitle}>
-          {bounties.length > 0
-            ? `${bounties.length} new · auto-accepting above $${threshold.toFixed(2)}`
-            : `auto-accepting above $${threshold.toFixed(2)}`}
+          {`${bounties.length} new · auto-accepting above $${threshold.toFixed(2)}`}
         </Text>
       </View>
 
@@ -179,7 +182,7 @@ export default function InboxScreen() {
                 s.card,
                 above ? s.cardAbove : s.cardBelow,
                 isExpanded && s.cardExpanded,
-                !isExpanded && !above && s.cardDimmed,
+                !isExpanded && expandedId !== null && s.cardDimmed,
               ]}
               onPress={() => setExpandedId(isExpanded ? null : card.conversationId)}
               activeOpacity={0.85}
@@ -209,6 +212,15 @@ export default function InboxScreen() {
                   <View style={s.descBox}>
                     <Text style={s.descText}>{card.description}</Text>
                   </View>
+                  {card.capabilities.length > 0 && (
+                    <View style={s.tags}>
+                      {card.capabilities.map((tag, i) => (
+                        <View key={i} style={s.tag}>
+                          <Text style={s.tagText}>{tag}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
                   <View style={s.actions}>
                     <TouchableOpacity
                       style={s.acceptBtn}
@@ -299,6 +311,9 @@ const s = StyleSheet.create({
   expanded: { marginTop: 10 },
   descBox: { backgroundColor: '#f9fafb', borderRadius: 8, padding: 9, marginBottom: 10 },
   descText: { fontSize: 11, color: '#374151', lineHeight: 16 },
+  tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: 10 },
+  tag: { backgroundColor: '#f3f4f6', borderRadius: 4, paddingHorizontal: 7, paddingVertical: 2 },
+  tagText: { fontSize: 9, color: '#374151', fontWeight: '500' },
   actions: { flexDirection: 'row', gap: 6 },
   acceptBtn: {
     flex: 2, backgroundColor: '#111', borderRadius: 8, padding: 9, alignItems: 'center',
