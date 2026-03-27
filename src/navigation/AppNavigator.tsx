@@ -7,7 +7,6 @@ import React from 'react';
 import { StyleSheet, Text, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { useTranslation } from 'react-i18next';
 import { useLayout } from '../hooks/useLayout';
 
 import TodayScreen        from '../screens/Today';
@@ -20,7 +19,7 @@ const Tab = createBottomTabNavigator();
 
 const ICONS: Record<string, string> = {
   Today: '[~]',
-  Inbox: '[>]',
+  Inbox: '[@]',
   Chat:  '[>]',
   You:   '[*]',
 };
@@ -48,8 +47,7 @@ const SCREEN_OPTIONS = {
 
 export function AppNavigator() {
   const insets = useSafeAreaInsets();
-  const { t } = useTranslation();
-  const { colors } = useTheme();
+const { colors } = useTheme();
   const styles = useStyles(colors);
   const { isTablet, isLandscape } = useLayout();
 
