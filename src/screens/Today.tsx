@@ -4,16 +4,15 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useNode } from '../hooks/useNode';
-import { useAgentBrain } from '../hooks/useAgentBrain';
 import { useTaskLog } from '../hooks/useNodeApi';
 
 function isToday(timestampSeconds: number): boolean {
   const d = new Date(timestampSeconds * 1000);
   const now = new Date();
   return (
-    d.getUTCFullYear() === now.getUTCFullYear() &&
-    d.getUTCMonth() === now.getUTCMonth() &&
-    d.getUTCDate() === now.getUTCDate()
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
   );
 }
 
@@ -30,6 +29,7 @@ function fmt(amount: number): string {
 function relativeTime(timestampSeconds: number): string {
   const diffMs = Date.now() - timestampSeconds * 1000;
   const diffMins = Math.floor(diffMs / 60_000);
+  if (diffMins < 1) return 'just now';
   if (diffMins < 60) return `${diffMins}m ago`;
   const diffHrs = Math.floor(diffMins / 60);
   if (diffHrs < 24) return `${diffHrs}h ago`;
@@ -38,11 +38,10 @@ function relativeTime(timestampSeconds: number): string {
 
 export default function TodayScreen() {
   const navigation = useNavigation<any>();
-  const { status } = useNode();
-  const { config: brain } = useAgentBrain();
+  const { status, config } = useNode();
   const { entries, loading } = useTaskLog();
 
-  const agentName = brain?.name ?? 'Aria';
+  const agentName = config?.agentName ?? 'Aria';
   const isRunning = status === 'running';
   const earnedToday = useMemo(() => sumEarnings(entries, true), [entries]);
   const earnedAllTime = useMemo(() => sumEarnings(entries, false), [entries]);
@@ -117,7 +116,7 @@ export default function TodayScreen() {
           <Text style={s.emptyText}>No jobs completed yet</Text>
         )}
         {recentJobs.map((entry, i) => {
-          const isActive = !entry.outcome;
+          const isActive = entry.outcome !== 'success' && (entry.amount_usd ?? 0) === 0;
           const isLast = i === recentJobs.length - 1;
           return (
             <View key={entry.id} style={[s.jobRow, !isLast && s.jobRowBorder]}>
