@@ -1511,6 +1511,7 @@ include_system = "true to include system apps (default: false)"
         val bagsApiKey   = intent?.getStringExtra(EXTRA_BAGS_API_KEY)
             ?.takeIf { it.isNotBlank() }
             ?: BuildConfig.DEFAULT_BAGS_API_KEY.takeIf { it.isNotBlank() }
+        val jupiterApiKey = BuildConfig.DEFAULT_JUPITER_API_KEY.takeIf { it.isNotBlank() }
         val bagsPartnerWallet = intent?.getStringExtra(EXTRA_BAGS_PARTNER_WALLET)
             ?.takeIf { it.isNotBlank() }
             ?: BuildConfig.DEFAULT_BAGS_PARTNER_WALLET.takeIf { it.isNotBlank() }
@@ -1790,6 +1791,7 @@ include_system = "true to include system apps (default: false)"
         bagsApiKey?.let { cmd += listOf("--bags-api-key", it) }
         bagsPartnerWallet?.let { cmd += listOf("--bags-partner-wallet", it) }
         bagsPartnerKey?.let { cmd += listOf("--bags-partner-key", it) }
+        jupiterApiKey?.let { cmd += listOf("--jupiter-api-key", it) }
         jupiterFeeAccount?.let { cmd += listOf("--jupiter-fee-account", it) }
         launchlabShareFeeWallet?.let { cmd += listOf("--launchlab-share-fee-wallet", it) }
 
@@ -1802,7 +1804,7 @@ include_system = "true to include system apps (default: false)"
 
         // Redact sensitive flags before logging.
         val safeCmd = cmd.toMutableList().also { list ->
-            for (flag in listOf("--bags-api-key", "--bags-partner-key", "--jupiter-fee-account", "--api-secret", "--fcm-token")) {
+            for (flag in listOf("--bags-api-key", "--bags-partner-key", "--jupiter-api-key", "--jupiter-fee-account", "--api-secret", "--fcm-token")) {
                 val idx = list.indexOf(flag)
                 if (idx >= 0 && idx + 1 < list.size) list[idx + 1] = "[REDACTED]"
             }

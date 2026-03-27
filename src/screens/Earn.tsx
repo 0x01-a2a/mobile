@@ -626,7 +626,7 @@ export function EarnScreen() {
               const res = await bagsClaim(token.token_mint);
               Alert.alert(
                 t('earn.claimed'),
-                t('earn.claimedBody', { count: res.claimed_txs, s: res.claimed_txs !== 1 ? 's' : '', amount: (res.total_claimed_usdc / 1e6).toFixed(4) }),
+                t('earn.claimedBody', { count: res.claimed_txs }),
               );
             } catch (e: any) {
               Alert.alert(t('earn.claimFailed'), e?.message ?? t('common.error'));
@@ -1154,6 +1154,11 @@ export function EarnScreen() {
                           <View style={{ flex: 1 }}>
                             <Text style={s.agentName}>{token.name}</Text>
                             <Text style={s.agentId}>{token.symbol} · {shortId(token.token_mint)}</Text>
+                            {token.claimable_sol > 0 && (
+                              <Text style={{ fontSize: 12, color: colors.green, fontFamily: 'monospace', marginTop: 2 }}>
+                                {token.claimable_sol.toFixed(6)} SOL earned
+                              </Text>
+                            )}
                           </View>
                           <TouchableOpacity
                             style={[s.acceptBtn, { flex: 0, paddingHorizontal: 16, opacity: claiming === token.token_mint ? 0.5 : 1 }]}

@@ -126,6 +126,7 @@ The workflow in `.github/workflows/android_release.yml` builds and signs three v
 Binaries (`libzerox1_node.so`, `libzeroclaw.so`) are committed to `android/app/src/main/jniLibs/arm64-v8a/` and packaged directly — no download step required in CI.
 
 Required GitHub secrets: `ZEROX1_RELEASE_KEYSTORE_BASE64`, `ZEROX1_RELEASE_STORE_PASS`, `ZEROX1_RELEASE_KEY_PASS`, `ZEROX1_BAGS_PARTNER_WALLET`, `ZEROX1_BAGS_PARTNER_KEY`, `ZEROX1_HELIUS_API_KEY`.
+Optional for higher-rate-limit Jupiter Trigger/Recurring flows: `ZEROX1_JUPITER_API_KEY`.
 
 To update binaries locally:
 ```bash
