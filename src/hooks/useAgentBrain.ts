@@ -75,6 +75,8 @@ export interface AgentBrainConfig {
   apiKeySet: boolean;
   customModel?: string;
   customBaseUrl?: string;
+  /** Bags.fm token mint address launched at onboarding. */
+  tokenAddress?: string;
 }
 
 const DEFAULT_CONFIG: AgentBrainConfig = {
@@ -148,7 +150,10 @@ export function useAgentBrain() {
 
   const save = useCallback(async (next: AgentBrainConfig) => {
     setConfig(next);
-    await AsyncStorage.setItem(BRAIN_STORAGE_KEY, JSON.stringify(next));
+    // Preserve any extra fields (e.g. tokenAddress written by onboarding) by merging.
+    const existing = await AsyncStorage.getItem(BRAIN_STORAGE_KEY).catch(() => null);
+    const merged = existing ? { ...JSON.parse(existing), ...next } : next;
+    await AsyncStorage.setItem(BRAIN_STORAGE_KEY, JSON.stringify(merged));
   }, []);
 
   const reload = useCallback(() => {
