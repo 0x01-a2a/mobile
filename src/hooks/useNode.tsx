@@ -35,6 +35,7 @@ async function configureLocalNodeApi() {
       apiBase: LOCAL_NODE_API_BASE,
       wsBase: LOCAL_NODE_WS_BASE,
       token: auth.nodeApiToken ?? undefined,
+      heliusApiKey: auth.heliusApiKey ?? undefined,
     });
   } catch {
     configureNodeApi({
