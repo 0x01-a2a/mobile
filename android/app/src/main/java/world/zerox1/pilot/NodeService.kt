@@ -1506,7 +1506,7 @@ include_system = "true to include system apps (default: false)"
         val bagsApiKey   = intent?.getStringExtra(EXTRA_BAGS_API_KEY)
             ?.takeIf { it.isNotBlank() }
             ?: BuildConfig.DEFAULT_BAGS_API_KEY.takeIf { it.isNotBlank() }
-        val jupiterApiKey = BuildConfig.DEFAULT_JUPITER_API_KEY.takeIf { it.isNotBlank() }
+        val jupiterApiKey: String? = BuildConfig.DEFAULT_JUPITER_API_KEY.takeIf { it.isNotBlank() }
         val bagsPartnerWallet = intent?.getStringExtra(EXTRA_BAGS_PARTNER_WALLET)
             ?.takeIf { it.isNotBlank() }
             ?: BuildConfig.DEFAULT_BAGS_PARTNER_WALLET.takeIf { it.isNotBlank() }
@@ -1550,7 +1550,7 @@ include_system = "true to include system apps (default: false)"
             try {
                 val binary = prepareNodeBinary()
                 // MED-4: Replace recursive launchNode with iterative loop in separate job
-                launchNodeIterative(binary, relayAddr, fcmToken, agentName, rpcUrl, tradeRpcUrl, bagsApiKey, bagsPartnerWallet, bagsPartnerKey, jupiterFeeAccount, launchlabShareFeeWallet)
+                launchNodeIterative(binary, relayAddr, fcmToken, agentName, rpcUrl, tradeRpcUrl, bagsApiKey, bagsPartnerWallet, bagsPartnerKey, jupiterApiKey, jupiterFeeAccount, launchlabShareFeeWallet)
             } catch (e: Exception) {
                 Log.e(TAG, "Node start failed: $e")
                 broadcastStatus(STATUS_ERROR, e.message ?: "unknown error")
@@ -1699,11 +1699,12 @@ include_system = "true to include system apps (default: false)"
         bagsApiKey:  String?,
         bagsPartnerWallet: String?,
         bagsPartnerKey: String?,
+        jupiterApiKey: String?,
         jupiterFeeAccount: String?,
         launchlabShareFeeWallet: String?,
     ) {
         while (coroutineContext.isActive) {
-            launchNode(binary, relayAddr, fcmToken, agentName, rpcUrl, tradeRpcUrl, bagsApiKey, bagsPartnerWallet, bagsPartnerKey, jupiterFeeAccount, launchlabShareFeeWallet)
+            launchNode(binary, relayAddr, fcmToken, agentName, rpcUrl, tradeRpcUrl, bagsApiKey, bagsPartnerWallet, bagsPartnerKey, jupiterApiKey, jupiterFeeAccount, launchlabShareFeeWallet)
             if (!coroutineContext.isActive) break
             Log.i(TAG, "Restarting node in 5s…")
             updateNotification("Restarting…")
@@ -1721,6 +1722,7 @@ include_system = "true to include system apps (default: false)"
         bagsApiKey:  String?,
         bagsPartnerWallet: String?,
         bagsPartnerKey: String?,
+        jupiterApiKey: String?,
         jupiterFeeAccount: String?,
         launchlabShareFeeWallet: String?,
     ) = withContext(Dispatchers.IO) {
@@ -1778,7 +1780,9 @@ include_system = "true to include system apps (default: false)"
         bagsApiKey?.let { cmd += listOf("--bags-api-key", it) }
         bagsPartnerWallet?.let { cmd += listOf("--bags-partner-wallet", it) }
         bagsPartnerKey?.let { cmd += listOf("--bags-partner-key", it) }
-        jupiterApiKey?.let { cmd += listOf("--jupiter-api-key", it) }
+        jupiterApiKey?.let { apiKey: String ->
+            cmd += listOf("--jupiter-api-key", apiKey)
+        }
         jupiterFeeAccount?.let { cmd += listOf("--jupiter-fee-account", it) }
         launchlabShareFeeWallet?.let { cmd += listOf("--launchlab-share-fee-wallet", it) }
 
