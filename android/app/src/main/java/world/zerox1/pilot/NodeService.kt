@@ -64,9 +64,7 @@ class NodeService : Service() {
         const val EXTRA_AGENT_NAME  = "agent_name"
         const val EXTRA_RPC_URL     = "rpc_url"
 
-        // Intent extras — Bags fee-sharing
-        const val EXTRA_BAGS_FEE_BPS = "bags_fee_bps"
-        const val EXTRA_BAGS_WALLET  = "bags_wallet"
+        // Intent extras — Bags
         const val EXTRA_BAGS_API_KEY = "bags_api_key"
         const val EXTRA_BAGS_PARTNER_WALLET = "bags_partner_wallet"
         const val EXTRA_BAGS_PARTNER_KEY = "bags_partner_key"
@@ -1505,9 +1503,6 @@ include_system = "true to include system apps (default: false)"
                 "https://mainnet.helius-rpc.com/?api-key=${BuildConfig.HELIUS_API_KEY}"
                else
                 "https://api.mainnet-beta.solana.com"
-        val bagsFeeBps   = if (intent?.hasExtra(EXTRA_BAGS_FEE_BPS) == true)
-                               intent.getIntExtra(EXTRA_BAGS_FEE_BPS, 0) else 0
-        val bagsWallet   = intent?.getStringExtra(EXTRA_BAGS_WALLET)
         val bagsApiKey   = intent?.getStringExtra(EXTRA_BAGS_API_KEY)
             ?.takeIf { it.isNotBlank() }
             ?: BuildConfig.DEFAULT_BAGS_API_KEY.takeIf { it.isNotBlank() }
@@ -1555,7 +1550,7 @@ include_system = "true to include system apps (default: false)"
             try {
                 val binary = prepareNodeBinary()
                 // MED-4: Replace recursive launchNode with iterative loop in separate job
-                launchNodeIterative(binary, relayAddr, fcmToken, agentName, rpcUrl, tradeRpcUrl, bagsFeeBps, bagsWallet, bagsApiKey, bagsPartnerWallet, bagsPartnerKey, jupiterFeeAccount, launchlabShareFeeWallet)
+                launchNodeIterative(binary, relayAddr, fcmToken, agentName, rpcUrl, tradeRpcUrl, bagsApiKey, bagsPartnerWallet, bagsPartnerKey, jupiterFeeAccount, launchlabShareFeeWallet)
             } catch (e: Exception) {
                 Log.e(TAG, "Node start failed: $e")
                 broadcastStatus(STATUS_ERROR, e.message ?: "unknown error")
@@ -1701,8 +1696,6 @@ include_system = "true to include system apps (default: false)"
         agentName:   String,
         rpcUrl:      String,
         tradeRpcUrl: String,
-        bagsFeeBps:  Int,
-        bagsWallet:  String?,
         bagsApiKey:  String?,
         bagsPartnerWallet: String?,
         bagsPartnerKey: String?,
@@ -1710,7 +1703,7 @@ include_system = "true to include system apps (default: false)"
         launchlabShareFeeWallet: String?,
     ) {
         while (coroutineContext.isActive) {
-            launchNode(binary, relayAddr, fcmToken, agentName, rpcUrl, tradeRpcUrl, bagsFeeBps, bagsWallet, bagsApiKey, bagsPartnerWallet, bagsPartnerKey, jupiterFeeAccount, launchlabShareFeeWallet)
+            launchNode(binary, relayAddr, fcmToken, agentName, rpcUrl, tradeRpcUrl, bagsApiKey, bagsPartnerWallet, bagsPartnerKey, jupiterFeeAccount, launchlabShareFeeWallet)
             if (!coroutineContext.isActive) break
             Log.i(TAG, "Restarting node in 5s…")
             updateNotification("Restarting…")
@@ -1725,8 +1718,6 @@ include_system = "true to include system apps (default: false)"
         agentName:   String,
         rpcUrl:      String,
         tradeRpcUrl: String,
-        bagsFeeBps:  Int,
-        bagsWallet:  String?,
         bagsApiKey:  String?,
         bagsPartnerWallet: String?,
         bagsPartnerKey: String?,
@@ -1784,10 +1775,6 @@ include_system = "true to include system apps (default: false)"
             ?: "/dns4/bootstrap-1.0x01.world/tcp/9000/p2p/12D3KooWLudabD69eAYzfoZMVRqJb8XHBLDKsQvRn6Q9hTQqvMuY/p2p-circuit"
         cmd += listOf("--relay-addr", effectiveRelay)
         fcmToken?.let  { cmd += listOf("--fcm-token",  it) }
-        if (bagsFeeBps > 0) {
-            cmd += listOf("--bags-fee-bps", bagsFeeBps.toString())
-            bagsWallet?.let { cmd += listOf("--bags-wallet", it) }
-        }
         bagsApiKey?.let { cmd += listOf("--bags-api-key", it) }
         bagsPartnerWallet?.let { cmd += listOf("--bags-partner-wallet", it) }
         bagsPartnerKey?.let { cmd += listOf("--bags-partner-key", it) }

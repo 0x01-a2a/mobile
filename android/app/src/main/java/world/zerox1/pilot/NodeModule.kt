@@ -301,9 +301,6 @@ class NodeModule(private val ctx: ReactApplicationContext)
                 if (config.hasKey("maxActionsPerHour")) putExtra(NodeService.EXTRA_MAX_ACTIONS,  config.getInt("maxActionsPerHour"))
                 if (config.hasKey("maxCostPerDayCents")) putExtra(NodeService.EXTRA_MAX_COST,    config.getInt("maxCostPerDayCents"))
                 if (config.hasKey("agentBrainEnabled")) putExtra(NodeService.EXTRA_BRAIN_ENABLED, config.getBoolean("agentBrainEnabled"))
-                // Bags fee-sharing
-                if (config.hasKey("bagsFeesBps"))       putExtra(NodeService.EXTRA_BAGS_FEE_BPS,  config.getInt("bagsFeesBps"))
-                config.getString("bagsWallet")?.let    { putExtra(NodeService.EXTRA_BAGS_WALLET,  it) }
                 config.getString("bagsApiKey")?.let    { putExtra(NodeService.EXTRA_BAGS_API_KEY, it) }
                 config.getString("bagsPartnerWallet")?.let { putExtra(NodeService.EXTRA_BAGS_PARTNER_WALLET, it) }
                 config.getString("bagsPartnerKey")?.let { putExtra(NodeService.EXTRA_BAGS_PARTNER_KEY, it) }
@@ -340,8 +337,6 @@ class NodeModule(private val ctx: ReactApplicationContext)
             config.getString("llmModel")?.let       { prefs.putString("llm_model",     it) }
             config.getString("llmBaseUrl")?.let     { prefs.putString("llm_base_url",  it) }
             config.getString("capabilities")?.let   { prefs.putString("capabilities",   it) }
-            if (config.hasKey("bagsFeesBps"))        prefs.putInt("bags_fee_bps",       config.getInt("bagsFeesBps"))
-            config.getString("bagsWallet")?.let     { prefs.putString("bags_wallet",    it) }
             config.getString("bagsPartnerWallet")?.let { prefs.putString(KEY_BAGS_PARTNER_WALLET, it) }
             // bags API keys stored in EncryptedSharedPreferences (not plaintext)
             val ep = securePrefs().edit()
