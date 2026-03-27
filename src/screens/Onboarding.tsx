@@ -852,11 +852,21 @@ function LaunchSuccessStep({
         }
 
         try {
-          const launchRes = await fetch(`${AGGREGATOR_API}/sponsor/launch`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(launchBody),
-          });
+          // 60s timeout — the aggregator broadcasts 3 fee-share txs with confirmation waits.
+          const controller = new AbortController();
+          const launchTimeout = setTimeout(() => controller.abort(), 60_000);
+          let launchRes: Response;
+          try {
+            launchRes = await fetch(`${AGGREGATOR_API}/sponsor/launch`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(launchBody),
+              signal: controller.signal,
+            });
+          } finally {
+            clearTimeout(launchTimeout);
+          }
+
           if (launchRes.ok) {
             const lj: { token_mint?: string } = await launchRes.json().catch(() => ({}));
             const mint = lj.token_mint ?? null;
@@ -869,6 +879,40 @@ function LaunchSuccessStep({
                 'zerox1:agent_brain',
                 JSON.stringify({ ...brain, tokenAddress: mint }),
               );
+            }
+          } else if (launchRes.status === 409) {
+            // Launch in progress on server (e.g. app crashed mid-launch and restarted).
+            // Wait and retry once — the aggregator will return the mint when done.
+            await new Promise(r => setTimeout(r, 8_000));
+            if (!cancelled) {
+              const retryController = new AbortController();
+              const retryTimeout = setTimeout(() => retryController.abort(), 60_000);
+              try {
+                const retryRes = await fetch(`${AGGREGATOR_API}/sponsor/launch`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(launchBody),
+                  signal: retryController.signal,
+                });
+                if (retryRes.ok) {
+                  const lj: { token_mint?: string } = await retryRes.json().catch(() => ({}));
+                  const mint = lj.token_mint ?? null;
+                  if (!cancelled && mint) {
+                    setTokenMint(mint);
+                    const brainRaw = await AsyncStorage.getItem('zerox1:agent_brain');
+                    const brain = brainRaw ? JSON.parse(brainRaw) : {};
+                    await AsyncStorage.setItem(
+                      'zerox1:agent_brain',
+                      JSON.stringify({ ...brain, tokenAddress: mint }),
+                    );
+                  }
+                } else {
+                  const errText = await retryRes.text().catch(() => '');
+                  if (!cancelled) setTokenLaunchError(errText || `HTTP ${retryRes.status}`);
+                }
+              } finally {
+                clearTimeout(retryTimeout);
+              }
             }
           } else {
             const errText = await launchRes.text().catch(() => '');
