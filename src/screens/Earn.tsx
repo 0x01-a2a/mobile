@@ -850,7 +850,7 @@ export function EarnScreen() {
       {activeTab === 'earn' && (() => {
         const localAgent = agents.find(a => a.mode === 'local');
         const myToken = bagsPositions[0];
-        const fallbackMint = !myToken ? (brainConfig as any).tokenAddress as string | undefined : undefined;
+        const fallbackMint = !myToken ? brainConfig.tokenAddress : undefined;
         const caps: string[] = brainConfig.capabilities ?? [];
         return (
           <ScrollView style={s.tradeRoot} contentContainerStyle={s.tradeContent}>
