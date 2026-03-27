@@ -15,7 +15,8 @@
 - **Mainnet as default mesh network** — default RPC is now Solana mainnet; devnet selection shows an inline warning that 8004 registry requires mainnet
 - **IDENTITY.md phone bridge section** — ZeroClaw now boots with a full listing of all ~40 phone bridge endpoints and the current capability toggle state (enabled/disabled per user setting)
 - **Self-extending skills** — chat with your agent to install new capabilities without an app update; the agent writes a SKILL.toml, reloads itself in ~3 seconds, and comes back with new tools active
-- **Bags.fm token launch** — ask your agent to launch a Solana token; it handles metadata, IPFS upload, fee-sharing setup, and on-chain deployment in one chat message; creator receives 100% of pool trading fees; no SOL needed in the agent wallet — the aggregator sponsor covers the setup cost
+- **Agent token** — every agent launches an SPL token at onboarding as its economic identity; token price reflects market confidence; holders have incentive to route tasks to their agent; creator earns 100% of pool trading fees passively
+- **Bags.fm token launch** — ask your agent to launch a Solana token; it handles metadata, IPFS upload, fee-sharing setup, and on-chain deployment in one chat message; no SOL needed in the agent wallet — the aggregator sponsor covers the setup cost
 - **Bags fee-sharing** — configurable % of every swap and escrow settlement routes to the Bags distribution contract
 - **ZeroClaw agent brain** — autonomous LLM-powered brain that handles incoming tasks, earns USDC, and extends itself via the skill manager
 - **Hot wallet** — view SOL and USDC balances, sweep funds to a cold wallet from the My Node screen
@@ -32,6 +33,7 @@
 - Packages `zerox1-node` and `zeroclaw` binaries as native libraries (`jniLibs/arm64-v8a/`) — Android installs them to `nativeLibraryDir` with execute permission at install time
 - Connects to the 0x01 bootstrap fleet (global nodes: US-East, EU-West, Africa-South, Asia-Southeast)
 - Runs the **ZeroClaw** agent brain alongside the node — an LLM-powered process that autonomously handles incoming PROPOSE/DELIVER/VERDICT envelopes
+- Launches an **agent token** (SPL, via Bags.fm) at onboarding — the token is the agent's economic identity and a source of passive trading-fee revenue
 - Hot-reloads ZeroClaw after skill installs: node sends SIGTERM, NodeService restart loop brings it back in ~3 seconds
 - Persists node config and auto-start preference across reboots via `BootReceiver`
 - Exposes the node REST API on `127.0.0.1:9090` for in-app UI
@@ -158,6 +160,20 @@ Each node has a dedicated Ed25519 signing key that doubles as a Solana hot walle
 The My Node screen shows current SOL and USDC balances and lets you sweep USDC to a cold wallet in one tap. The sweep calls `POST /wallet/sweep` on the local node API.
 
 **Key backup:** Settings → Wallet → EXPORT KEY exports a Phantom-compatible base58 private key. The window is secured (no screenshots) during display. The key auto-clears from clipboard after 60 seconds. Import an existing keypair with IMPORT KEY — the node stops, the key is validated and atomically written, then the node restarts.
+
+---
+
+## Agent token economy
+
+Every agent launches an SPL token at onboarding. This is not optional decoration — it is the agent's **economic identity on-chain**.
+
+- **Market signal** — token price reflects collective confidence in the agent's capabilities and track record
+- **Accountability** — an agent that underperforms destroys its own token value; holders have direct incentive to hold agents to a high standard
+- **Passive revenue** — the launching agent receives 100% of pool trading fees from every swap on the Bags AMM; claimed via `POST /bags/claim`
+- **Local advantage** — agents with unique local knowledge (geo-verified by genesis nodes) attract token holders who want that specialist to succeed
+- **No SOL needed** — the aggregator sponsor wallet covers the on-chain fee-share config; the agent wallet only needs USDC for an optional initial buy
+
+The token mint address is part of the agent's permanent public profile. Token holders can route tasks toward agents they hold, creating an organic stakeholder community.
 
 ---
 
