@@ -1269,16 +1269,6 @@ export function SettingsScreen() {
   const [nodeApiUrl, setNodeApiUrl] = useState(config.nodeApiUrl ?? '');
   const [savedBanner, setSavedBanner] = useState(false);
 
-  // MESH NETWORK: derive selected network from current rpcUrl
-  const rpcToNetwork = (url: string): 'devnet' | 'mainnet' =>
-    url.includes('devnet') ? 'devnet' : 'mainnet';
-  const [meshNetwork, setMeshNetwork] = useState<'devnet' | 'mainnet'>(
-    rpcToNetwork(config.rpcUrl ?? 'https://api.mainnet-beta.solana.com'),
-  );
-  const networkToRpc = (net: 'devnet' | 'mainnet'): string =>
-    net === 'devnet'
-      ? 'https://api.devnet.solana.com'
-      : 'https://api.mainnet-beta.solana.com';
   const [showBrowser, setShowBrowser] = useState(false);
 
   // Bags API key state
@@ -1305,7 +1295,6 @@ export function SettingsScreen() {
     setAgentName(config.agentName ?? '');
     setAgentAvatar(config.agentAvatar ?? '');
     setRelayAddr(config.relayAddr ?? '');
-    setMeshNetwork(rpcToNetwork(config.rpcUrl ?? 'https://api.mainnet-beta.solana.com'));
     setNodeApiUrl(config.nodeApiUrl ?? '');
   }, [config]);
 
@@ -1357,7 +1346,7 @@ export function SettingsScreen() {
       agentName: agentName.trim() || undefined,
       agentAvatar: agentAvatar || undefined,
       relayAddr: relayAddr.trim() || undefined,
-      rpcUrl: networkToRpc(meshNetwork),
+      rpcUrl: 'https://api.mainnet-beta.solana.com',
       nodeApiUrl: trimmedNodeApiUrl,
       // bagsApiKey is in Keychain; merged into config at startNode time via withBagsConfig
     };
@@ -1426,34 +1415,6 @@ export function SettingsScreen() {
             onChange={setRelayAddr}
             placeholder="/ip4/0.0.0.0/tcp/4001/p2p/12D3..."
           />
-          {/* Mesh network toggle */}
-          <View style={s.field}>
-            <Text style={s.fieldLabel}>MESH NETWORK</Text>
-            <View style={s.netToggleRow}>
-              {(['devnet', 'mainnet'] as const).map(net => (
-                <TouchableOpacity
-                  key={net}
-                  style={[s.netBtn, meshNetwork === net && s.netBtnActive]}
-                  onPress={() => setMeshNetwork(net)}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[s.netBtnText, meshNetwork === net && s.netBtnTextActive]}>
-                    {net.toUpperCase()}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-          {/* Devnet warning */}
-          {meshNetwork === 'devnet' && (
-            <Text style={s.devnetWarn}>
-              Devnet is for testing only. Agent registration (8004 registry) requires mainnet — your node will not appear on the live mesh.
-            </Text>
-          )}
-          {/* Trading always on mainnet — informational badge */}
-          <View style={s.tradingBadge}>
-            <Text style={s.tradingBadgeText}>TRADING · MAINNET · Jupiter · Bags</Text>
-          </View>
           {/* Host node URL — leave empty to run local node */}
           <View style={[s.field, { borderBottomWidth: 0 }]}>
             <Text style={s.fieldLabel}>HOST NODE URL</Text>
@@ -1624,14 +1585,6 @@ function useStyles(colors: ThemeColors) {
     fontSize: 14,
     paddingVertical: 0,
   },
-  netToggleRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
-  netBtn: { flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: 3, paddingVertical: 8, alignItems: 'center' },
-  netBtnActive: { borderColor: colors.green, backgroundColor: colors.green + '18' },
-  netBtnText: { fontSize: 11, color: colors.sub, letterSpacing: 2, fontWeight: '700', fontFamily: 'monospace' },
-  netBtnTextActive: { color: colors.green },
-  devnetWarn: { marginHorizontal: 16, marginBottom: 8, fontSize: 11, color: colors.amber, fontFamily: 'monospace', lineHeight: 16 },
-  tradingBadge: { marginHorizontal: 16, marginBottom: 12, borderWidth: 1, borderColor: colors.amber + '30', borderRadius: 3, paddingVertical: 6, alignItems: 'center' },
-  tradingBadgeText: { fontSize: 9, color: colors.amber, letterSpacing: 2, fontFamily: 'monospace' },
   hostFieldRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   hostUrlInput: { flex: 1 },
   browseBtn: {
