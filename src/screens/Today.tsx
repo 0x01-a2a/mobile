@@ -45,7 +45,10 @@ export default function TodayScreen() {
   const isRunning = status === 'running';
   const earnedToday = useMemo(() => sumEarnings(entries, true), [entries]);
   const earnedAllTime = useMemo(() => sumEarnings(entries, false), [entries]);
-  const recentJobs = useMemo(() => entries.slice(0, 10), [entries]);
+  const recentJobs = useMemo(
+    () => entries.filter(e => e.outcome === 'success').slice(0, 10),
+    [entries],
+  );
 
   return (
     <ScrollView style={s.root} contentContainerStyle={s.content}>
