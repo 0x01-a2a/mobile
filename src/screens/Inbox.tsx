@@ -251,23 +251,27 @@ export default function InboxScreen() {
     if (result === 'not_implemented') {
       Alert.alert('Manual payment required', 'Complete the token purchase in your wallet.');
     }
-    await sendEnvelope({
+    const sent = await sendEnvelope({
       msg_type: 'VERDICT',
       recipient: offer.agent_id,
       conversation_id: offer.conversation_id,
       payload_b64: btoa(JSON.stringify({ outcome: 'positive', message: 'Accepted' })),
     });
-    updateStatus(offer.conversation_id, 'completed');
+    if (sent) {
+      updateStatus(offer.conversation_id, 'completed');
+    }
   }, [updateStatus]);
 
   const handleDispute = useCallback(async (offer: SentOffer) => {
-    await sendEnvelope({
+    const sent = await sendEnvelope({
       msg_type: 'DISPUTE',
       recipient: offer.agent_id,
       conversation_id: offer.conversation_id,
       payload_b64: btoa(JSON.stringify({ reason: 'Result not satisfactory' })),
     });
-    updateStatus(offer.conversation_id, 'rejected', { rejected_at: Date.now() });
+    if (sent) {
+      updateStatus(offer.conversation_id, 'rejected', { rejected_at: Date.now() });
+    }
   }, [updateStatus]);
 
   const aboveThreshold = useMemo(
