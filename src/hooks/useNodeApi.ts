@@ -246,6 +246,22 @@ export interface AgentSummary {
   verdict_count: number;
   trend: string;
   last_seen: number;
+  token_address?: string;             // base58 mint; present when agent has launched a token
+  downpayment_bps?: number;           // basis points required upfront; 0 or absent = none
+  price_range_usd?: [number, number]; // [min, max] job price in USD
+}
+
+export interface SentOffer {
+  conversation_id: string;
+  agent_id: string;
+  agent_name: string;
+  token_address: string;
+  description: string;
+  price_range_usd?: [number, number];
+  status: 'pending' | 'accepted' | 'delivered' | 'rejected' | 'completed';
+  sent_at: number;             // unix ms
+  delivered_payload?: string;  // populated when DELIVER arrives
+  rejected_at?: number;        // unix ms; used for 24h auto-prune
 }
 
 export type PortfolioEvent =
@@ -2260,6 +2276,81 @@ export function useBountyFeed(capability?: string, refreshTick = 0): {
   }, [capability, tick, refreshTick]);
 
   return { bounties, loading, reload };
+}
+
+// ── Sent offers (outbound job tracker) ──────────────────────────────────────
+
+const SENT_OFFERS_KEY = 'zerox1:sent_offers';
+
+function filterDisplayOffers(all: SentOffer[]): SentOffer[] {
+  const now = Date.now();
+  return all.filter(o => {
+    if (o.status === 'completed') return false;
+    if (o.status === 'rejected' && o.rejected_at && now - o.rejected_at > 86_400_000) return false;
+    return true;
+  });
+}
+
+export function useSentOffers(): {
+  offers: SentOffer[];
+  addOffer: (offer: SentOffer) => void;
+  updateStatus: (conversation_id: string, status: SentOffer['status'], extra?: Partial<SentOffer>) => void;
+} {
+  const [offers, setOffers] = useState<SentOffer[]>([]);
+
+  useEffect(() => {
+    AsyncStorage.getItem(SENT_OFFERS_KEY).then(raw => {
+      if (!raw) return;
+      setOffers(filterDisplayOffers(JSON.parse(raw)));
+    }).catch(() => {});
+  }, []);
+
+  const addOffer = useCallback((offer: SentOffer) => {
+    AsyncStorage.getItem(SENT_OFFERS_KEY).then(raw => {
+      const all: SentOffer[] = raw ? JSON.parse(raw) : [];
+      const next = [offer, ...all].slice(0, 100);
+      AsyncStorage.setItem(SENT_OFFERS_KEY, JSON.stringify(next)).catch(() => {});
+      setOffers(filterDisplayOffers(next));
+    }).catch(() => {});
+  }, []);
+
+  const updateStatus = useCallback((
+    conversation_id: string,
+    status: SentOffer['status'],
+    extra?: Partial<SentOffer>,
+  ) => {
+    AsyncStorage.getItem(SENT_OFFERS_KEY).then(raw => {
+      const all: SentOffer[] = raw ? JSON.parse(raw) : [];
+      const next = all.map(o =>
+        o.conversation_id === conversation_id ? { ...o, status, ...extra } : o,
+      );
+      AsyncStorage.setItem(SENT_OFFERS_KEY, JSON.stringify(next)).catch(() => {});
+      setOffers(filterDisplayOffers(next));
+    }).catch(() => {});
+  }, []);
+
+  return { offers, addOffer, updateStatus };
+}
+
+/** Attempt to buy an agent's token via the node wallet API.
+ *  Returns 'ok' | 'not_implemented' | 'error'.
+ *  'not_implemented' means the endpoint doesn't exist yet — caller shows a manual-payment toast. */
+export async function buyAgentToken(
+  tokenAddress: string,
+  amountUsd: number,
+): Promise<'ok' | 'not_implemented' | 'error'> {
+  try {
+    const res = await fetch(`${_apiBase}/wallet/bags-buy`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token_address: tokenAddress, amount_usd: amountUsd }),
+    });
+    if (res.ok) return 'ok';
+    if (res.status === 404) return 'not_implemented';
+    return 'error';
+  } catch {
+    return 'error';
+  }
 }
 
 export function useAgentSearch(capability: string): {
