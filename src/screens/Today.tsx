@@ -1,10 +1,11 @@
 import React, { useMemo } from 'react';
 import {
-  View, Text, TouchableOpacity, ScrollView, StyleSheet,
+  View, Text, TouchableOpacity, ScrollView, StyleSheet, Image,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useNode } from '../hooks/useNode';
 import { useTaskLog } from '../hooks/useNodeApi';
+import { DEFAULT_AGENT_ICON_URI } from '../assets/defaultAgentIcon';
 
 function isToday(timestampSeconds: number): boolean {
   const d = new Date(timestampSeconds * 1000);
@@ -64,7 +65,10 @@ export default function TodayScreen() {
       <View style={s.heroCard}>
         <View style={s.heroRow}>
           <View style={s.avatarCircle}>
-            <Text style={s.avatarIcon}>◉</Text>
+            <Image
+              source={{ uri: config?.agentAvatar || DEFAULT_AGENT_ICON_URI }}
+              style={s.avatarImage}
+            />
           </View>
           <View style={s.heroInfo}>
             <Text style={s.agentName}>{agentName}</Text>
@@ -167,9 +171,9 @@ const s = StyleSheet.create({
   avatarCircle: {
     width: 38, height: 38, borderRadius: 19,
     backgroundColor: '#fff', borderWidth: 2, borderColor: '#86efac',
-    alignItems: 'center', justifyContent: 'center',
+    overflow: 'hidden',
   },
-  avatarIcon: { fontSize: 18, color: '#374151' },
+  avatarImage: { width: 38, height: 38 },
   heroInfo: { flex: 1 },
   agentName: { fontSize: 13, fontWeight: '600', color: '#111' },
   agentStatus: { fontSize: 10, color: '#16a34a', marginTop: 2 },

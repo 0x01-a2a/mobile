@@ -1,23 +1,18 @@
 /**
- * Onboarding — first-launch setup for the 01 Pilot agent runtime (ZeroClaw).
+ * Onboarding — first-launch setup for the 01 Pilot agent runtime.
  *
  * Steps:
- *   0 — Welcome (wallet + enable or skip)
- *   1 — Agent name
+ *   0 — Welcome
+ *   1 — Agent name & avatar
  *   2 — LLM provider selection
- *   3 — API key entry → finish (capabilities and rules use defaults)
- *   6 — Launch success (Bags token launch + secret key backup)
- *
- * On completion calls onDone(config) with the saved config,
- * or onDone(null) if the user skipped.
+ *   3 — API key entry
+ *   5 — Token choice (optional token launch)
+ *   6 — Launch (node start + optional token + key backup)
  */
-import { useTheme, ThemeColors } from '../theme/ThemeContext';
-import { ThemeToggle } from '../components/ThemeToggle';
 import { useLayout } from '../hooks/useLayout';
 import React, { useState, useEffect } from 'react';
 import {
   Alert,
-  Dimensions,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -88,15 +83,19 @@ export async function checkOnboardingDone(): Promise<boolean> {
   return (await AsyncStorage.getItem(ONBOARDING_KEY)) === 'true';
 }
 
+// Light palette — matches Today.tsx / You.tsx
 const C = {
-  bg: '#050505',
-  card: '#0f0f0f',
-  border: '#1a1a1a',
-  green: '#00e676',
-  text: '#ffffff',
-  sub: '#555555',
-  amber: '#ffc107',
-  input: '#111111',
+  bg: '#ffffff',
+  card: '#f9fafb',
+  border: '#e5e7eb',
+  divider: '#f3f4f6',
+  green: '#22c55e',
+  greenBg: '#f0fdf4',
+  greenBorder: '#bbf7d0',
+  text: '#111111',
+  sub: '#6b7280',
+  hint: '#9ca3af',
+  orange: '#f97316',
 };
 
 // ============================================================================
@@ -106,33 +105,31 @@ const C = {
 function StepShell({
   children,
   step,
-  total = 3,
+  total = 4,
 }: {
   children: React.ReactNode;
   step: number;
   total?: number;
 }) {
-  const { colors } = useTheme();
-  const { isTablet, isWide, contentHPad, width: screenWidth } = useLayout();
-  const s = useStyles(colors, isTablet, isWide, screenWidth);
+  const { isTablet, contentHPad } = useLayout();
   return (
     <KeyboardAvoidingView
       style={s.root}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView
-        contentContainerStyle={s.content}
+        contentContainerStyle={[s.content, isTablet && s.contentTablet]}
         keyboardShouldPersistTaps="handled"
       >
         <View style={{ paddingHorizontal: contentHPad }}>
-        {step > 0 && (
-          <View style={s.progressRow}>
-            {Array.from({ length: total }, (_, i) => (
-              <View key={i} style={[s.pip, i < step && s.pipDone]} />
-            ))}
-          </View>
-        )}
-        {children}
+          {step > 0 && (
+            <View style={s.progressRow}>
+              {Array.from({ length: total }, (_, i) => (
+                <View key={i} style={[s.pip, i < step && s.pipDone]} />
+              ))}
+            </View>
+          )}
+          {children}
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -140,14 +137,10 @@ function StepShell({
 }
 
 function Heading({ label }: { label: string }) {
-  const { colors } = useTheme();
-  const s = useStyles(colors);
   return <Text style={s.heading}>{label}</Text>;
 }
 
 function Sub({ children }: { children: React.ReactNode }) {
-  const { colors } = useTheme();
-  const s = useStyles(colors);
   return <Text style={s.sub}>{children}</Text>;
 }
 
@@ -160,8 +153,6 @@ function PrimaryBtn({
   onPress: () => void;
   disabled?: boolean;
 }) {
-  const { colors } = useTheme();
-  const s = useStyles(colors);
   return (
     <TouchableOpacity
       style={[s.primaryBtn, disabled && s.primaryBtnDisabled]}
@@ -177,8 +168,6 @@ function PrimaryBtn({
 }
 
 function GhostBtn({ label, onPress }: { label: string; onPress: () => void }) {
-  const { colors } = useTheme();
-  const s = useStyles(colors);
   return (
     <TouchableOpacity style={s.ghostBtn} onPress={onPress} activeOpacity={0.7}>
       <Text style={s.ghostBtnText}>{label}</Text>
@@ -187,11 +176,9 @@ function GhostBtn({ label, onPress }: { label: string; onPress: () => void }) {
 }
 
 function BackBtn({ onPress }: { onPress: () => void }) {
-  const { colors } = useTheme();
-  const s = useStyles(colors);
   return (
     <TouchableOpacity style={s.backBtn} onPress={onPress} activeOpacity={0.7}>
-      <Text style={s.backBtnText}>← BACK</Text>
+      <Text style={s.backBtnText}>← Back</Text>
     </TouchableOpacity>
   );
 }
@@ -211,57 +198,52 @@ function WelcomeStep({
   onEnable: () => void;
   onSkip: () => void;
 }) {
-  const { colors } = useTheme();
-  const s = useStyles(colors);
   const walletValid = phantomWallet.trim().length >= 32;
   return (
     <StepShell step={0}>
-      <Text style={s.logo}>[*]</Text>
-      <Heading label="AGENT BRAIN" />
+      <Text style={s.logo}>01</Text>
+      <Heading label="Your AI agent," />
+      <Text style={[s.heading, { color: C.green, marginTop: -8 }]}>working for you.</Text>
       <Sub>
-        Your 01 Pilot agent earns on your behalf — accepting tasks, building
-        reputation, and settling payments on Solana — while your phone is
-        locked.
+        01 Pilot runs an autonomous AI agent on your phone — accepting tasks,
+        building reputation, and settling payments on Solana while you sleep.
       </Sub>
 
       <View style={s.featureList}>
         {[
-          'Accepts tasks from the mesh automatically',
-          'Earns in your agent token, sweepable to your wallet',
-          'Builds on-chain reputation over time',
-          'Runs while you sleep',
-        ].map(f => (
-          <View key={f} style={s.featureRow}>
-            <Text style={s.featureDot}>·</Text>
-            <Text style={s.featureText}>{f}</Text>
+          ['◎', 'Accepts tasks from the mesh automatically'],
+          ['◈', 'Earns USDC, sweepable to your wallet'],
+          ['◆', 'Builds on-chain reputation over time'],
+          ['○', 'Runs in the background 24/7'],
+        ].map(([icon, text]) => (
+          <View key={text} style={s.featureRow}>
+            <Text style={s.featureIcon}>{icon}</Text>
+            <Text style={s.featureText}>{text}</Text>
           </View>
         ))}
       </View>
 
-      {/* Phantom wallet — optional but unlocks sweep + portfolio view */}
-      <View style={{ marginTop: 24, marginBottom: 8 }}>
-        <Text style={{ fontSize: 9, color: colors.sub, fontFamily: 'monospace', letterSpacing: 2, marginBottom: 8 }}>
-          CONNECT OWNER WALLET (OPTIONAL)
-        </Text>
+      <View style={{ marginTop: 8, marginBottom: 16 }}>
+        <Text style={s.inputLabel}>OWNER WALLET (OPTIONAL)</Text>
         <TextInput
-          style={[s.keyInput, { borderWidth: 1, borderColor: walletValid ? colors.green + '80' : colors.border, borderRadius: 4, padding: 12, marginBottom: 0 }]}
+          style={[s.textInput, walletValid && { borderColor: C.greenBorder }]}
           value={phantomWallet}
           onChangeText={onChangePhantomWallet}
-          placeholder="Paste your Phantom wallet address"
-          placeholderTextColor={colors.sub}
+          placeholder="Your Solana address — enables earnings sweep"
+          placeholderTextColor={C.hint}
           autoCapitalize="none"
           autoCorrect={false}
           returnKeyType="done"
         />
-        <Text style={{ fontSize: 10, color: colors.sub, fontFamily: 'monospace', marginTop: 6, lineHeight: 15 }}>
-          {walletValid
-            ? '✓ Earnings sweep and portfolio tracking enabled'
-            : 'Your Solana base58 address — enables earnings sweep and portfolio view. You can add this later in Settings.'}
-        </Text>
+        {walletValid && (
+          <Text style={[s.inputHint, { color: C.green }]}>
+            ✓ Earnings sweep and portfolio tracking enabled
+          </Text>
+        )}
       </View>
 
-      <PrimaryBtn label="ENABLE AGENT BRAIN →" onPress={onEnable} />
-      <GhostBtn label="skip for now" onPress={onSkip} />
+      <PrimaryBtn label="Set up agent →" onPress={onEnable} />
+      <GhostBtn label="Skip for now" onPress={onSkip} />
     </StepShell>
   );
 }
@@ -275,6 +257,7 @@ function NameStep({
   agentAvatar,
   onChangeName,
   onChangeAvatar,
+  onBack,
   onNext,
   onSkip,
 }: {
@@ -282,77 +265,59 @@ function NameStep({
   agentAvatar: string;
   onChangeName: (v: string) => void;
   onChangeAvatar: (v: string) => void;
+  onBack: () => void;
   onNext: () => void;
   onSkip: () => void;
 }) {
-  const { colors } = useTheme();
-  const s = useStyles(colors);
   return (
     <StepShell step={1}>
-      <Heading label="NAME & AVATAR" />
+      <BackBtn onPress={onBack} />
+      <Heading label="Name your agent" />
       <Sub>
         This is how your agent appears on the mesh — in the discovery feed,
-        reputation leaderboard, and task threads. You can change it anytime in
-        Settings.
+        reputation leaderboard, and task threads.
       </Sub>
 
-      <View style={{ alignItems: 'center', marginBottom: 24 }}>
+      <View style={{ alignItems: 'center', marginBottom: 28 }}>
         <TouchableOpacity
           onPress={async () => {
-            const res = await launchImageLibrary({
-              mediaType: 'photo',
-              selectionLimit: 1,
-            });
+            const res = await launchImageLibrary({ mediaType: 'photo', selectionLimit: 1 });
             if (res?.assets?.[0]?.uri) onChangeAvatar(res.assets[0].uri);
           }}
-          style={{
-            width: 80,
-            height: 80,
-            borderRadius: 40,
-            backgroundColor: colors.card,
-            borderWidth: 1,
-            borderColor: colors.border,
-            alignItems: 'center',
-            justifyContent: 'center',
-            overflow: 'hidden',
-          }}
+          style={s.avatarBtn}
         >
           <Image
             source={{ uri: agentAvatar || DEFAULT_AGENT_ICON_URI }}
-            style={{ width: 80, height: 80 }}
+            style={s.avatarImage}
           />
         </TouchableOpacity>
-        <Text style={[s.keyLabel, { marginTop: 12 }]}>TAP TO CUSTOMIZE</Text>
+        <Text style={[s.inputHint, { marginTop: 8 }]}>Tap to set photo</Text>
       </View>
 
-      <View style={s.keyCard}>
-        <Text style={s.keyLabel}>AGENT NAME</Text>
-        <TextInput
-          style={s.keyInput}
-          value={agentName}
-          onChangeText={onChangeName}
-          placeholder="e.g. fast-eddie, databot-9"
-          placeholderTextColor={colors.sub}
-          autoCapitalize="none"
-          autoCorrect={false}
-          maxLength={32}
-        />
-      </View>
+      <Text style={s.inputLabel}>AGENT NAME</Text>
+      <TextInput
+        style={s.textInput}
+        value={agentName}
+        onChangeText={onChangeName}
+        placeholder="e.g. fast-eddie, databot-9"
+        placeholderTextColor={C.hint}
+        autoCapitalize="none"
+        autoCorrect={false}
+        maxLength={32}
+      />
       {agentName.trim().length === 1 && (
-        <Text style={[s.keyHint, { color: '#ff8800' }]}>
+        <Text style={[s.inputHint, { color: C.orange }]}>
           Name must be at least 2 characters.
         </Text>
       )}
-      <Text style={s.keyHint}>
-        Max 32 characters. Leave blank to use your agent ID prefix.
-      </Text>
+      <Text style={s.inputHint}>Max 32 characters. You can change this anytime in Settings.</Text>
 
       <PrimaryBtn
-        label="CONTINUE →"
+        label="Continue →"
         onPress={onNext}
         disabled={agentName.trim().length === 1}
       />
-      <GhostBtn label="skip" onPress={onSkip} />
+      <GhostBtn label="Skip" onPress={onSkip} />
     </StepShell>
   );
 }
@@ -366,41 +331,38 @@ function ProviderStep({
   customModel,
   onSelect,
   onChangeModel,
+  onBack,
   onNext,
 }: {
   provider: LlmProvider;
   customModel: string;
   onSelect: (p: LlmProvider) => void;
   onChangeModel: (v: string) => void;
+  onBack: () => void;
   onNext: () => void;
 }) {
-  const { colors } = useTheme();
   const { isTablet, isWide, width: screenWidth } = useLayout();
-  const s = useStyles(colors, isTablet, isWide, screenWidth);
   const providerInfo = PROVIDERS.find(p => p.key === provider)!;
+  const cardWidth = isWide ? '30%' : isTablet ? '47%' : screenWidth < 360 ? '100%' : '47%';
+
   return (
     <StepShell step={2}>
-      <Heading label="CHOOSE LLM PROVIDER" />
+      <BackBtn onPress={onBack} />
+      <Heading label="Choose your LLM" />
       <Sub>
-        Your agent uses a fast, low-cost model for decisions. All inference
-        calls go directly from your device to the provider — not through 0x01
-        servers.
+        Your agent uses a fast model for decisions. All inference goes directly
+        from your device to the provider — not through 01 servers.
       </Sub>
 
       <View style={s.providerGrid}>
         {PROVIDERS.map((p: ProviderInfo) => (
           <TouchableOpacity
             key={p.key}
-            style={[s.providerCard, provider === p.key && s.providerCardActive]}
+            style={[s.providerCard, { width: cardWidth as any }, provider === p.key && s.providerCardActive]}
             onPress={() => onSelect(p.key)}
             activeOpacity={0.8}
           >
-            <Text
-              style={[
-                s.providerLabel,
-                provider === p.key && s.providerLabelActive,
-              ]}
-            >
+            <Text style={[s.providerLabel, provider === p.key && s.providerLabelActive]}>
               {p.label}
             </Text>
             <Text style={s.providerModel}>{p.model}</Text>
@@ -408,24 +370,20 @@ function ProviderStep({
         ))}
       </View>
 
-      <View style={s.keyCard}>
-        <Text style={s.keyLabel}>MODEL OVERRIDE (optional)</Text>
-        <TextInput
-          style={s.keyInput}
-          value={customModel}
-          onChangeText={onChangeModel}
-          placeholder={providerInfo.model}
-          placeholderTextColor={colors.sub}
-          autoCapitalize="none"
-          autoCorrect={false}
-          spellCheck={false}
-        />
-      </View>
-      <Text style={s.keyHint}>
-        Leave blank to use the default. Get a key at {providerInfo.hint}
-      </Text>
+      <Text style={s.inputLabel}>MODEL OVERRIDE (optional)</Text>
+      <TextInput
+        style={[s.textInput, { marginBottom: 6 }]}
+        value={customModel}
+        onChangeText={onChangeModel}
+        placeholder={providerInfo.model}
+        placeholderTextColor={C.hint}
+        autoCapitalize="none"
+        autoCorrect={false}
+        spellCheck={false}
+      />
+      <Text style={s.inputHint}>Get a key at {providerInfo.hint}</Text>
 
-      <PrimaryBtn label="CONTINUE →" onPress={onNext} />
+      <PrimaryBtn label="Continue →" onPress={onNext} />
     </StepShell>
   );
 }
@@ -457,16 +415,11 @@ function KeyStep({
   onNext: () => void;
   saving?: boolean;
 }) {
-  const { colors } = useTheme();
-  const s = useStyles(colors);
   const providerInfo = PROVIDERS.find(p => p.key === provider)!;
 
   const handleNext = () => {
     if (!apiKey.trim()) {
-      Alert.alert(
-        'Key required',
-        `Paste your ${providerInfo.label} API key to continue.`,
-      );
+      Alert.alert('Key required', `Paste your ${providerInfo.label} API key to continue.`);
       return;
     }
     onNext();
@@ -475,65 +428,118 @@ function KeyStep({
   return (
     <StepShell step={3}>
       <BackBtn onPress={onBack} />
-      <Heading label={`${providerInfo.label.toUpperCase()} API KEY`} />
+      <Heading label={`${providerInfo.label} API key`} />
       <Sub>
-        Stored in your device keychain — hardware-protected on supported
-        devices. Never uploaded to 0x01 servers.
+        Stored in your device keychain — hardware-protected. Never uploaded to
+        01 servers.
       </Sub>
 
-      <View style={s.keyCard}>
-        <Text style={s.keyLabel}>API KEY</Text>
-        <TextInput
-          style={s.keyInput}
-          value={apiKey}
-          onChangeText={onChangeKey}
-          placeholder={`sk-...`}
-          placeholderTextColor={colors.sub}
-          secureTextEntry
-          autoCapitalize="none"
-          autoCorrect={false}
-          spellCheck={false}
-        />
-      </View>
+      <Text style={s.inputLabel}>API KEY</Text>
+      <TextInput
+        style={[s.textInput, { fontFamily: 'monospace', fontSize: 13 }]}
+        value={apiKey}
+        onChangeText={onChangeKey}
+        placeholder="sk-..."
+        placeholderTextColor={C.hint}
+        secureTextEntry
+        autoCapitalize="none"
+        autoCorrect={false}
+        spellCheck={false}
+      />
 
       {provider === 'custom' && (
         <>
-          <View style={s.keyCard}>
-            <Text style={s.keyLabel}>BASE URL</Text>
-            <TextInput
-              style={s.keyInput}
-              value={customBaseUrl}
-              onChangeText={onChangeUrl}
-              placeholder="e.g. https://api.openai.com/v1"
-              placeholderTextColor={colors.sub}
-              autoCapitalize="none"
-              autoCorrect={false}
-              spellCheck={false}
-            />
-          </View>
-          <View style={s.keyCard}>
-            <Text style={s.keyLabel}>MODEL (optional)</Text>
-            <TextInput
-              style={s.keyInput}
-              value={customModel}
-              onChangeText={onChangeModel}
-              placeholder="e.g. gpt-4, my-custom-model"
-              placeholderTextColor={colors.sub}
-              autoCapitalize="none"
-              autoCorrect={false}
-              spellCheck={false}
-            />
-          </View>
+          <Text style={[s.inputLabel, { marginTop: 12 }]}>BASE URL</Text>
+          <TextInput
+            style={s.textInput}
+            value={customBaseUrl}
+            onChangeText={onChangeUrl}
+            placeholder="https://api.openai.com/v1"
+            placeholderTextColor={C.hint}
+            autoCapitalize="none"
+            autoCorrect={false}
+            spellCheck={false}
+          />
+          <Text style={[s.inputLabel, { marginTop: 12 }]}>MODEL (optional)</Text>
+          <TextInput
+            style={s.textInput}
+            value={customModel}
+            onChangeText={onChangeModel}
+            placeholder="e.g. gpt-4o, my-model"
+            placeholderTextColor={C.hint}
+            autoCapitalize="none"
+            autoCorrect={false}
+            spellCheck={false}
+          />
         </>
       )}
 
-      <Text style={s.keyHint}>Get yours at {providerInfo.hint}</Text>
+      <Text style={s.inputHint}>Get yours at {providerInfo.hint}</Text>
 
       <PrimaryBtn
-        label={saving ? 'SETTING UP…' : 'FINISH SETUP'}
+        label={saving ? 'Setting up…' : 'Finish setup →'}
         onPress={handleNext}
         disabled={!apiKey.trim() || saving}
       />
+    </StepShell>
+  );
+}
+
+// ============================================================================
+// Step 5 — Token choice
+// ============================================================================
+
+function TokenChoiceStep({
+  agentName,
+  onBack,
+  onLaunch,
+  onSkip,
+}: {
+  agentName: string;
+  onBack: () => void;
+  onLaunch: () => void;
+  onSkip: () => void;
+}) {
+  const name = agentName.trim() || 'your agent';
+  return (
+    <StepShell step={4} total={4}>
+      <BackBtn onPress={onBack} />
+      <Heading label="Launch your agent token?" />
+      <Sub>
+        Launching creates a Solana token for {name} on Bags.fm — free, sponsored
+        by the 01 protocol.
+      </Sub>
+
+      <View style={{ gap: 10, marginBottom: 28 }}>
+        {[
+          {
+            icon: '◈',
+            title: 'Economy utility',
+            body: 'Requesters buy your token to signal hiring intent. Token price reflects your reputation and demand. Trading fees go straight to your wallet.',
+          },
+          {
+            icon: '♦',
+            title: 'Sponsors open-source dev',
+            body: '01 is free and open-source. A portion of trading fees flows back to the protocol — keeping it free and funded forever.',
+          },
+          {
+            icon: '◎',
+            title: 'Free launch',
+            body: 'The 01 aggregator covers all SOL gas fees. You pay nothing. You can also launch later from Settings.',
+          },
+        ].map(({ icon, title, body }) => (
+          <View key={title} style={s.tokenCard}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <Text style={s.tokenIcon}>{icon}</Text>
+              <Text style={s.tokenCardTitle}>{title}</Text>
+            </View>
+            <Text style={s.tokenCardBody}>{body}</Text>
+          </View>
+        ))}
+      </View>
+
+      <PrimaryBtn label="Launch my token →" onPress={onLaunch} />
+      <GhostBtn label="Skip for now" onPress={onSkip} />
     </StepShell>
   );
 }
@@ -549,9 +555,6 @@ export function OnboardingScreen({
 }: {
   onDone: (config: AgentBrainConfig | null) => void;
 }) {
-  const { colors } = useTheme();
-  const { isTablet, isWide, contentHPad, width: screenWidth } = useLayout();
-  const s = useStyles(colors, isTablet, isWide, screenWidth);
   const [step, setStep] = useState(0);
   const [phantomWallet, setPhantomWallet] = useState('');
   const [agentName, setAgentName] = useState('');
@@ -562,6 +565,7 @@ export function OnboardingScreen({
   const [customModel, setCustomModel] = useState('');
   const [saving, setSaving] = useState(false);
   const [savedConfig, setSavedConfig] = useState<AgentBrainConfig | null>(null);
+  const [launchToken, setLaunchToken] = useState(false);
 
   // Load partial onboarding state on mount
   useEffect(() => {
@@ -569,13 +573,13 @@ export function OnboardingScreen({
       try {
         const raw = await AsyncStorage.getItem(ONBOARDING_STATE_KEY);
         if (raw) {
-          const s = JSON.parse(raw);
-          if (typeof s.step === 'number') setStep(s.step);
-          if (s.agentName) setAgentName(s.agentName);
-          if (s.agentAvatar) setAgentAvatar(s.agentAvatar);
-          if (s.provider) setProvider(s.provider);
-          if (s.customBaseUrl) setCustomBaseUrl(s.customBaseUrl);
-          if (s.customModel) setCustomModel(s.customModel);
+          const saved = JSON.parse(raw);
+          if (typeof saved.step === 'number') setStep(saved.step);
+          if (saved.agentName) setAgentName(saved.agentName);
+          if (saved.agentAvatar) setAgentAvatar(saved.agentAvatar);
+          if (saved.provider) setProvider(saved.provider);
+          if (saved.customBaseUrl) setCustomBaseUrl(saved.customBaseUrl);
+          if (saved.customModel) setCustomModel(saved.customModel);
         }
       } catch (e) {
         console.warn('Failed to load onboarding state:', e);
@@ -599,15 +603,10 @@ export function OnboardingScreen({
   const handleFinish = async () => {
     setSaving(true);
     try {
-      // Persist agent name into the node config so the node binary picks it up.
       if (agentName.trim() || agentAvatar) {
         const raw = await AsyncStorage.getItem(NODE_CONFIG_KEY);
         let existing: Record<string, unknown> = {};
-        try {
-          existing = raw ? JSON.parse(raw) : {};
-        } catch {
-          /* corrupted — start fresh */
-        }
+        try { existing = raw ? JSON.parse(raw) : {}; } catch { /* corrupted */ }
         await AsyncStorage.setItem(
           NODE_CONFIG_KEY,
           JSON.stringify({
@@ -618,10 +617,9 @@ export function OnboardingScreen({
         );
       }
 
-      // Enable auto-start so the node launches on every subsequent app open.
       await AsyncStorage.setItem('zerox1:auto_start', 'true');
-
       await saveLlmApiKey(apiKey.trim());
+
       const config: AgentBrainConfig = {
         enabled: true,
         provider,
@@ -635,11 +633,9 @@ export function OnboardingScreen({
         customBaseUrl: customBaseUrl.trim() || '',
         customModel: customModel.trim() || '',
       };
-      // Persist brain config NOW so that step 6 can merge it into startNode,
-      // ensuring ZeroClaw starts with the node and chat works immediately.
       await AsyncStorage.setItem('zerox1:agent_brain', JSON.stringify(config));
       setSavedConfig(config);
-      setStep(6);
+      setStep(5); // Go to token choice first
     } catch (e: any) {
       Alert.alert('Error', e?.message ?? 'Failed to save config.');
     } finally {
@@ -655,16 +651,12 @@ export function OnboardingScreen({
           onChangePhantomWallet={setPhantomWallet}
           onEnable={async () => {
             const addr = phantomWallet.trim();
-            if (addr) {
-              await AsyncStorage.setItem('zerox1:linked_wallet', addr).catch(() => {});
-            }
+            if (addr) await AsyncStorage.setItem('zerox1:linked_wallet', addr).catch(() => {});
             setStep(1);
           }}
           onSkip={async () => {
             const addr = phantomWallet.trim();
-            if (addr) {
-              await AsyncStorage.setItem('zerox1:linked_wallet', addr).catch(() => {});
-            }
+            if (addr) await AsyncStorage.setItem('zerox1:linked_wallet', addr).catch(() => {});
             handleSkip();
           }}
         />
@@ -676,6 +668,7 @@ export function OnboardingScreen({
           agentAvatar={agentAvatar}
           onChangeName={setAgentName}
           onChangeAvatar={setAgentAvatar}
+          onBack={() => setStep(0)}
           onNext={() => setStep(2)}
           onSkip={() => setStep(2)}
         />
@@ -687,6 +680,7 @@ export function OnboardingScreen({
           customModel={customModel}
           onSelect={setProvider}
           onChangeModel={setCustomModel}
+          onBack={() => setStep(1)}
           onNext={() => setStep(3)}
         />
       );
@@ -705,12 +699,22 @@ export function OnboardingScreen({
           saving={saving}
         />
       );
+    case 5:
+      return (
+        <TokenChoiceStep
+          agentName={agentName}
+          onBack={() => setStep(3)}
+          onLaunch={() => { setLaunchToken(true); setStep(6); }}
+          onSkip={() => { setLaunchToken(false); setStep(6); }}
+        />
+      );
     case 6:
       return (
         <LaunchSuccessStep
           agentName={agentName}
           agentAvatar={agentAvatar}
           config={savedConfig!}
+          launchToken={launchToken}
           onFinish={onDone}
         />
       );
@@ -723,7 +727,6 @@ export function OnboardingScreen({
 // Step 6 — Launch Success
 // ============================================================================
 
-/** Derive a short ticker symbol from the agent name. */
 function deriveSymbol(name: string): string {
   const clean = name.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
   return clean.slice(0, 6) || 'AGENT';
@@ -733,16 +736,15 @@ function LaunchSuccessStep({
   agentName,
   agentAvatar,
   config,
+  launchToken,
   onFinish,
 }: {
   agentName: string;
   agentAvatar: string;
   config: AgentBrainConfig;
+  launchToken: boolean;
   onFinish: (config: AgentBrainConfig | null) => void;
 }) {
-  const { colors } = useTheme();
-  const s = useStyles(colors);
-
   const [phase, setPhase] = useState<'starting' | 'launching' | 'done' | 'error'>('starting');
   const [hotWalletAddress, setHotWalletAddress] = useState<string | null>(null);
   const [secretKeyB58, setSecretKeyB58] = useState<string | null>(null);
@@ -751,7 +753,6 @@ function LaunchSuccessStep({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [keyCopied, setKeyCopied] = useState(false);
   const [tokenLaunchError, setTokenLaunchError] = useState<string | null>(null);
-  const [tokenRateLimited, setTokenRateLimited] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -761,7 +762,6 @@ function LaunchSuccessStep({
         const raw = await AsyncStorage.getItem(NODE_CONFIG_KEY);
         const nodeConfig = raw ? JSON.parse(raw) : {};
 
-        // Merge brain config so ZeroClaw starts alongside the node.
         let fullConfig = nodeConfig;
         try {
           const brainRaw = await AsyncStorage.getItem('zerox1:agent_brain');
@@ -784,7 +784,6 @@ function LaunchSuccessStep({
         await NodeModule.startNode(fullConfig);
         if (cancelled) return;
 
-        // Wait for node REST API to be ready (up to 30s).
         let auth: { nodeApiToken?: string } = {};
         try { auth = await NodeModule.getLocalAuthConfig(); } catch { /* ok */ }
         const apiToken: string = auth?.nodeApiToken ?? '';
@@ -802,29 +801,22 @@ function LaunchSuccessStep({
               const data: { agent_id: string } = await res.json();
               agentIdHex = data.agent_id;
               const hexId: string = data.agent_id ?? '';
-              if (hexId.length !== 64 || !/^[0-9a-fA-F]{64}$/.test(hexId)) {
-                // Skip wallet address derivation if agent_id format is unexpected
-              } else {
+              if (hexId.length === 64 && /^[0-9a-fA-F]{64}$/.test(hexId)) {
                 const { PublicKey } = require('@solana/web3.js');
                 const bytes = Uint8Array.from(
                   (hexId.match(/.{1,2}/g)!).map((b: string) => parseInt(b, 16)),
                 );
-                try {
-                  walletAddr = new PublicKey(bytes).toBase58();
-                } catch { /* invalid key bytes */ }
+                try { walletAddr = new PublicKey(bytes).toBase58(); } catch { /* invalid */ }
               }
               if (!cancelled) setHotWalletAddress(walletAddr);
               break;
             }
-          } catch { /* not ready yet */ }
+          } catch { /* not ready */ }
         }
         if (cancelled) return;
 
-        // Fetch secret key — master-only endpoint.
         try {
-          const keyRes = await fetch('http://127.0.0.1:9090/identity/export-key', {
-            headers: authHeaders,
-          });
+          const keyRes = await fetch('http://127.0.0.1:9090/identity/export-key', { headers: authHeaders });
           if (keyRes.ok) {
             const keyData: { secret_key_b58: string } = await keyRes.json();
             if (!cancelled) setSecretKeyB58(keyData.secret_key_b58);
@@ -832,95 +824,84 @@ function LaunchSuccessStep({
         } catch { /* non-fatal */ }
 
         if (cancelled) return;
-        setPhase('launching');
 
-        // Launch Bags token via aggregator sponsor endpoint (operator wallet pays SOL fees;
-        // agent wallet is fee_claimer for 100% of trading fees).
-        const symbol = deriveSymbol(agentName || 'Agent');
-        const displayName = agentName.trim() || 'My Agent';
-        const launchBody: Record<string, unknown> = {
-          agent_id_hex: agentIdHex ?? '',
-          name: displayName,
-          symbol,
-          description: `${displayName} is an autonomous AI agent on the 01 mesh network. Hire me at 0x01.world.`,
-        };
-        // Use custom avatar if set, otherwise default 0x01 mascot icon.
-        if (agentAvatar?.startsWith('data:')) {
-          launchBody.image_b64 = agentAvatar.split(',')[1] ?? '';
-        } else {
-          launchBody.image_b64 = DEFAULT_AGENT_ICON_B64;
-        }
-
-        try {
-          // 60s timeout — the aggregator broadcasts 3 fee-share txs with confirmation waits.
-          const controller = new AbortController();
-          const launchTimeout = setTimeout(() => controller.abort(), 60_000);
-          let launchRes: Response;
-          try {
-            launchRes = await fetch(`${AGGREGATOR_API}/sponsor/launch`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(launchBody),
-              signal: controller.signal,
-            });
-          } finally {
-            clearTimeout(launchTimeout);
-          }
-
-          if (launchRes.ok) {
-            const lj: { token_mint?: string } = await launchRes.json().catch(() => ({}));
-            const mint = lj.token_mint ?? null;
-            if (!cancelled && mint) {
-              setTokenMint(mint);
-              // Store token address for zeroclaw config.
-              const brainRaw = await AsyncStorage.getItem('zerox1:agent_brain');
-              const brain = brainRaw ? JSON.parse(brainRaw) : {};
-              await AsyncStorage.setItem(
-                'zerox1:agent_brain',
-                JSON.stringify({ ...brain, tokenAddress: mint }),
-              );
-            }
-          } else if (launchRes.status === 409) {
-            // Launch in progress on server (e.g. app crashed mid-launch and restarted).
-            // Wait and retry once — the aggregator will return the mint when done.
-            await new Promise(r => setTimeout(r, 8_000));
-            if (!cancelled) {
-              const retryController = new AbortController();
-              const retryTimeout = setTimeout(() => retryController.abort(), 60_000);
-              try {
-                const retryRes = await fetch(`${AGGREGATOR_API}/sponsor/launch`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify(launchBody),
-                  signal: retryController.signal,
-                });
-                if (retryRes.ok) {
-                  const lj: { token_mint?: string } = await retryRes.json().catch(() => ({}));
-                  const mint = lj.token_mint ?? null;
-                  if (!cancelled && mint) {
-                    setTokenMint(mint);
-                    const brainRaw = await AsyncStorage.getItem('zerox1:agent_brain');
-                    const brain = brainRaw ? JSON.parse(brainRaw) : {};
-                    await AsyncStorage.setItem(
-                      'zerox1:agent_brain',
-                      JSON.stringify({ ...brain, tokenAddress: mint }),
-                    );
-                  }
-                } else {
-                  const errText = await retryRes.text().catch(() => '');
-                  if (!cancelled) setTokenLaunchError(errText || `HTTP ${retryRes.status}`);
-                }
-              } finally {
-                clearTimeout(retryTimeout);
-              }
-            }
+        // Only launch token if the user chose to
+        if (launchToken) {
+          setPhase('launching');
+          const symbol = deriveSymbol(agentName || 'Agent');
+          const displayName = agentName.trim() || 'My Agent';
+          const launchBody: Record<string, unknown> = {
+            agent_id_hex: agentIdHex ?? '',
+            name: displayName,
+            symbol,
+            description: `${displayName} is an autonomous AI agent on the 01 mesh network. Hire me at 0x01.world.`,
+          };
+          if (agentAvatar?.startsWith('data:')) {
+            launchBody.image_b64 = agentAvatar.split(',')[1] ?? '';
           } else {
-            const errText = await launchRes.text().catch(() => '');
-            if (!cancelled) setTokenLaunchError(errText || `HTTP ${launchRes.status}`);
+            launchBody.image_b64 = DEFAULT_AGENT_ICON_B64;
           }
-          // Non-fatal: token launch might fail if Bags API is down; user can launch later.
-        } catch (e: any) {
-          if (!cancelled) setTokenLaunchError(e?.message ?? 'Unknown error');
+
+          try {
+            const controller = new AbortController();
+            const launchTimeout = setTimeout(() => controller.abort(), 60_000);
+            let launchRes: Response;
+            try {
+              launchRes = await fetch(`${AGGREGATOR_API}/sponsor/launch`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(launchBody),
+                signal: controller.signal,
+              });
+            } finally {
+              clearTimeout(launchTimeout);
+            }
+
+            if (launchRes.ok) {
+              const lj: { token_mint?: string } = await launchRes.json().catch(() => ({}));
+              const mint = lj.token_mint ?? null;
+              if (!cancelled && mint) {
+                setTokenMint(mint);
+                const brainRaw = await AsyncStorage.getItem('zerox1:agent_brain');
+                const brain = brainRaw ? JSON.parse(brainRaw) : {};
+                await AsyncStorage.setItem('zerox1:agent_brain', JSON.stringify({ ...brain, tokenAddress: mint }));
+              }
+            } else if (launchRes.status === 409) {
+              await new Promise<void>(r => setTimeout(r, 8_000));
+              if (!cancelled) {
+                const retryController = new AbortController();
+                const retryTimeout = setTimeout(() => retryController.abort(), 60_000);
+                try {
+                  const retryRes = await fetch(`${AGGREGATOR_API}/sponsor/launch`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(launchBody),
+                    signal: retryController.signal,
+                  });
+                  if (retryRes.ok) {
+                    const lj: { token_mint?: string } = await retryRes.json().catch(() => ({}));
+                    const mint = lj.token_mint ?? null;
+                    if (!cancelled && mint) {
+                      setTokenMint(mint);
+                      const brainRaw = await AsyncStorage.getItem('zerox1:agent_brain');
+                      const brain = brainRaw ? JSON.parse(brainRaw) : {};
+                      await AsyncStorage.setItem('zerox1:agent_brain', JSON.stringify({ ...brain, tokenAddress: mint }));
+                    }
+                  } else {
+                    const errText = await retryRes.text().catch(() => '');
+                    if (!cancelled) setTokenLaunchError(errText || `HTTP ${retryRes.status}`);
+                  }
+                } finally {
+                  clearTimeout(retryTimeout);
+                }
+              }
+            } else {
+              const errText = await launchRes.text().catch(() => '');
+              if (!cancelled) setTokenLaunchError(errText || `HTTP ${launchRes.status}`);
+            }
+          } catch (e: any) {
+            if (!cancelled) setTokenLaunchError(e?.message ?? 'Unknown error');
+          }
         }
 
         if (!cancelled) setPhase('done');
@@ -950,10 +931,9 @@ function LaunchSuccessStep({
   const isLoading = phase === 'starting' || phase === 'launching';
 
   return (
-    <StepShell step={6} total={6}>
-      <Heading label="AGENT LAUNCHED" />
+    <StepShell step={4} total={4}>
+      <Heading label="Agent launched" />
 
-      {/* Status line */}
       {isLoading && (
         <Sub>
           {phase === 'starting' ? 'Starting node…' : 'Launching your token on Bags.fm…'}
@@ -961,118 +941,101 @@ function LaunchSuccessStep({
       )}
 
       {phase === 'error' && (
-        <Text style={{ color: '#ff4444', fontSize: 12, fontFamily: 'monospace', marginBottom: 20 }}>
-          {errorMsg}
-        </Text>
-      )}
-
-      {/* Token launch result */}
-      {tokenMint ? (
-        <View style={s.walletCard}>
-          <Text style={s.walletLabel}>YOUR AGENT TOKEN</Text>
-          <Text style={[s.walletHint, { marginBottom: 8 }]}>
-            Your token is live on Bags.fm. Requesters buy it to hire you — trading fees go straight to your hot wallet.
-          </Text>
-          <Text style={s.walletAddress} selectable>{tokenMint}</Text>
-          <TouchableOpacity
-            style={s.walletCopyBtn}
-            onPress={() => Share.share({ message: tokenMint })}
-            activeOpacity={0.7}
-          >
-            <Text style={s.walletCopyText}>[ COPY MINT ADDRESS ]</Text>
-          </TouchableOpacity>
-        </View>
-      ) : phase === 'done' && (
-        <View style={[s.walletCard, { borderColor: colors.border }]}>
-          <Text style={s.walletLabel}>TOKEN LAUNCH</Text>
-          {tokenRateLimited ? (
-            <>
-              <Text style={s.walletHint}>
-                The shared Bags API key is rate-limited right now. Your token was not launched yet — you can retry later.
-              </Text>
-              <Text style={[s.walletHint, { color: '#ffc107', marginTop: 6 }]}>
-                To launch without limits: go to Settings → Bags Fee Sharing → set your own Bags API key from bags.fm.
-              </Text>
-            </>
-          ) : (
-            <>
-              <Text style={s.walletHint}>
-                Token launch skipped or pending. You can launch manually later from Settings.
-              </Text>
-              {tokenLaunchError && (
-                <Text style={{ fontSize: 10, color: '#ff4444', fontFamily: 'monospace', marginTop: 4 }}>
-                  {tokenLaunchError.slice(0, 120)}
-                </Text>
-              )}
-            </>
-          )}
+        <View style={[s.infoCard, { borderColor: '#fecaca', backgroundColor: '#fef2f2' }]}>
+          <Text style={{ fontSize: 12, color: '#dc2626' }}>{errorMsg}</Text>
         </View>
       )}
 
-      {/* Hot wallet + secret key */}
-      <View style={[s.walletCard, { marginTop: 12, borderColor: '#ff8800' }]}>
-        <Text style={[s.walletLabel, { color: '#ff8800' }]}>HOT WALLET — BACK UP NOW</Text>
-        <Text style={s.walletHint}>
-          This is your agent's identity and earning wallet. Back up the secret key before closing this screen — it cannot be recovered if lost.
+      {/* Token result — only shown if user chose to launch */}
+      {launchToken && (
+        tokenMint ? (
+          <View style={[s.infoCard, { borderColor: C.greenBorder, backgroundColor: C.greenBg }]}>
+            <Text style={s.infoCardLabel}>YOUR AGENT TOKEN</Text>
+            <Text style={s.infoCardHint}>
+              Live on Bags.fm. Requesters buy it to hire you — trading fees go to your hot wallet.
+            </Text>
+            <Text style={s.monoText} selectable>{tokenMint}</Text>
+            <TouchableOpacity
+              style={s.copyBtn}
+              onPress={() => Share.share({ message: tokenMint })}
+              activeOpacity={0.7}
+            >
+              <Text style={s.copyBtnText}>Copy mint address</Text>
+            </TouchableOpacity>
+          </View>
+        ) : phase === 'done' && (
+          <View style={s.infoCard}>
+            <Text style={s.infoCardLabel}>TOKEN LAUNCH</Text>
+            <Text style={s.infoCardHint}>
+              {tokenLaunchError
+                ? 'Token launch failed — you can retry later from Settings.'
+                : 'Token launch pending. You can launch from Settings anytime.'}
+            </Text>
+            {tokenLaunchError && (
+              <Text style={[s.infoCardHint, { color: '#dc2626', marginTop: 4 }]}>
+                {tokenLaunchError.slice(0, 100)}
+              </Text>
+            )}
+          </View>
+        )
+      )}
+
+      {/* Hot wallet & secret key */}
+      <View style={[s.infoCard, { borderColor: '#fed7aa', backgroundColor: '#fff7ed', marginTop: 10 }]}>
+        <Text style={[s.infoCardLabel, { color: C.orange }]}>HOT WALLET — BACK UP NOW</Text>
+        <Text style={s.infoCardHint}>
+          Your agent's identity and earning wallet. Back up the secret key before closing
+          this screen — it cannot be recovered if lost.
         </Text>
 
         {hotWalletAddress && (
           <>
-            <Text style={{ fontSize: 10, color: colors.sub, fontFamily: 'monospace', marginTop: 8, marginBottom: 2 }}>
-              ADDRESS
-            </Text>
-            <Text style={s.walletAddress} selectable>{hotWalletAddress}</Text>
+            <Text style={[s.inputLabel, { marginTop: 12 }]}>ADDRESS</Text>
+            <Text style={s.monoText} selectable>{hotWalletAddress}</Text>
           </>
         )}
 
-        <Text style={{ fontSize: 10, color: '#ff8800', fontFamily: 'monospace', marginTop: 12, marginBottom: 4 }}>
-          SECRET KEY (64-byte Solana keypair)
-        </Text>
+        <Text style={[s.inputLabel, { marginTop: 12, color: C.orange }]}>SECRET KEY</Text>
 
         {secretKeyB58 ? (
           <>
             {secretRevealed ? (
               <>
-                <Text style={{ fontSize: 10, color: '#ffc107', fontFamily: 'monospace', marginBottom: 4 }}>
-                  Do not screenshot. Use the copy button.
+                <Text style={[s.infoCardHint, { color: C.orange, marginBottom: 6 }]}>
+                  Do not screenshot. Use the copy button below.
                 </Text>
-                <Text
-                  style={[s.walletAddress, { fontSize: 10, letterSpacing: 0.5 }]}
-                >
-                  {secretKeyB58}
-                </Text>
+                <Text style={[s.monoText, { fontSize: 10, lineHeight: 16 }]}>{secretKeyB58}</Text>
               </>
-
             ) : (
               <TouchableOpacity
-                style={[s.walletCopyBtn, { borderColor: '#ff8800' }]}
+                style={[s.copyBtn, { borderColor: C.orange }]}
                 onPress={() => setSecretRevealed(true)}
                 activeOpacity={0.7}
               >
-                <Text style={[s.walletCopyText, { color: '#ff8800' }]}>[ TAP TO REVEAL ]</Text>
+                <Text style={[s.copyBtnText, { color: C.orange }]}>Tap to reveal</Text>
               </TouchableOpacity>
             )}
             {secretRevealed && (
               <TouchableOpacity
-                style={[s.walletCopyBtn, { borderColor: keyCopied ? colors.green : '#ff8800', marginTop: 8 }]}
+                style={[s.copyBtn, { borderColor: keyCopied ? C.green : C.orange, marginTop: 8 }]}
                 onPress={handleCopyKey}
                 activeOpacity={0.7}
               >
-                <Text style={[s.walletCopyText, { color: keyCopied ? colors.green : '#ff8800' }]}>
-                  {keyCopied ? '[ COPIED ]' : '[ COPY SECRET KEY ]'}
+                <Text style={[s.copyBtnText, { color: keyCopied ? C.green : C.orange }]}>
+                  {keyCopied ? 'Copied ✓' : 'Copy secret key'}
                 </Text>
               </TouchableOpacity>
             )}
           </>
         ) : (
-          <Text style={{ fontSize: 11, color: colors.sub, fontFamily: 'monospace' }}>
+          <Text style={s.infoCardHint}>
             {isLoading ? 'Loading…' : 'Key unavailable — export from Settings after setup.'}
           </Text>
         )}
       </View>
 
       <PrimaryBtn
-        label="ENTER THE MESH →"
+        label="Enter the mesh →"
         onPress={handleDone}
         disabled={isLoading}
       />
@@ -1084,211 +1047,148 @@ function LaunchSuccessStep({
 // Styles
 // ============================================================================
 
-function useStyles(colors: ThemeColors, isTablet = false, isWide = false, screenWidth = 0) {
-  return React.useMemo(() => StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: isTablet ? 48 : 28, paddingTop: 56, paddingBottom: 48 },
+const s = StyleSheet.create({
+  root: { flex: 1, backgroundColor: C.bg },
+  content: { padding: 28, paddingTop: 56, paddingBottom: 48 },
+  contentTablet: { padding: 48, paddingTop: 64, paddingBottom: 64 },
+
   progressRow: { flexDirection: 'row', gap: 6, marginBottom: 36 },
-  pip: { height: 3, flex: 1, backgroundColor: colors.border, borderRadius: 2 },
-  pipDone: { backgroundColor: colors.green },
+  pip: { height: 3, flex: 1, backgroundColor: C.divider, borderRadius: 2 },
+  pipDone: { backgroundColor: C.green },
+
   logo: {
-    fontSize: 32,
-    color: colors.green,
-    fontFamily: 'monospace',
-    fontWeight: '700',
+    fontSize: 28,
+    fontWeight: '800',
+    color: C.green,
+    letterSpacing: -1,
     marginBottom: 20,
   },
   heading: {
-    fontSize: 18,
+    fontSize: 26,
     fontWeight: '700',
-    color: colors.text,
-    letterSpacing: 3,
-    fontFamily: 'monospace',
-    marginBottom: 16,
-  },
-  sub: { fontSize: 13, color: colors.sub, lineHeight: 20, marginBottom: 28 },
-  featureList: { marginBottom: 32 },
-  featureRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 10,
-  },
-  featureDot: { color: colors.green, fontSize: 16, marginRight: 10, lineHeight: 20 },
-  featureText: { color: colors.text, fontSize: 13, lineHeight: 20, flex: 1 },
-  primaryBtn: {
-    backgroundColor: colors.green,
-    borderRadius: 4,
-    paddingVertical: 16,
-    alignItems: 'center',
+    color: C.text,
+    letterSpacing: -0.5,
     marginBottom: 12,
   },
-  primaryBtnDisabled: { backgroundColor: colors.border },
-  primaryBtnText: {
-    fontSize: 13,
-    fontWeight: '700',
-    letterSpacing: 3,
-    color: '#000',
-  },
-  primaryBtnTextDisabled: { color: colors.sub },
-  ghostBtn: { alignItems: 'center', paddingVertical: 12 },
-  ghostBtnText: { fontSize: 12, color: colors.sub, letterSpacing: 1 },
-  backBtn: { marginBottom: 24 },
-  backBtnText: {
-    fontSize: 11,
-    color: colors.sub,
-    letterSpacing: 2,
-    fontFamily: 'monospace',
-  },
-  // Provider grid
-  providerGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    marginBottom: 20,
-  },
-  providerCard: {
-    width: isWide ? '30%' : isTablet ? '47%' : screenWidth < 360 ? '100%' : '47%',
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 4,
-    padding: 16,
-  },
-  providerCardActive: { borderColor: colors.green, backgroundColor: colors.green + '12' },
-  providerLabel: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.sub,
-    fontFamily: 'monospace',
-    marginBottom: 4,
-  },
-  providerLabelActive: { color: colors.green },
-  providerModel: { fontSize: 10, color: colors.sub, fontFamily: 'monospace' },
-  // API key
-  keyCard: {
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 4,
-    padding: 16,
-    marginBottom: 12,
-  },
-  keyLabel: { fontSize: 10, color: colors.sub, letterSpacing: 2, marginBottom: 8 },
-  keyInput: { color: colors.text, fontFamily: 'monospace', fontSize: 14 },
-  keyHint: { fontSize: 11, color: colors.sub, marginBottom: 28 },
-  // Capabilities
-  capList: { marginBottom: 28 },
-  capRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 4,
-    marginBottom: 8,
-  },
-  capRowActive: {
-    borderColor: colors.green + '60',
-    backgroundColor: colors.green + '08',
-  },
-  capCheck: {
-    width: 20,
-    height: 20,
-    borderRadius: 3,
-    borderWidth: 1,
-    borderColor: colors.sub,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  capCheckActive: { borderColor: colors.green, backgroundColor: colors.green },
-  capCheckMark: { fontSize: 12, color: '#000', fontWeight: '700' },
-  capLabel: { fontSize: 14, color: colors.sub, fontFamily: 'monospace' },
-  capLabelActive: { color: colors.text },
-  // Rules
-  ruleCard: {
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 4,
-    marginBottom: 12,
-    overflow: 'hidden',
-  },
-  ruleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  ruleLeft: { flex: 1 },
-  ruleLabel: {
-    fontSize: 11,
-    color: colors.text,
-    letterSpacing: 2,
-    fontWeight: '600',
-  },
-  ruleSub: { fontSize: 11, color: colors.sub, marginTop: 3 },
-  ruleInput: {
-    color: colors.green,
-    fontFamily: 'monospace',
-    fontSize: 16,
-    fontWeight: '700',
-    width: 60,
-    textAlign: 'right',
-  },
-  toggleCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 4,
-    padding: 16,
+  sub: {
+    fontSize: 14,
+    color: C.sub,
+    lineHeight: 21,
     marginBottom: 28,
   },
-  toggleLeft: { flex: 1, marginRight: 12 },
-  // Wallet card (step 6)
-  walletCard: {
-    backgroundColor: colors.card,
+
+  // Feature list (step 0)
+  featureList: { marginBottom: 28, gap: 10 },
+  featureRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  featureIcon: { fontSize: 14, color: C.green, lineHeight: 20, width: 16 },
+  featureText: { fontSize: 14, color: C.text, lineHeight: 20, flex: 1 },
+
+  // Inputs
+  inputLabel: { fontSize: 10, color: C.hint, letterSpacing: 0.5, marginBottom: 6 },
+  textInput: {
+    backgroundColor: C.card,
     borderWidth: 1,
-    borderColor: colors.green + '40',
-    borderRadius: 4,
-    padding: 16,
-    marginBottom: 24,
+    borderColor: C.border,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 14,
+    color: C.text,
+    marginBottom: 8,
   },
-  walletLabel: {
-    fontSize: 10,
-    color: colors.green,
-    letterSpacing: 2,
-    fontFamily: 'monospace',
-    marginBottom: 10,
+  inputHint: { fontSize: 11, color: C.hint, marginBottom: 20, lineHeight: 16 },
+
+  // Avatar picker (step 1)
+  avatarBtn: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: C.greenBg,
+    borderWidth: 2,
+    borderColor: C.greenBorder,
+    overflow: 'hidden',
   },
-  walletAddress: {
+  avatarImage: { width: 80, height: 80 },
+
+  // Provider grid (step 2)
+  providerGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 20 },
+  providerCard: {
+    backgroundColor: C.card,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 10,
+    padding: 14,
+  },
+  providerCardActive: { borderColor: C.green, backgroundColor: C.greenBg },
+  providerLabel: { fontSize: 14, fontWeight: '600', color: C.sub, marginBottom: 2 },
+  providerLabelActive: { color: C.green },
+  providerModel: { fontSize: 10, color: C.hint },
+
+  // Token choice cards (step 5)
+  tokenCard: {
+    backgroundColor: C.card,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 12,
+    padding: 14,
+  },
+  tokenIcon: { fontSize: 14, color: C.green },
+  tokenCardTitle: { fontSize: 13, fontWeight: '600', color: C.text },
+  tokenCardBody: { fontSize: 12, color: C.sub, lineHeight: 18 },
+
+  // Info cards (step 6)
+  infoCard: {
+    backgroundColor: C.card,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 14,
+  },
+  infoCardLabel: { fontSize: 10, color: C.green, letterSpacing: 0.5, marginBottom: 6 },
+  infoCardHint: { fontSize: 12, color: C.sub, lineHeight: 17 },
+  monoText: {
     fontSize: 12,
-    color: colors.text,
+    color: C.text,
     fontFamily: 'monospace',
     lineHeight: 18,
-    marginBottom: 10,
+    marginTop: 4,
+    marginBottom: 8,
   },
-  walletCopyBtn: { alignSelf: 'flex-start', marginBottom: 12, minWidth: 44, minHeight: 44, justifyContent: 'center' },
-  walletCopyText: {
-    fontSize: 10,
-    color: colors.green,
-    fontFamily: 'monospace',
-    letterSpacing: 1,
+  copyBtn: {
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: C.green,
+    borderRadius: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginTop: 4,
+    minWidth: 44,
+    minHeight: 44,
+    justifyContent: 'center',
   },
-  walletLoading: {
-    fontSize: 12,
-    color: colors.sub,
-    fontFamily: 'monospace',
+  copyBtnText: { fontSize: 11, color: C.green, fontWeight: '600' },
+
+  // Buttons
+  primaryBtn: {
+    backgroundColor: C.text,
+    borderRadius: 12,
+    paddingVertical: 15,
+    alignItems: 'center',
     marginBottom: 12,
   },
-  walletHint: {
-    fontSize: 11,
-    color: colors.sub,
-    fontFamily: 'monospace',
-    lineHeight: 16,
+  primaryBtnDisabled: { backgroundColor: C.border },
+  primaryBtnText: { fontSize: 14, fontWeight: '700', color: '#fff', letterSpacing: 0.2 },
+  primaryBtnTextDisabled: { color: C.hint },
+  ghostBtn: {
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 12,
+    marginBottom: 8,
   },
-  }), [colors]);
-}
+  ghostBtnText: { fontSize: 13, color: C.sub },
+  backBtn: { marginBottom: 20 },
+  backBtnText: { fontSize: 12, color: C.hint },
+});
