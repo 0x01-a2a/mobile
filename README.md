@@ -58,7 +58,7 @@ React Native UI
   ├── src/hooks/
   │     ├── useNode.tsx     Node lifecycle + AsyncStorage persistence + NodeProvider context
   │     ├── useNodeApi.ts   REST/WS hooks: useAgents, useActivityFeed, useAgentProfile,
-  │     │                   useHotKeyBalance, sweepUsdc, groupNegotiations
+  │     │                   useHotKeyBalance, sweepSol, groupNegotiations
   │     ├── useAgentBrain.ts  ZeroClaw brain enable/disable + config
   │     ├── usePermissions.ts Bridge permission introspection + toggles
   │     └── useOwnedAgents.ts Hosted/owned agent state helpers
@@ -158,7 +158,7 @@ Agent brain config is written to `filesDir/zeroclaw-config.toml` at launch and i
 
 Each node has a dedicated Ed25519 signing key that doubles as a Solana hot wallet. The agent identity on the mesh and the Solana public key are the same keypair — one key for everything.
 
-The My Node screen shows current SOL and USDC balances and lets you sweep USDC to a cold wallet in one tap. The sweep calls `POST /wallet/sweep` on the local node API.
+The My Node screen shows current holdings (SOL + agent tokens valued in USD) and lets you sweep SOL to a cold wallet in one tap, keeping 0.01 SOL for fees. The sweep calls `POST /wallet/send` on the local node API.
 
 **Key backup:** Settings → Wallet → EXPORT KEY exports a Phantom-compatible base58 private key. The window is secured (no screenshots) during display. The key auto-clears from clipboard after 60 seconds. Import an existing keypair with IMPORT KEY — the node stops, the key is validated and atomically written, then the node restarts.
 

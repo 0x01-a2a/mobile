@@ -7,19 +7,20 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { useNode } from '../hooks/useNode';
 import { NodeModule } from '../native/NodeModule';
-import { useAgentBrain } from '../hooks/useAgentBrain';
+import { useAgentBrain, saveLlmApiKey } from '../hooks/useAgentBrain';
 import {
-  useHotKeyBalance, useTaskLog, sweepUsdc,
+  useHotKeyBalance, useTaskLog, sweepSol,
+  useSkills, skillInstallUrl, skillRemove, useSolPrice, useDexPrices,
+  type Skill,
 } from '../hooks/useNodeApi';
 import { useSignOut } from '../../App';
 import { DEFAULT_AGENT_ICON_URI } from '../assets/defaultAgentIcon';
 
 const COLD_WALLET_KEY = 'zerox1:cold_wallet';
+const SOL_MINT = 'So11111111111111111111111111111111111111112';
 
-const USDC_MINTS = [
-  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
-  '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
-];
+// Minimum sweepable SOL — must cover fee reserve (0.01 SOL)
+const SOL_SWEEP_MIN = 0.011;
 
 type SubTab = 'Wallet' | 'Agent' | 'Settings';
 
@@ -121,10 +122,27 @@ function WalletTab() {
     ]);
   }, []);
 
-  const balance = useMemo(() => {
-    const usdcToken = tokens.find(t => USDC_MINTS.includes(t.mint));
-    return usdcToken ? usdcToken.amount / Math.pow(10, usdcToken.decimals) : 0;
+  const solPrice = useSolPrice();
+  const otherMints = useMemo(
+    () => tokens.filter(t => t.mint !== SOL_MINT).map(t => t.mint),
+    [tokens],
+  );
+  const dexPrices = useDexPrices(otherMints);
+
+  const solBalance = useMemo(() => {
+    const t = tokens.find(t => t.mint === SOL_MINT);
+    return t ? t.amount / Math.pow(10, t.decimals) : 0;
   }, [tokens]);
+
+  const totalUsd = useMemo(() => {
+    let total = solPrice ? solBalance * solPrice : 0;
+    for (const t of tokens) {
+      if (t.mint === SOL_MINT) continue;
+      const p = dexPrices.get(t.mint);
+      if (p) total += (t.amount / Math.pow(10, t.decimals)) * p.priceUsd;
+    }
+    return total;
+  }, [solBalance, solPrice, tokens, dexPrices]);
 
   const earnedToday = useMemo(() => {
     return taskEntries
@@ -139,32 +157,56 @@ function WalletTab() {
 
   const handleSweep = useCallback(async () => {
     if (!coldWallet) return;
-    Alert.alert('Sweep to cold wallet', `Send ${fmt(balance)} USDC to ${coldWallet.slice(0, 8)}…?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Sweep', style: 'destructive', onPress: async () => {
-          setSweeping(true);
-          try {
-            const result = await sweepUsdc(coldWallet);
-            Alert.alert('Swept', `${fmt(result.amount_usdc)} USDC sent.`);
-          } catch {
-            Alert.alert('Error', 'Sweep failed. Check node connection.');
-          } finally {
-            setSweeping(false);
-          }
+    const sweepAmount = solBalance - 0.01;
+    Alert.alert(
+      'Sweep SOL',
+      `Send ~${sweepAmount.toFixed(4)} SOL to ${coldWallet.slice(0, 8)}…?\n\n0.01 SOL stays in the hot wallet for fees.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sweep', style: 'destructive', onPress: async () => {
+            setSweeping(true);
+            try {
+              const result = await sweepSol(coldWallet, solBalance);
+              Alert.alert('Swept', `${result.amount_sol.toFixed(4)} SOL sent.`);
+            } catch (e: any) {
+              Alert.alert('Error', e?.message ?? 'Sweep failed. Check node connection.');
+            } finally {
+              setSweeping(false);
+            }
+          },
         },
-      },
-    ]);
-  }, [coldWallet, balance]);
+      ],
+    );
+  }, [coldWallet, solBalance]);
 
   return (
     <ScrollView style={s.tabContent}>
       {/* Balance hero */}
       <View style={s.balanceHero}>
-        <Text style={s.balanceLabel}>TOTAL USDC</Text>
-        <Text style={s.balanceAmount}>{loading ? '—' : fmt(balance)}</Text>
+        <Text style={s.balanceLabel}>HOLDINGS</Text>
+        <Text style={s.balanceAmount}>{loading ? '—' : fmt(totalUsd)}</Text>
         {earnedToday > 0 && (
           <Text style={s.balanceDelta}>↑ {fmt(earnedToday)} earned today</Text>
+        )}
+        {!loading && tokens.length > 0 && (
+          <View style={s.holdingsRow}>
+            {solBalance > 0 && (
+              <Text style={s.holdingsPill}>
+                {solBalance < 0.001 ? '<0.001' : solBalance.toFixed(3)} SOL
+              </Text>
+            )}
+            {tokens.filter(t => t.mint !== SOL_MINT).map(t => {
+              const p = dexPrices.get(t.mint);
+              const symbol = p?.symbol ?? t.mint.slice(0, 4) + '…';
+              const amt = t.amount / Math.pow(10, t.decimals);
+              return (
+                <Text key={t.mint} style={s.holdingsPill}>
+                  {amt < 0.001 ? '<0.001' : amt.toFixed(3)} {symbol}
+                </Text>
+              );
+            })}
+          </View>
         )}
       </View>
 
@@ -198,11 +240,11 @@ function WalletTab() {
       {/* Actions */}
       <View style={s.walletActions}>
         <TouchableOpacity
-          style={[s.sweepBtn, (!coldWallet || balance === 0 || sweeping) && s.btnDisabled]}
+          style={[s.sweepBtn, (!coldWallet || solBalance <= SOL_SWEEP_MIN || sweeping) && s.btnDisabled]}
           onPress={handleSweep}
-          disabled={!coldWallet || balance === 0 || sweeping}
+          disabled={!coldWallet || solBalance <= SOL_SWEEP_MIN || sweeping}
         >
-          <Text style={s.sweepBtnText}>{sweeping ? 'Sweeping…' : '→ Sweep'}</Text>
+          <Text style={s.sweepBtnText}>{sweeping ? 'Sweeping…' : '→ Sweep SOL'}</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={s.historyBtn}
@@ -325,74 +367,120 @@ function WalletTab() {
 }
 
 import type { Capability, LlmProvider } from '../hooks/useAgentBrain';
+import { PROVIDERS as PROVIDER_INFOS } from '../hooks/useAgentBrain';
 
-const PROVIDERS: LlmProvider[] = ['anthropic', 'openai', 'gemini', 'zai', 'minimax', 'custom'];
+const PROVIDERS: LlmProvider[] = PROVIDER_INFOS.map(p => p.key);
 const PRESET_CAPS: Capability[] = ['summarization', 'qa', 'translation', 'code_review', 'data_analysis'];
 
 // ── Agent Tab ──────────────────────────────────────────────────────────────────
 
 function AgentTab() {
-  const { status, config: nodeConfig, stop, start } = useNode();
+  const { status, config: nodeConfig, saveConfig, stop, start } = useNode();
   const { config, save, loading } = useAgentBrain();
   const isRunning = status === 'running';
-  const agentName = nodeConfig?.agentName ?? 'Aria';
 
+  // Local editable state — committed only on "Save"
+  const [nameInput, setNameInput] = useState(nodeConfig?.agentName ?? '');
+  const [avatarUri, setAvatarUri] = useState(nodeConfig?.agentAvatar ?? '');
   const [minFee, setMinFee] = useState(String(config?.minFeeUsdc ?? 1.0));
   const [minRep, setMinRep] = useState(String(config?.minReputation ?? 50));
+  const [caps, setCaps] = useState<Capability[]>(config?.capabilities ?? []);
+  const [saving, setSaving] = useState(false);
+
+  // Sync when remote config loads
+  useEffect(() => {
+    setNameInput(nodeConfig?.agentName ?? '');
+    setAvatarUri(nodeConfig?.agentAvatar ?? '');
+  }, [nodeConfig?.agentName, nodeConfig?.agentAvatar]);
 
   useEffect(() => {
     setMinFee(String(config?.minFeeUsdc ?? 1.0));
     setMinRep(String(config?.minReputation ?? 50));
-  }, [config?.minFeeUsdc, config?.minReputation]);
+    setCaps(config?.capabilities ?? []);
+  }, [config?.minFeeUsdc, config?.minReputation, config?.capabilities]);
+
+  const isDirty =
+    nameInput.trim() !== (nodeConfig?.agentName ?? '') ||
+    avatarUri !== (nodeConfig?.agentAvatar ?? '') ||
+    minFee !== String(config?.minFeeUsdc ?? 1.0) ||
+    minRep !== String(config?.minReputation ?? 50) ||
+    JSON.stringify(caps) !== JSON.stringify(config?.capabilities ?? []);
 
   if (loading) {
     return <View style={s.tabContent}><Text style={s.emptyText}>Loading…</Text></View>;
   }
 
-  const handleSave = async (updates: Partial<typeof config>) => {
-    if (!config || !save) return;
-    const next = { ...config, ...updates };
-    await save(next);
-    // Auto-restart node to apply brain config changes
-    if (isRunning) {
-      try { await stop(); } catch { /* ignore */ }
-      try { await start(); } catch { /* ignore */ }
-    }
+  const handlePickAvatar = async () => {
+    const result = await launchImageLibrary({ mediaType: 'photo', quality: 0.8 });
+    const uri = result.assets?.[0]?.uri;
+    if (uri) setAvatarUri(uri);
   };
 
   const handleAddCap = () => {
-    const existing = config?.capabilities ?? [];
-    const available = PRESET_CAPS.filter(c => !existing.includes(c));
-    if (available.length === 0) {
-      Alert.alert('All capabilities added');
-      return;
-    }
-    Alert.alert('Add capability', 'Choose a capability to add:', [
-      ...available.map(cap => ({
-        text: cap,
-        onPress: () => handleSave({ capabilities: [...existing, cap] }),
-      })),
+    const available = PRESET_CAPS.filter(c => !caps.includes(c));
+    if (available.length === 0) { Alert.alert('All capabilities added'); return; }
+    Alert.alert('Add capability', 'Choose:', [
+      ...available.map(cap => ({ text: cap, onPress: () => setCaps(prev => [...prev, cap]) })),
       { text: 'Cancel', style: 'cancel' },
     ]);
   };
 
-  const handleRemoveCap = (cap: string) => {
-    const next = (config?.capabilities ?? []).filter(c => c !== cap);
-    handleSave({ capabilities: next });
+  const handleSave = async () => {
+    if (!config || !save) return;
+    setSaving(true);
+    try {
+      // Save identity into node config
+      const updatedNodeConfig = {
+        ...nodeConfig,
+        ...(nameInput.trim() ? { agentName: nameInput.trim() } : {}),
+        agentAvatar: avatarUri,
+      };
+      await saveConfig(updatedNodeConfig);
+
+      // Save brain config
+      const next = {
+        ...config,
+        minFeeUsdc: parseFloat(minFee) || 1.0,
+        minReputation: parseInt(minRep, 10) || 0,
+        capabilities: caps,
+      };
+      await save(next);
+
+      // Restart to apply
+      if (isRunning) {
+        try { await stop(); } catch { /* ignore */ }
+        try { await start(updatedNodeConfig); } catch { /* ignore */ }
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'Failed to save.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
-    <ScrollView style={s.tabContent}>
-      {/* Agent header */}
-      <View style={s.agentHeader}>
-        <View style={s.agentAvatarCircle}>
-          <Image
-            source={{ uri: nodeConfig?.agentAvatar || DEFAULT_AGENT_ICON_URI }}
-            style={s.agentAvatarImage}
+    <ScrollView style={s.tabContent} contentContainerStyle={{ paddingBottom: 32 }}>
+      {/* Identity */}
+      <View style={s.agentIdentitySection}>
+        <TouchableOpacity onPress={handlePickAvatar} activeOpacity={0.8}>
+          <View style={s.agentAvatarCircle}>
+            <Image
+              source={{ uri: avatarUri || DEFAULT_AGENT_ICON_URI }}
+              style={s.agentAvatarImage}
+            />
+          </View>
+          <Text style={s.agentAvatarHint}>tap to change</Text>
+        </TouchableOpacity>
+        <View style={s.agentIdentityInfo}>
+          <TextInput
+            style={s.agentNameInput}
+            value={nameInput}
+            onChangeText={setNameInput}
+            placeholder="Agent name"
+            placeholderTextColor="#d1d5db"
+            maxLength={32}
+            returnKeyType="done"
           />
-        </View>
-        <View style={s.agentInfo}>
-          <Text style={s.agentNameText}>{agentName}</Text>
           <Text style={s.agentStatusText}>
             {isRunning ? '● Active' : '○ Offline'}
           </Text>
@@ -410,7 +498,6 @@ function AgentTab() {
             style={s.ruleInput}
             value={minFee}
             onChangeText={setMinFee}
-            onBlur={() => handleSave({ minFeeUsdc: parseFloat(minFee) || 1.0 })}
             keyboardType="decimal-pad"
             selectTextOnFocus
           />
@@ -421,7 +508,6 @@ function AgentTab() {
             style={s.ruleInput}
             value={minRep}
             onChangeText={setMinRep}
-            onBlur={() => handleSave({ minReputation: parseInt(minRep, 10) || 0 })}
             keyboardType="number-pad"
             selectTextOnFocus
           />
@@ -429,8 +515,8 @@ function AgentTab() {
         <View style={[s.ruleRow, s.ruleRowBorder, { flexDirection: 'column', alignItems: 'flex-start', gap: 8 }]}>
           <Text style={s.ruleLabel}>Capabilities</Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-            {(config?.capabilities ?? []).map(cap => (
-              <TouchableOpacity key={cap} style={s.capPill} onPress={() => handleRemoveCap(cap)}>
+            {caps.map(cap => (
+              <TouchableOpacity key={cap} style={s.capPill} onPress={() => setCaps(prev => prev.filter(c => c !== cap))}>
                 <Text style={s.capPillText}>{cap} ×</Text>
               </TouchableOpacity>
             ))}
@@ -439,25 +525,161 @@ function AgentTab() {
             </TouchableOpacity>
           </View>
         </View>
-        <View style={[s.ruleRow, s.ruleRowBorder, { flexDirection: 'column', alignItems: 'flex-start', gap: 8 }]}>
-          <Text style={s.ruleLabel}>LLM provider</Text>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-            {PROVIDERS.map(p => {
-              const active = (config?.provider ?? 'openai') === p;
-              return (
-                <TouchableOpacity
-                  key={p}
-                  style={[s.providerPill, active && s.providerPillActive]}
-                  onPress={() => handleSave({ provider: p })}
-                >
-                  <Text style={[s.providerPillText, active && s.providerPillTextActive]}>{p}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </View>
+      </View>
+
+      {/* Save button */}
+      <View style={{ paddingHorizontal: 16, marginTop: 20 }}>
+        <TouchableOpacity
+          style={[s.saveBtn, (!isDirty || saving) && s.btnDisabled]}
+          onPress={handleSave}
+          disabled={!isDirty || saving}
+        >
+          <Text style={s.saveBtnText}>{saving ? 'Saving…' : 'Save changes'}</Text>
+        </TouchableOpacity>
       </View>
     </ScrollView>
+  );
+}
+
+// ── Skills Section ─────────────────────────────────────────────────────────────
+
+function SkillsSection() {
+  const { skills, loading, refresh } = useSkills();
+  const [installVisible, setInstallVisible] = useState(false);
+  const [skillName, setSkillName] = useState('');
+  const [skillUrl, setSkillUrl] = useState('');
+  const [installing, setInstalling] = useState(false);
+  const [removing, setRemoving] = useState<string | null>(null);
+
+  const handleInstall = useCallback(async () => {
+    const name = skillName.trim();
+    const url = skillUrl.trim();
+    if (!name || !url) return;
+    setInstalling(true);
+    try {
+      await skillInstallUrl(name, url);
+      await refresh();
+      setSkillName('');
+      setSkillUrl('');
+      setInstallVisible(false);
+    } catch (e: any) {
+      Alert.alert('Install failed', e?.message ?? 'Could not install skill.');
+    } finally {
+      setInstalling(false);
+    }
+  }, [skillName, skillUrl, refresh]);
+
+  const handleRemove = useCallback(async (skill: Skill) => {
+    Alert.alert(`Remove "${skill.label}"`, 'Your agent will lose this capability until reinstalled.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove', style: 'destructive', onPress: async () => {
+          setRemoving(skill.name);
+          try {
+            await skillRemove(skill.name);
+            await refresh();
+          } catch (e: any) {
+            Alert.alert('Error', e?.message ?? 'Could not remove skill.');
+          } finally {
+            setRemoving(null);
+          }
+        },
+      },
+    ]);
+  }, [refresh]);
+
+  return (
+    <>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginTop: 18, marginBottom: 6 }}>
+        <Text style={[s.settingsSectionLabel, { marginTop: 0, marginBottom: 0 }]}>SKILLS</Text>
+        <TouchableOpacity onPress={() => setInstallVisible(true)}>
+          <Text style={{ fontSize: 10, color: '#374151', fontWeight: '600' }}>+ Install</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={s.settingsCard}>
+        {loading && <Text style={[s.settingsHint, { padding: 12 }]}>Loading…</Text>}
+        {!loading && skills.length === 0 && (
+          <View style={s.settingsRow}>
+            <Text style={s.settingsLabelMuted}>No skills installed</Text>
+          </View>
+        )}
+        {skills.map((skill, i) => (
+          <View key={skill.name}>
+            {i > 0 && <View style={s.settingsCardDivider} />}
+            <View style={[s.settingsRow, { gap: 10 }]}>
+              <View style={s.skillIconBox}>
+                <Text style={s.skillIconText}>{skill.icon.slice(0, 4)}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.settingsLabel}>{skill.label}</Text>
+                {skill.description ? (
+                  <Text style={s.settingsHint} numberOfLines={2}>{skill.description}</Text>
+                ) : null}
+              </View>
+              <TouchableOpacity
+                onPress={() => handleRemove(skill)}
+                disabled={removing === skill.name}
+                style={{ padding: 4 }}
+              >
+                <Text style={{ fontSize: 10, color: removing === skill.name ? '#d1d5db' : '#ef4444' }}>
+                  {removing === skill.name ? '…' : 'Remove'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ))}
+      </View>
+
+      {/* Install modal */}
+      <Modal visible={installVisible} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setInstallVisible(false)}>
+        <View style={s.modalRoot}>
+          <View style={s.modalHeader}>
+            <Text style={s.modalTitle}>Install skill</Text>
+            <TouchableOpacity onPress={() => setInstallVisible(false)}>
+              <Text style={s.modalClose}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={{ padding: 16, gap: 14 }}>
+            <Text style={s.settingsHint}>
+              Install a custom skill from a URL. The node downloads and sandboxes it — your agent gains the new capability immediately.
+            </Text>
+            <View style={{ gap: 6 }}>
+              <Text style={s.settingsLabel}>Skill name</Text>
+              <TextInput
+                style={s.advancedInput}
+                value={skillName}
+                onChangeText={setSkillName}
+                placeholder="e.g. my-skill"
+                placeholderTextColor="#d1d5db"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+            <View style={{ gap: 6 }}>
+              <Text style={s.settingsLabel}>Skill URL</Text>
+              <TextInput
+                style={s.advancedInput}
+                value={skillUrl}
+                onChangeText={setSkillUrl}
+                placeholder="https://example.com/my-skill.wasm"
+                placeholderTextColor="#d1d5db"
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+              />
+            </View>
+            <TouchableOpacity
+              style={[s.saveBtn, (!skillName.trim() || !skillUrl.trim() || installing) && s.btnDisabled]}
+              onPress={handleInstall}
+              disabled={!skillName.trim() || !skillUrl.trim() || installing}
+            >
+              <Text style={s.saveBtnText}>{installing ? 'Installing…' : 'Install skill'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 }
 
@@ -480,12 +702,7 @@ const SIGN_OUT_KEYS = [
 function SettingsTab() {
   const signOut = useSignOut();
   const { config, saveConfig, autoStart, setAutoStart, backgroundNode, setBackgroundNode, status, stop, start } = useNode();
-  const [nameInput, setNameInput] = useState(config?.agentName ?? '');
   const [advancedVisible, setAdvancedVisible] = useState(false);
-
-  useEffect(() => {
-    setNameInput(config?.agentName ?? '');
-  }, [config?.agentName]);
 
   const applyAndRestart = useCallback(async (updated: typeof config) => {
     await saveConfig(updated!);
@@ -494,20 +711,6 @@ function SettingsTab() {
       try { await start(updated!); } catch { /* ignore */ }
     }
   }, [saveConfig, status, stop, start, config]);
-
-  const handleNameBlur = useCallback(async () => {
-    const trimmed = nameInput.trim();
-    if (!trimmed || trimmed === config?.agentName) return;
-    await applyAndRestart({ ...config, agentName: trimmed });
-  }, [nameInput, config, applyAndRestart]);
-
-  const handlePickAvatar = useCallback(async () => {
-    const result = await launchImageLibrary({ mediaType: 'photo', quality: 0.8 });
-    const uri = result.assets?.[0]?.uri;
-    if (!uri) return;
-    // Avatar is display-only — no restart needed
-    await saveConfig({ ...config, agentAvatar: uri });
-  }, [config, saveConfig]);
 
   const handleAutoStart = useCallback(async (val: boolean) => {
     try { await setAutoStart(val); } catch { /* ignore */ }
@@ -531,38 +734,6 @@ function SettingsTab() {
 
   return (
     <ScrollView style={s.tabContent}>
-      {/* Identity */}
-      <Text style={s.settingsSectionLabel}>IDENTITY</Text>
-      <View style={s.settingsCard}>
-        <TouchableOpacity style={s.avatarPickerRow} onPress={handlePickAvatar} activeOpacity={0.8}>
-          <View style={s.settingsAvatarCircle}>
-            <Image
-              source={{ uri: config?.agentAvatar || DEFAULT_AGENT_ICON_URI }}
-              style={s.settingsAvatarImage}
-            />
-          </View>
-          <View style={s.avatarPickerInfo}>
-            <Text style={s.settingsLabel}>Agent avatar</Text>
-            <Text style={s.settingsHint}>Tap to change photo</Text>
-          </View>
-          <Text style={s.settingsValue}>›</Text>
-        </TouchableOpacity>
-        <View style={s.settingsCardDivider} />
-        <View style={s.settingsRow}>
-          <Text style={s.settingsLabel}>Agent name</Text>
-          <TextInput
-            style={s.nameInput}
-            value={nameInput}
-            onChangeText={setNameInput}
-            onBlur={handleNameBlur}
-            placeholder="e.g. Aria"
-            placeholderTextColor="#d1d5db"
-            returnKeyType="done"
-            maxLength={32}
-          />
-        </View>
-      </View>
-
       {/* Preferences */}
       <Text style={s.settingsSectionLabel}>PREFERENCES</Text>
       <View style={s.settingsCard}>
@@ -597,6 +768,9 @@ function SettingsTab() {
           <Text style={s.settingsValueMuted}>coming soon</Text>
         </View>
       </View>
+
+      {/* Skills */}
+      <SkillsSection />
 
       {/* Advanced + Account */}
       <Text style={s.settingsSectionLabel}>MORE</Text>
@@ -653,6 +827,92 @@ const CAP_GROUPS: CapDef[] = [
   { label: 'Screen capture',    hint: 'Record screen for highlight reels',            caps: ['screen_capture'],                         permKeys: [], special: 'media_projection' },
 ];
 
+// ── About Section (used inside AdvancedModal) ──────────────────────────────────
+
+function AboutSection() {
+  const [checking, setChecking] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [updateInfo, setUpdateInfo] = useState<import('../native/NodeModule').UpdateInfo | null>(null);
+
+  const handleCheckUpdate = useCallback(async () => {
+    setChecking(true);
+    setUpdateInfo(null);
+    try {
+      const info = await NodeModule.checkForUpdate();
+      setUpdateInfo(info);
+      if (!info.hasUpdate) Alert.alert('Up to date', `You're on the latest version (${info.currentVersion}).`);
+    } catch {
+      Alert.alert('Error', 'Could not check for updates. Try again later.');
+    } finally {
+      setChecking(false);
+    }
+  }, []);
+
+  const handleDownload = useCallback(async () => {
+    if (!updateInfo?.downloadUrl) return;
+    setDownloading(true);
+    setProgress(0);
+    const unsub = (require('../native/NodeModule') as typeof import('../native/NodeModule'))
+      .onUpdateProgress(({ progress: p }) => setProgress(p));
+    try {
+      await NodeModule.downloadAndInstall(updateInfo.downloadUrl);
+    } catch (e: any) {
+      Alert.alert('Download failed', e?.message ?? 'Could not download update.');
+    } finally {
+      unsub();
+      setDownloading(false);
+    }
+  }, [updateInfo]);
+
+  return (
+    <View style={s.settingsCard}>
+      <View style={[s.settingsRow, { opacity: 0.6 }]}>
+        <Text style={s.settingsLabelMuted}>App</Text>
+        <Text style={s.settingsValueMuted}>0x01 Pilot</Text>
+      </View>
+      <View style={s.settingsCardDivider} />
+      <View style={[s.settingsRow, { opacity: 0.6 }]}>
+        <Text style={s.settingsLabelMuted}>Node version</Text>
+        <Text style={s.settingsValueMuted}>v0.4.0</Text>
+      </View>
+      <View style={s.settingsCardDivider} />
+
+      {/* Update checker */}
+      {updateInfo?.hasUpdate ? (
+        <View style={{ paddingVertical: 12, gap: 6 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <View>
+              <Text style={s.settingsLabel}>Update available</Text>
+              <Text style={s.settingsHint}>v{updateInfo.latestVersion} · {new Date(updateInfo.publishedAt).toLocaleDateString()}</Text>
+            </View>
+            <TouchableOpacity
+              style={[s.updateBtn, downloading && s.btnDisabled]}
+              onPress={handleDownload}
+              disabled={downloading}
+            >
+              <Text style={s.updateBtnText}>{downloading ? `${progress}%` : 'Install'}</Text>
+            </TouchableOpacity>
+          </View>
+          {downloading && (
+            <View style={s.progressTrack}>
+              <View style={[s.progressFill, { width: `${progress}%` as any }]} />
+            </View>
+          )}
+          {updateInfo.releaseNotes ? (
+            <Text style={s.settingsHint} numberOfLines={3}>{updateInfo.releaseNotes.replace(/#+\s/g, '').slice(0, 200)}</Text>
+          ) : null}
+        </View>
+      ) : (
+        <TouchableOpacity style={s.settingsRow} onPress={handleCheckUpdate} disabled={checking}>
+          <Text style={s.settingsLabel}>Check for update</Text>
+          <Text style={[s.settingsValue, checking && { color: '#9ca3af' }]}>{checking ? 'Checking…' : '↻'}</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+}
+
 function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
   visible: boolean;
   onClose: () => void;
@@ -666,15 +926,48 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
   const [caps, setCaps] = useState<Record<string, boolean>>({});
   const [perms, setPerms] = useState<Record<string, boolean>>({});
 
+  // LLM config state
+  const [llmProvider, setLlmProvider] = useState<LlmProvider>(brain?.provider ?? 'openai');
+  const [llmApiKey, setLlmApiKey] = useState('');
+  const [llmBaseUrl, setLlmBaseUrl] = useState(brain?.customBaseUrl ?? '');
+  const [llmModel, setLlmModel] = useState(brain?.customModel ?? '');
+  const [llmSaving, setLlmSaving] = useState(false);
+
   // Load bridge capabilities and permission statuses when modal opens
   useEffect(() => {
     if (!visible) return;
     setRelayAddr(config?.relayAddr ?? '');
     setRpcUrl(config?.rpcUrl ?? '');
     setBrainEnabled(brain?.enabled ?? false);
+    setLlmProvider(brain?.provider ?? 'openai');
+    setLlmApiKey('');
+    setLlmBaseUrl(brain?.customBaseUrl ?? '');
+    setLlmModel(brain?.customModel ?? '');
     NodeModule.getBridgeCapabilities().then(setCaps).catch(() => {});
     NodeModule.checkPermissions().then(setPerms).catch(() => {});
-  }, [visible, config?.relayAddr, config?.rpcUrl, brain?.enabled]);
+  }, [visible, config?.relayAddr, config?.rpcUrl, brain?.enabled, brain?.provider, brain?.customBaseUrl, brain?.customModel]);
+
+  const handleSaveLlm = useCallback(async () => {
+    if (!brain || !saveBrain) return;
+    setLlmSaving(true);
+    try {
+      if (llmApiKey.trim()) await saveLlmApiKey(llmApiKey.trim());
+      await saveBrain({
+        ...brain,
+        provider: llmProvider,
+        customBaseUrl: llmBaseUrl.trim(),
+        customModel: llmModel.trim(),
+        apiKeySet: llmApiKey.trim() ? true : brain.apiKeySet,
+      });
+      await applyAndRestart({ ...config, agentBrainProvider: llmProvider });
+      setLlmApiKey('');
+      Alert.alert('Saved', 'LLM settings updated. Agent restarting.');
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'Failed to save LLM settings.');
+    } finally {
+      setLlmSaving(false);
+    }
+  }, [brain, saveBrain, llmProvider, llmApiKey, llmBaseUrl, llmModel, config, applyAndRestart]);
 
   /** Returns true if ALL caps in the group are enabled */
   const groupEnabled = useCallback((def: CapDef) =>
@@ -748,17 +1041,93 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
               <Switch value={brainEnabled} onValueChange={handleBrainToggle}
                 trackColor={{ true: '#22c55e', false: '#d1d5db' }} thumbColor="#fff" />
             </View>
-            <View style={s.settingsCardDivider} />
-            <View style={[s.settingsRow, s.settingsRowMuted]}>
-              <Text style={s.settingsLabelMuted}>Provider</Text>
-              <Text style={s.settingsValueMuted}>{brain?.provider ?? 'not set'}</Text>
-            </View>
-            <View style={s.settingsCardDivider} />
-            <View style={[s.settingsRow, s.settingsRowMuted]}>
-              <Text style={s.settingsLabelMuted}>API key</Text>
-              <Text style={s.settingsValueMuted}>{brain?.apiKeySet ? '●●●●●●●●' : 'not set'}</Text>
-            </View>
           </View>
+
+          {/* LLM credentials */}
+          <Text style={s.settingsSectionLabel}>LLM PROVIDER & CREDENTIALS</Text>
+          <View style={s.settingsCard}>
+            {/* Provider pills */}
+            <View style={[s.settingsRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 8, paddingBottom: 14 }]}>
+              <Text style={s.settingsLabel}>Provider</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                {PROVIDERS.map(p => {
+                  const active = llmProvider === p;
+                  return (
+                    <TouchableOpacity
+                      key={p}
+                      style={[s.providerPill, active && s.providerPillActive]}
+                      onPress={() => setLlmProvider(p)}
+                    >
+                      <Text style={[s.providerPillText, active && s.providerPillTextActive]}>{p}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+            <View style={s.settingsCardDivider} />
+            {/* API key */}
+            <View style={[s.settingsRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 6, paddingBottom: 14 }]}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%' }}>
+                <Text style={s.settingsLabel}>API key</Text>
+                <Text style={s.settingsHint}>{brain?.apiKeySet ? 'key stored ●●●●' : 'not set'}</Text>
+              </View>
+              <TextInput
+                style={s.advancedInput}
+                value={llmApiKey}
+                onChangeText={setLlmApiKey}
+                placeholder={brain?.apiKeySet ? 'Enter new key to replace…' : 'sk-…'}
+                placeholderTextColor="#d1d5db"
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+            {/* Model override — available for all providers */}
+            <View style={s.settingsCardDivider} />
+            <View style={[s.settingsRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 6, paddingBottom: 14 }]}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%' }}>
+                <Text style={s.settingsLabel}>Model</Text>
+                <Text style={s.settingsHint}>
+                  default: {PROVIDER_INFOS.find(p => p.key === llmProvider)?.model ?? '—'}
+                </Text>
+              </View>
+              <TextInput
+                style={s.advancedInput}
+                value={llmModel}
+                onChangeText={setLlmModel}
+                placeholder={PROVIDER_INFOS.find(p => p.key === llmProvider)?.model ?? 'model name'}
+                placeholderTextColor="#d1d5db"
+                autoCapitalize="none"
+                autoCorrect={false}
+                spellCheck={false}
+              />
+            </View>
+            {/* Base URL — only for custom provider */}
+            {llmProvider === 'custom' && (
+              <>
+                <View style={s.settingsCardDivider} />
+                <View style={[s.settingsRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 6, paddingBottom: 14 }]}>
+                  <Text style={s.settingsLabel}>Base URL</Text>
+                  <TextInput
+                    style={s.advancedInput}
+                    value={llmBaseUrl}
+                    onChangeText={setLlmBaseUrl}
+                    placeholder="https://api.openai.com/v1"
+                    placeholderTextColor="#d1d5db"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                </View>
+              </>
+            )}
+          </View>
+          <TouchableOpacity
+            style={[s.saveBtn, llmSaving && s.btnDisabled]}
+            onPress={handleSaveLlm}
+            disabled={llmSaving}
+          >
+            <Text style={s.saveBtnText}>{llmSaving ? 'Saving…' : 'Save LLM settings'}</Text>
+          </TouchableOpacity>
 
           {/* Phone access — all bridge capabilities */}
           <Text style={s.settingsSectionLabel}>PHONE ACCESS</Text>
@@ -823,16 +1192,27 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
 
           {/* About */}
           <Text style={s.settingsSectionLabel}>ABOUT</Text>
+          <AboutSection />
+
+          {/* Legal */}
+          <Text style={s.settingsSectionLabel}>LEGAL</Text>
           <View style={s.settingsCard}>
-            <View style={[s.settingsRow, s.settingsRowMuted]}>
-              <Text style={s.settingsLabelMuted}>App</Text>
-              <Text style={s.settingsValueMuted}>0x01 Pilot</Text>
-            </View>
-            <View style={s.settingsCardDivider} />
-            <View style={[s.settingsRow, s.settingsRowMuted]}>
-              <Text style={s.settingsLabelMuted}>Node version</Text>
-              <Text style={s.settingsValueMuted}>v0.4.0</Text>
-            </View>
+            {[
+              { label: 'Terms of Service',       url: 'https://0x01.world/terms' },
+              { label: 'Privacy Policy',          url: 'https://0x01.world/privacy' },
+              { label: 'Open-Source Licenses',   url: 'https://0x01.world/licenses' },
+              { label: 'Cookie Policy',           url: 'https://0x01.world/cookies' },
+              { label: 'Risk Disclosure',         url: 'https://0x01.world/risk' },
+              { label: 'Regulatory Notice',       url: 'https://0x01.world/regulatory' },
+            ].map(({ label, url }, i) => (
+              <View key={label}>
+                {i > 0 && <View style={s.settingsCardDivider} />}
+                <TouchableOpacity style={s.settingsRow} onPress={() => Linking.openURL(url)}>
+                  <Text style={s.settingsLabel}>{label}</Text>
+                  <Text style={s.settingsValue}>↗</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
           </View>
 
           <TouchableOpacity style={s.saveBtn} onPress={handleSaveNetwork}>
@@ -898,12 +1278,13 @@ const s = StyleSheet.create({
   modalClose: { fontSize: 16, color: '#9ca3af' },
 
   // Agent
-  agentHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 16 },
-  agentAvatarCircle: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#f0fdf4', borderWidth: 1, borderColor: '#bbf7d0', overflow: 'hidden' },
-  agentAvatarImage: { width: 40, height: 40 },
-  agentInfo: { flex: 1 },
-  agentNameText: { fontSize: 13, fontWeight: '600', color: '#111' },
-  agentStatusText: { fontSize: 10, color: '#22c55e', marginTop: 2 },
+  agentIdentitySection: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, paddingBottom: 8 },
+  agentAvatarCircle: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#f0fdf4', borderWidth: 2, borderColor: '#bbf7d0', overflow: 'hidden' },
+  agentAvatarImage: { width: 56, height: 56 },
+  agentAvatarHint: { fontSize: 9, color: '#9ca3af', textAlign: 'center', marginTop: 3 },
+  agentIdentityInfo: { flex: 1 },
+  agentNameInput: { fontSize: 16, fontWeight: '700', color: '#111', marginBottom: 3, padding: 0 },
+  agentStatusText: { fontSize: 10, color: '#22c55e' },
 
   ruleRows: { paddingHorizontal: 16 },
   ruleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12 },
@@ -953,4 +1334,15 @@ const s = StyleSheet.create({
   capLabelOff: { color: '#9ca3af' },
   saveBtn: { backgroundColor: '#111', borderRadius: 10, padding: 13, alignItems: 'center', marginTop: 24, marginBottom: 8 },
   saveBtnText: { fontSize: 12, color: '#fff', fontWeight: '600' },
+
+  skillIconBox: { width: 34, height: 34, borderRadius: 8, backgroundColor: '#f3f4f6', alignItems: 'center', justifyContent: 'center' },
+  skillIconText: { fontSize: 7, fontWeight: '700', color: '#374151', letterSpacing: 0.2 },
+
+  holdingsRow: { flexDirection: 'row', gap: 6, marginTop: 6, flexWrap: 'wrap' },
+  holdingsPill: { fontSize: 10, color: '#6b7280', backgroundColor: '#f3f4f6', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 },
+
+  updateBtn: { backgroundColor: '#111', borderRadius: 7, paddingHorizontal: 12, paddingVertical: 6 },
+  updateBtnText: { fontSize: 10, color: '#fff', fontWeight: '600' },
+  progressTrack: { height: 3, backgroundColor: '#f3f4f6', borderRadius: 2, overflow: 'hidden' },
+  progressFill: { height: 3, backgroundColor: '#22c55e', borderRadius: 2 },
 });

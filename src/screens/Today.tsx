@@ -38,7 +38,9 @@ function relativeTime(timestampSeconds: number): string {
 }
 
 function fmtRate(pct: number): string {
-  return `+${pct.toFixed(1)}%`;
+  if (pct === 0) return '0.0%';
+  const sign = pct > 0 ? '+' : '';
+  return `${sign}${pct.toFixed(1)}%`;
 }
 
 function seasonCountdown(endsAt: number): string {
@@ -209,18 +211,18 @@ export default function TodayScreen() {
             <View style={s.modalHandle} />
             <View style={s.modalHeaderRow}>
               <Text style={s.modalTitle}>EARNINGS LEAGUE · {leagueData.season}</Text>
-              <TouchableOpacity onPress={() => setLeagueModalVisible(false)}>
+              <TouchableOpacity onPress={() => setLeagueModalVisible(false)} accessibilityLabel="Close league" accessibilityRole="button">
                 <Text style={s.modalClose}>✕</Text>
               </TouchableOpacity>
             </View>
             <ScrollView style={s.modalScroll} contentContainerStyle={s.modalScrollContent}>
               <Text style={s.modalSectionLabel}>REWARDS</Text>
-              {leagueData.rewards.map((r, i) => (
-                <Text key={i} style={s.modalInfoRow}>{r}</Text>
+              {leagueData.rewards.map((r) => (
+                <Text key={r} style={s.modalInfoRow}>{r}</Text>
               ))}
               <Text style={[s.modalSectionLabel, { marginTop: 16 }]}>HOW IT WORKS</Text>
-              {leagueData.scoring.map((r, i) => (
-                <Text key={i} style={s.modalInfoRow}>{r}</Text>
+              {leagueData.scoring.map((r) => (
+                <Text key={r} style={s.modalInfoRow}>{r}</Text>
               ))}
               <View style={s.sectionDivider} />
               {leagueData.leaderboard.map((entry) => {
