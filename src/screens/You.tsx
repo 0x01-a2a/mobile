@@ -13,6 +13,11 @@ import {
 const COLD_WALLET_KEY = 'zerox1:cold_wallet';
 const AUTO_START_KEY = 'zerox1:auto_start';
 
+const USDC_MINTS = [
+  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+  '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
+];
+
 type SubTab = 'Wallet' | 'Agent' | 'Settings';
 
 function fmt(amount: number): string {
@@ -65,13 +70,10 @@ function WalletTab() {
     AsyncStorage.getItem(COLD_WALLET_KEY).then(v => setColdWallet(v));
   }, []);
 
-  // TokenBalance has { mint, amount, decimals } — no symbol field.
-  const USDC_MINTS = [
-    'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
-    '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
-  ];
-  const usdcToken = tokens.find(t => USDC_MINTS.includes(t.mint));
-  const balance = usdcToken ? usdcToken.amount / Math.pow(10, usdcToken.decimals) : 0;
+  const balance = useMemo(() => {
+    const usdcToken = tokens.find(t => USDC_MINTS.includes(t.mint));
+    return usdcToken ? usdcToken.amount / Math.pow(10, usdcToken.decimals) : 0;
+  }, [tokens]);
 
   const earnedToday = useMemo(() => {
     return taskEntries
@@ -79,9 +81,10 @@ function WalletTab() {
       .reduce((acc, e) => acc + (e.amount_usd ?? 0), 0);
   }, [taskEntries]);
 
-  const recentHistory = taskEntries
-    .filter(e => e.outcome === 'success')
-    .slice(0, 5);
+  const recentHistory = useMemo(
+    () => taskEntries.filter(e => e.outcome === 'success').slice(0, 5),
+    [taskEntries],
+  );
 
   const handleSweep = useCallback(async () => {
     if (!coldWallet) return;
@@ -212,19 +215,23 @@ function AgentTab() {
   const { status, config: nodeConfig } = useNode();
   const { config, save, loading } = useAgentBrain();
   const isRunning = status === 'running';
-  // agentName lives on NodeConfig.agentName; AgentBrainConfig has no name field
-  const agentName = (nodeConfig as any)?.agentName ?? 'Aria';
+  const agentName = nodeConfig?.agentName ?? 'Aria';
 
   const [minFee, setMinFee] = useState(String(config?.minFeeUsdc ?? 1.0));
   const [minRep, setMinRep] = useState(String(config?.minReputation ?? 50));
+
+  useEffect(() => {
+    setMinFee(String(config?.minFeeUsdc ?? 1.0));
+    setMinRep(String(config?.minReputation ?? 50));
+  }, [config?.minFeeUsdc, config?.minReputation]);
 
   if (loading) {
     return <View style={s.tabContent}><Text style={s.emptyText}>Loading…</Text></View>;
   }
 
-  const handleSave = async (updates: Record<string, unknown>) => {
+  const handleSave = async (updates: Partial<typeof config>) => {
     if (!config || !save) return;
-    await save({ ...config, ...updates } as any);
+    await save({ ...config, ...updates });
   };
 
   return (
@@ -308,7 +315,11 @@ function SettingsTab() {
 
   const handleAutoStartToggle = async (val: boolean) => {
     setAutoStartLocal(val);
-    await AsyncStorage.setItem(AUTO_START_KEY, val ? 'true' : 'false');
+    try {
+      await AsyncStorage.setItem(AUTO_START_KEY, val ? 'true' : 'false');
+    } catch {
+      setAutoStartLocal(!val);
+    }
   };
 
   return (
