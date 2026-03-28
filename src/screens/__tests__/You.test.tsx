@@ -9,7 +9,7 @@ jest.mock('../../hooks/useNodeApi', () => ({
     loading: false, solanaAddress: '7f3aBcDefg...', error: null,
   }),
   useTaskLog: () => ({ entries: [], loading: false, reload: jest.fn() }),
-  sweepUsdc: jest.fn().mockResolvedValue({ signature: 'abc', amount_usdc: 12.4, destination: '9Abc' }),
+  sweepSol: jest.fn().mockResolvedValue({ signature: 'abc', amount_sol: 0.5, amount_lamports: 500_000_000, destination: '9Abc' }),
 }));
 jest.mock('../../hooks/useAgentBrain', () => ({
   useAgentBrain: () => ({
