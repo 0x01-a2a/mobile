@@ -2300,18 +2300,22 @@ export function useSentOffers(): {
 
   useEffect(() => {
     AsyncStorage.getItem(SENT_OFFERS_KEY).then(raw => {
-      if (!raw) return;
-      setOffers(filterDisplayOffers(JSON.parse(raw)));
+      let all: SentOffer[];
+      try {
+        all = raw ? JSON.parse(raw) : [];
+      } catch {
+        all = [];
+      }
+      setOffers(filterDisplayOffers(all));
     }).catch(() => {});
   }, []);
 
   const addOffer = useCallback((offer: SentOffer) => {
-    AsyncStorage.getItem(SENT_OFFERS_KEY).then(raw => {
-      const all: SentOffer[] = raw ? JSON.parse(raw) : [];
-      const next = [offer, ...all].slice(0, 100);
+    setOffers(prev => {
+      const next = [offer, ...prev].slice(0, 100);
       AsyncStorage.setItem(SENT_OFFERS_KEY, JSON.stringify(next)).catch(() => {});
-      setOffers(filterDisplayOffers(next));
-    }).catch(() => {});
+      return filterDisplayOffers(next);
+    });
   }, []);
 
   const updateStatus = useCallback((
@@ -2319,14 +2323,13 @@ export function useSentOffers(): {
     status: SentOffer['status'],
     extra?: Partial<SentOffer>,
   ) => {
-    AsyncStorage.getItem(SENT_OFFERS_KEY).then(raw => {
-      const all: SentOffer[] = raw ? JSON.parse(raw) : [];
-      const next = all.map(o =>
+    setOffers(prev => {
+      const next = prev.map(o =>
         o.conversation_id === conversation_id ? { ...o, status, ...extra } : o,
       );
       AsyncStorage.setItem(SENT_OFFERS_KEY, JSON.stringify(next)).catch(() => {});
-      setOffers(filterDisplayOffers(next));
-    }).catch(() => {});
+      return filterDisplayOffers(next);
+    });
   }, []);
 
   return { offers, addOffer, updateStatus };
