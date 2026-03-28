@@ -83,6 +83,7 @@ interface ChatRouteParams {
   agentId?: string;
   conversationId?: string;
   task?: BountyTask;
+  initialMode?: 'chat' | 'brief' | 'deliver';
 }
 
 // ── Task banner ───────────────────────────────────────────────────────────
@@ -321,7 +322,7 @@ export function ChatScreen() {
   );
 
   const [mode, setMode] = useState<'chat' | 'brief' | 'deliver'>(
-    (route.params as any)?.initialMode ?? 'chat',
+    params.initialMode ?? 'chat',
   );
   const [briefText, setBriefText] = useState('');
   const [deliverText, setDeliverText] = useState('');
@@ -853,6 +854,7 @@ export function ChatScreen() {
                   handleDeliver();
                 }
                 setMode('chat');
+                setDeliverText('');
               }}
             >
               <Text style={s.deliverModeBtnText}>Deliver</Text>
