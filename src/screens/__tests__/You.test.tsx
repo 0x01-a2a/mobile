@@ -24,6 +24,9 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
   getItem: jest.fn().mockResolvedValue(null),
   setItem: jest.fn(),
 }));
+jest.mock('../../../App', () => ({
+  useSignOut: () => jest.fn(),
+}));
 
 function wrap(ui: React.ReactElement) {
   return render(<NavigationContainer>{ui}</NavigationContainer>);

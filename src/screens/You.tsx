@@ -4,12 +4,12 @@ import {
   Switch, Alert, Modal, FlatList,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useNavigation } from '@react-navigation/native';
 import { useNode } from '../hooks/useNode';
 import { useAgentBrain } from '../hooks/useAgentBrain';
 import {
   useHotKeyBalance, useTaskLog, sweepUsdc,
 } from '../hooks/useNodeApi';
+import { useSignOut } from '../../App';
 
 const COLD_WALLET_KEY = 'zerox1:cold_wallet';
 const AUTO_START_KEY = 'zerox1:auto_start';
@@ -308,7 +308,7 @@ function AgentTab() {
 // ── Settings Tab ───────────────────────────────────────────────────────────────
 
 function SettingsTab() {
-  const navigation = useNavigation<any>();
+  const signOut = useSignOut();
   const [autoStart, setAutoStartLocal] = useState(false);
 
   useEffect(() => {
@@ -376,8 +376,7 @@ function SettingsTab() {
               'zerox1:task_log',
             ];
             await AsyncStorage.multiRemove(keys);
-            // Navigate to Onboarding (reset navigation stack)
-            navigation.reset({ index: 0, routes: [{ name: 'Onboarding' }] });
+            signOut();
           } },
           ])}>
             <Text style={s.signOutText}>Sign out</Text>

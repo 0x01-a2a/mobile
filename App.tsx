@@ -5,7 +5,7 @@
  * After onboarding completes (or is skipped), saves the config and renders
  * the main AppNavigator.
  */
-import React, { useEffect, useState, Component, ErrorInfo, ReactNode } from 'react';
+import React, { useEffect, useState, Component, ErrorInfo, ReactNode, createContext, useContext } from 'react';
 import { StatusBar, View, Text, StyleSheet } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -65,6 +65,9 @@ class ErrorBoundary extends Component<{ children: ReactNode }, EBState> {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+export const SignOutContext = createContext<() => void>(() => {});
+export function useSignOut() { return useContext(SignOutContext); }
+
 function ThemedStatusBar() {
   const { isDark, colors } = useTheme();
   return <StatusBar barStyle={isDark ? "light-content" : "dark-content"} backgroundColor={colors.bg} />;
@@ -114,12 +117,14 @@ export default function App() {
       <ThemeProvider>
         <SafeAreaProvider>
           <ThemedStatusBar />
-          <NavigationContainer>
-            <NodeProvider>
-              <AppNavigator />
-              <ScreenActionGate />
-            </NodeProvider>
-          </NavigationContainer>
+          <SignOutContext.Provider value={() => setOnboardingDone(false)}>
+            <NavigationContainer>
+              <NodeProvider>
+                <AppNavigator />
+                <ScreenActionGate />
+              </NodeProvider>
+            </NavigationContainer>
+          </SignOutContext.Provider>
         </SafeAreaProvider>
       </ThemeProvider>
     </ErrorBoundary>
