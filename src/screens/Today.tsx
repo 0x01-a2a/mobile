@@ -1,10 +1,10 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
-  View, Text, TouchableOpacity, ScrollView, StyleSheet, Image,
+  View, Text, TouchableOpacity, ScrollView, StyleSheet, Image, Modal,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useNode } from '../hooks/useNode';
-import { useTaskLog } from '../hooks/useNodeApi';
+import { useTaskLog, useSkrLeague } from '../hooks/useNodeApi';
 import { DEFAULT_AGENT_ICON_URI } from '../assets/defaultAgentIcon';
 
 function isToday(timestampSeconds: number): boolean {
@@ -37,10 +37,24 @@ function relativeTime(timestampSeconds: number): string {
   return `${Math.floor(diffHrs / 24)}d ago`;
 }
 
+function fmtRate(pct: number): string {
+  return `+${pct.toFixed(1)}%`;
+}
+
+function seasonCountdown(endsAt: number): string {
+  const days = Math.ceil((endsAt * 1000 - Date.now()) / 86_400_000);
+  if (days >= 2) return `Season ends in ${days}d`;
+  if (days === 1) return 'Season ends tomorrow';
+  if (days === 0) return 'Season ends today';
+  return 'Season ended';
+}
+
 export default function TodayScreen() {
   const navigation = useNavigation<any>();
   const { status, config } = useNode();
   const { entries, loading } = useTaskLog();
+  const { data: leagueData } = useSkrLeague();
+  const [leagueModalVisible, setLeagueModalVisible] = useState(false);
 
   const agentName = config?.agentName ?? 'Aria';
   const isRunning = status === 'running';
@@ -146,6 +160,102 @@ export default function TodayScreen() {
           );
         })}
       </View>
+
+      {/* Section divider */}
+      <View style={s.sectionDivider} />
+
+      {/* Earnings League */}
+      {leagueData && (
+        <View style={s.section}>
+          <View style={s.leagueHeader}>
+            <Text style={s.sectionLabel}>EARNINGS LEAGUE</Text>
+            <Text style={s.leagueCountdown}>{seasonCountdown(leagueData.ends_at)}</Text>
+          </View>
+          {leagueData.leaderboard.slice(0, 5).map((entry) => {
+            const isYou =
+              leagueData.wallet.rank !== null &&
+              leagueData.wallet.rank >= 1 &&
+              leagueData.wallet.rank === entry.rank;
+            return (
+              <View key={entry.rank} style={[s.leagueRow, isYou && s.leagueRowHighlight]}>
+                <Text style={s.leagueRank}>#{entry.rank}</Text>
+                <Text style={[s.leagueName, isYou && s.leagueNameYou]}>{entry.label}</Text>
+                <Text style={s.leagueRate}>{fmtRate(entry.earn_rate_pct)}</Text>
+              </View>
+            );
+          })}
+          {leagueData.wallet.rank !== null && leagueData.wallet.rank >= 6 && (
+            <View style={[s.leagueRow, s.leagueRowYouAppended]}>
+              <View style={{ width: 28 }} />
+              <Text style={s.leagueNameYou}>You · #{leagueData.wallet.rank}</Text>
+              <Text style={s.leagueRate}>{fmtRate(leagueData.wallet.earn_rate_pct)}</Text>
+            </View>
+          )}
+          <TouchableOpacity style={s.leagueSeeAll} onPress={() => setLeagueModalVisible(true)}>
+            <Text style={s.leagueSeeAllText}>→ See all agents</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* League bottom-sheet modal */}
+      <Modal
+        visible={leagueModalVisible}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setLeagueModalVisible(false)}
+      >
+        {leagueData && (
+          <View style={s.modalRoot}>
+            <View style={s.modalHandle} />
+            <View style={s.modalHeaderRow}>
+              <Text style={s.modalTitle}>EARNINGS LEAGUE · {leagueData.season}</Text>
+              <TouchableOpacity onPress={() => setLeagueModalVisible(false)}>
+                <Text style={s.modalClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={s.modalScroll} contentContainerStyle={s.modalScrollContent}>
+              <Text style={s.modalSectionLabel}>REWARDS</Text>
+              {leagueData.rewards.map((r, i) => (
+                <Text key={i} style={s.modalInfoRow}>{r}</Text>
+              ))}
+              <Text style={[s.modalSectionLabel, { marginTop: 16 }]}>HOW IT WORKS</Text>
+              {leagueData.scoring.map((r, i) => (
+                <Text key={i} style={s.modalInfoRow}>{r}</Text>
+              ))}
+              <View style={s.sectionDivider} />
+              {leagueData.leaderboard.map((entry) => {
+                const isYou =
+                  leagueData.wallet.rank !== null &&
+                  leagueData.wallet.rank >= 1 &&
+                  leagueData.wallet.rank === entry.rank;
+                return (
+                  <View key={entry.rank} style={[s.leagueRow, isYou && s.leagueRowHighlight]}>
+                    <Text style={s.leagueRank}>#{entry.rank}</Text>
+                    <Text style={[s.leagueName, isYou && s.leagueNameYou]}>{entry.label}</Text>
+                    <Text style={s.leagueRate}>{fmtRate(entry.earn_rate_pct)}</Text>
+                  </View>
+                );
+              })}
+              {leagueData.wallet.rank !== null && leagueData.wallet.rank >= 1 && (
+                <View style={s.modalFooter}>
+                  <View style={s.modalStatCol}>
+                    <Text style={s.modalStatLabel}>EARN RATE</Text>
+                    <Text style={s.modalStatValue}>{fmtRate(leagueData.wallet.earn_rate_pct)}</Text>
+                  </View>
+                  <View style={s.modalStatCol}>
+                    <Text style={s.modalStatLabel}>TRADES</Text>
+                    <Text style={s.modalStatValue}>{leagueData.wallet.trade_count}</Text>
+                  </View>
+                  <View style={s.modalStatCol}>
+                    <Text style={s.modalStatLabel}>ACTIVE DAYS</Text>
+                    <Text style={s.modalStatValue}>{leagueData.wallet.active_days}</Text>
+                  </View>
+                </View>
+              )}
+            </ScrollView>
+          </View>
+        )}
+      </Modal>
     </ScrollView>
   );
 }
@@ -217,4 +327,31 @@ const s = StyleSheet.create({
     paddingHorizontal: 6, paddingVertical: 2, backgroundColor: '#f9fafb',
   },
   workingBadgeText: { fontSize: 10, color: '#d1d5db' },
+
+  // ── Earnings League ──────────────────────────────────────────────────────
+  leagueHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  leagueCountdown: { fontSize: 10, color: '#9ca3af' },
+  leagueRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
+  leagueRowHighlight: { backgroundColor: '#f0fdf4', borderRadius: 6, marginHorizontal: -4, paddingHorizontal: 4 },
+  leagueRowYouAppended: { borderTopWidth: 1, borderTopColor: '#e5e7eb', borderBottomWidth: 0 },
+  leagueRank: { fontSize: 11, color: '#9ca3af', width: 28 },
+  leagueName: { flex: 1, fontSize: 12, color: '#111', fontWeight: '500' },
+  leagueNameYou: { color: '#22c55e' },
+  leagueRate: { fontSize: 12, color: '#22c55e', fontWeight: '600' },
+  leagueSeeAll: { paddingVertical: 10 },
+  leagueSeeAllText: { fontSize: 11, color: '#6b7280' },
+  // ── League modal ─────────────────────────────────────────────────────────
+  modalRoot: { flex: 1, backgroundColor: '#fff' },
+  modalHandle: { width: 32, height: 4, backgroundColor: '#e5e7eb', borderRadius: 2, alignSelf: 'center', marginTop: 8, marginBottom: 16 },
+  modalHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginBottom: 12 },
+  modalTitle: { fontSize: 11, fontWeight: '700', color: '#111', letterSpacing: 0.5 },
+  modalClose: { fontSize: 16, color: '#6b7280', padding: 4 },
+  modalScroll: { flex: 1 },
+  modalScrollContent: { paddingHorizontal: 16, paddingBottom: 32 },
+  modalSectionLabel: { fontSize: 10, color: '#9ca3af', letterSpacing: 0.5, marginBottom: 8 },
+  modalInfoRow: { fontSize: 12, color: '#374151', marginBottom: 6 },
+  modalFooter: { flexDirection: 'row', justifyContent: 'space-around', paddingVertical: 16, borderTopWidth: 1, borderTopColor: '#f3f4f6', marginTop: 8 },
+  modalStatCol: { alignItems: 'center' as const },
+  modalStatLabel: { fontSize: 9, color: '#9ca3af', letterSpacing: 0.3, marginBottom: 4 },
+  modalStatValue: { fontSize: 15, fontWeight: '700', color: '#111' },
 });
