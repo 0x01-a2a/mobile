@@ -33,7 +33,11 @@ import { useBlobs } from '../hooks/useBlobs';
 import { sendEnvelope, setBagsApiKey } from '../hooks/useNodeApi';
 import { useNode } from '../hooks/useNode';
 import { useLayout } from '../hooks/useLayout';
-import type { BountyTask } from './Earn';
+export interface BountyTask {
+  description: string;
+  reward: string;
+  fromAgent: string;
+}
 
 const TASK_LOG_KEY = 'zerox1:task_log';
 
