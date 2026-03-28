@@ -110,7 +110,10 @@ export default function InboxScreen() {
     return () => clearTimeout(id);
   }, [searchQuery]);
 
-  const displayedAgents = debouncedQuery.trim() ? searchResults : allAgents;
+  const displayedAgents = useMemo(
+    () => (debouncedQuery.trim() ? searchResults : allAgents),
+    [debouncedQuery, searchResults, allAgents],
+  );
 
   useEffect(() => {
     AsyncStorage.getItem(TASK_LOG_KEY).then(raw => {
