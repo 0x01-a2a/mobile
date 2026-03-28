@@ -607,13 +607,16 @@ export function ChatScreen() {
       <View style={[s.header, { paddingTop: insets.top + 16 }]}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           {config.agentAvatar && (
-            <Image source={{ uri: config.agentAvatar }} style={{ width: 24, height: 24, borderRadius: 12, marginRight: 8, borderWidth: 1, borderColor: colors.border }} />
+            <Image source={{ uri: config.agentAvatar }} style={{ width: 32, height: 32, borderRadius: 16, marginRight: 8, borderWidth: 1, borderColor: colors.border }} />
           )}
           <Text style={s.headerTitle}>{(config.agentName || '01 PILOT').toUpperCase()}</Text>
         </View>
-        <TouchableOpacity onPress={resetSession} style={s.resetBtn}>
-          <Text style={s.resetBtnText}>[NEW]</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#22c55e' }} />
+          <TouchableOpacity onPress={resetSession} style={s.resetBtn}>
+            <Text style={s.resetBtnText}>[NEW]</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Agent selector — visible when user owns multiple agents */}
@@ -773,7 +776,7 @@ export function ChatScreen() {
                 style={s.input}
                 value={draft}
                 onChangeText={setDraft}
-                placeholder="Message 01 Pilot..."
+                placeholder="Message Aria…"
                 placeholderTextColor={colors.sub}
                 multiline
                 maxLength={4000}
@@ -786,7 +789,7 @@ export function ChatScreen() {
                 onPress={handleSend}
                 disabled={(!draft.trim() && !pendingImage) || loading}
               >
-                <Text style={s.sendBtnText}>{loading ? '…' : '>'}</Text>
+                <Text style={s.sendBtnText}>{loading ? '…' : '↑'}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -803,6 +806,12 @@ export function ChatScreen() {
             value={briefText}
             onChangeText={setBriefText}
           />
+          <TouchableOpacity
+            style={s.briefAttachBtn}
+            onPress={pickChatImage}
+          >
+            <Text style={s.briefAttachBtnText}>📎 Attach image</Text>
+          </TouchableOpacity>
           <TouchableOpacity
             style={s.briefStartBtn}
             onPress={() => {
@@ -837,7 +846,12 @@ export function ChatScreen() {
             <TouchableOpacity
               style={s.deliverModeBtn}
               onPress={() => {
-                handleDeliver();
+                if (deliverText.trim()) {
+                  setTextDeliverInput(deliverText.trim());
+                  setTextDeliverVisible(true);
+                } else {
+                  handleDeliver();
+                }
                 setMode('chat');
               }}
             >
@@ -1066,7 +1080,7 @@ function useStyles(colors: ThemeColors, isTablet = false) {
   input: { flex: 1, backgroundColor: colors.input, borderWidth: 1, borderColor: colors.border, borderRadius: 4, paddingHorizontal: 12, paddingVertical: 10, color: colors.text, fontFamily: 'monospace', fontSize: 13, maxHeight: 120 },
   attachBtn: { width: 44, height: 44, borderRadius: 4, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
   attachBtnText: { fontSize: 20 },
-  sendBtn: { backgroundColor: colors.green, width: 44, height: 44, borderRadius: 4, alignItems: 'center', justifyContent: 'center' },
+  sendBtn: { backgroundColor: colors.green, width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   sendBtnDisabled: { backgroundColor: colors.border },
   sendBtnText: { color: '#000000', fontFamily: 'monospace', fontSize: 18, fontWeight: '700' },
   // pending image strip
@@ -1110,6 +1124,8 @@ function useStyles(colors: ThemeColors, isTablet = false) {
   // brief mode
   briefContainer: { flex: 1, padding: 16, gap: 12 },
   briefInput: { flex: 1, backgroundColor: '#f9fafb', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 12, padding: 14, fontSize: 13, color: '#111', textAlignVertical: 'top' },
+  briefAttachBtn: { borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 10, padding: 10, alignItems: 'center' as const },
+  briefAttachBtnText: { fontSize: 12, color: '#6b7280' },
   briefStartBtn: { backgroundColor: '#111', borderRadius: 10, padding: 14, alignItems: 'center' as const },
   briefStartBtnText: { fontSize: 13, color: '#fff', fontWeight: '600' as const },
   // deliver mode
