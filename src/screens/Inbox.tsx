@@ -93,6 +93,13 @@ export default function InboxScreen() {
     }).catch(() => {});
   }, []);
 
+  useEffect(() => {
+    const id = setInterval(() => {
+      setBounties(prev => prev.filter(b => secsLeft(b.expiresAt) > 0));
+    }, 10_000);
+    return () => clearInterval(id);
+  }, []);
+
   const onEnvelope = useCallback((env: InboundEnvelope) => {
     const card = envelopeToCard(env);
     if (!card) return;

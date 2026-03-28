@@ -4,6 +4,7 @@ import {
   Switch, Alert, Modal, FlatList,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useNavigation } from '@react-navigation/native';
 import { useNode } from '../hooks/useNode';
 import { useAgentBrain } from '../hooks/useAgentBrain';
 import {
@@ -307,6 +308,7 @@ function AgentTab() {
 // ── Settings Tab ───────────────────────────────────────────────────────────────
 
 function SettingsTab() {
+  const navigation = useNavigation<any>();
   const [autoStart, setAutoStartLocal] = useState(false);
 
   useEffect(() => {
@@ -358,7 +360,25 @@ function SettingsTab() {
         <View style={[s.settingsRow, s.settingsRowBorder]}>
           <TouchableOpacity onPress={() => Alert.alert('Sign out', 'Clear all data and return to onboarding?', [
             { text: 'Cancel', style: 'cancel' },
-            { text: 'Sign out', style: 'destructive', onPress: () => {} },
+            { text: 'Sign out', style: 'destructive', onPress: async () => {
+            // Clear all user data from AsyncStorage
+            const keys = [
+              'zerox1:node_config',
+              'zerox1:auto_start',
+              'zerox1:onboarding_done',
+              'zerox1:onboarding_partial_state',
+              'zerox1:agent_brain',
+              'zerox1:hosted_mode',
+              'zerox1:host_url',
+              'zerox1:hosted_token',
+              'zerox1:hosted_agent_id',
+              'zerox1:cold_wallet',
+              'zerox1:task_log',
+            ];
+            await AsyncStorage.multiRemove(keys);
+            // Navigate to Onboarding (reset navigation stack)
+            navigation.reset({ index: 0, routes: [{ name: 'Onboarding' }] });
+          } },
           ])}>
             <Text style={s.signOutText}>Sign out</Text>
           </TouchableOpacity>

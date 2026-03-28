@@ -47,7 +47,7 @@ const SCREEN_OPTIONS = {
 
 export function AppNavigator() {
   const insets = useSafeAreaInsets();
-const { colors } = useTheme();
+  const { colors } = useTheme();
   const styles = useStyles(colors);
   const { isTablet, isLandscape } = useLayout();
 

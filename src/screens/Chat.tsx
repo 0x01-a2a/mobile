@@ -1,9 +1,8 @@
 /**
  * Chat — interactive chat with the ZeroClaw agent brain.
  *
- * When navigated from Earn with task params, shows a sticky task banner
- * at the top with a DELIVER button. Agent selector pills are shown when
- * the user owns more than one agent.
+ * When navigated from Inbox with task params, shows task context in Chat mode.
+ * Agent selector pills are shown when the user owns more than one agent.
  */
 import { useTheme, ThemeColors } from '../theme/ThemeContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -88,52 +87,6 @@ interface ChatRouteParams {
   conversationId?: string;
   task?: BountyTask;
   initialMode?: 'chat' | 'brief' | 'deliver';
-}
-
-// ── Task banner ───────────────────────────────────────────────────────────
-
-function TaskBanner({
-  task,
-  uploading,
-  onDeliver,
-  onReject,
-}: {
-  task: BountyTask;
-  conversationId: string;
-  uploading: boolean;
-  onDeliver: () => void;
-  onReject: () => void;
-}) {
-  const { colors } = useTheme();
-  const s = useStyles(colors);
-  return (
-    <View style={s.taskBanner}>
-      <View style={s.taskBannerLeft}>
-        <Text style={s.taskLabel}>TASK</Text>
-        <Text style={s.taskDesc} numberOfLines={2}>{task.description}</Text>
-        <Text style={s.taskMeta}>
-          {task.reward}  ·  from {task.fromAgent.length > 12 ? task.fromAgent.slice(0, 8) + '…' : task.fromAgent}
-        </Text>
-      </View>
-      <View style={s.taskBannerActions}>
-        <TouchableOpacity
-          style={s.rejectBtn}
-          onPress={onReject}
-          activeOpacity={0.8}
-        >
-          <Text style={s.rejectText}>REJECT</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[s.deliverBtn, uploading && s.deliverBtnBusy]}
-          onPress={onDeliver}
-          activeOpacity={0.8}
-          disabled={uploading}
-        >
-          <Text style={s.deliverText}>{uploading ? '...' : 'DELIVER'}</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
 }
 
 // ── Agent selector pills ──────────────────────────────────────────────────
