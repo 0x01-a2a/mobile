@@ -13,7 +13,7 @@ jest.mock('../../hooks/useNodeApi', () => ({
 }));
 jest.mock('../../hooks/useAgentBrain', () => ({
   useAgentBrain: () => ({
-    config: { minFeeUsdc: 1.0, minReputation: 50, capabilities: ['code'], llmProvider: 'openai', autoAccept: true },
+    config: { minFeeUsdc: 1.0, minReputation: 50, capabilities: ['code'], provider: 'openai', autoAccept: true },
     loading: false, save: jest.fn(), reload: jest.fn(),
   }),
 }));
