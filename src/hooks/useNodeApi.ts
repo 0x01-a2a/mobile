@@ -2310,10 +2310,19 @@ export function useSentOffers(): {
     }).catch(() => {});
   }, []);
 
+  // Persist to AsyncStorage whenever offers change (after mount)
+  const isMounted = useRef(false);
+  useEffect(() => {
+    if (!isMounted.current) {
+      isMounted.current = true;
+      return; // skip initial load-triggered write
+    }
+    AsyncStorage.setItem(SENT_OFFERS_KEY, JSON.stringify(offers)).catch(() => {});
+  }, [offers]);
+
   const addOffer = useCallback((offer: SentOffer) => {
     setOffers(prev => {
       const next = [offer, ...prev].slice(0, 100);
-      AsyncStorage.setItem(SENT_OFFERS_KEY, JSON.stringify(next)).catch(() => {});
       return filterDisplayOffers(next);
     });
   }, []);
@@ -2327,7 +2336,6 @@ export function useSentOffers(): {
       const next = prev.map(o =>
         o.conversation_id === conversation_id ? { ...o, status, ...extra } : o,
       );
-      AsyncStorage.setItem(SENT_OFFERS_KEY, JSON.stringify(next)).catch(() => {});
       return filterDisplayOffers(next);
     });
   }, []);
