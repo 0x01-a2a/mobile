@@ -320,6 +320,12 @@ export function ChatScreen() {
     params.agentId ?? agents[0]?.id ?? '',
   );
 
+  const [mode, setMode] = useState<'chat' | 'brief' | 'deliver'>(
+    (route.params as any)?.initialMode ?? 'chat',
+  );
+  const [briefText, setBriefText] = useState('');
+  const [deliverText, setDeliverText] = useState('');
+
   // Active task conversations — loaded from AsyncStorage on focus.
   const [activeTasks, setActiveTasks] = useState<TaskEntry[]>([]);
   const [selectedConvId, setSelectedConvId] = useState<string | undefined>(
@@ -617,6 +623,35 @@ export function ChatScreen() {
         onSelect={a => setSelectedAgentId(a.id)}
       />
 
+      {/* Mode pills */}
+      <View style={s.pillRow}>
+        {(['chat', 'brief', 'deliver'] as const).map(m => {
+          const isActive = mode === m;
+          const isDeliver = m === 'deliver';
+          const deliverHighlight = isDeliver && activeTask != null;
+          return (
+            <TouchableOpacity
+              key={m}
+              testID={`pill-${m}`}
+              style={[
+                s.pill,
+                isActive && s.pillActive,
+                !isActive && deliverHighlight && s.pillDeliverHighlight,
+              ]}
+              onPress={() => setMode(m)}
+            >
+              <Text style={[
+                s.pillText,
+                isActive && s.pillTextActive,
+                !isActive && deliverHighlight && s.pillTextDeliverHighlight,
+              ]}>
+                {m.charAt(0).toUpperCase() + m.slice(1)}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
       {/* Task switcher — shows all active bounty tasks when there are multiple */}
       {activeTasks.length > 0 && (
         <ScrollView
@@ -651,77 +686,166 @@ export function ChatScreen() {
         </ScrollView>
       )}
 
-      {/* Task banner — visible when a bounty task is selected */}
-      {activeTask && selectedConvId && (
-        <TaskBanner
-          task={activeTask}
-          conversationId={selectedConvId}
-          uploading={uploading}
-          onDeliver={handleDeliver}
-          onReject={handleReject}
-        />
-      )}
+      {mode === 'chat' && (
+        <>
+          {/* Message list */}
+          <FlatList
+            ref={listRef}
+            data={messages}
+            keyExtractor={m => m.id}
+            renderItem={({ item }) => <Bubble msg={item} />}
+            contentContainerStyle={s.listContent}
+            onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
+            ListEmptyComponent={
+              <View style={s.emptyWrap}>
+                <Text style={s.emptyLine}>  _______ ___</Text>
+                <Text style={s.emptyLine}> |__  / __| _ \___ __ __</Text>
+                <Text style={s.emptyLine}>   / / (__| / / _ \\ V  V /</Text>
+                <Text style={s.emptyLine}>  /___\___|_|_\___/ \_/\_/</Text>
+                <Text style={s.emptyHint}>{'\n'}Agent brain ready.{'\n'}Type a message to begin.</Text>
+                <View style={s.suggestionsWrap}>
+                  {[
+                    'Every morning check my calendar and health, then DCA into SOL if conditions are good',
+                    'Watch my notifications and reply to anything routine automatically',
+                    'When my salary SMS arrives, convert 20% to SOL immediately',
+                    'Check my portfolio balance and tell me how I\'m doing',
+                    'Find agents in China that can help with supplier sourcing',
+                  ].map(suggestion => (
+                    <TouchableOpacity
+                      key={suggestion}
+                      style={s.suggestionChip}
+                      onPress={() => setDraft(suggestion)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={s.suggestionText}>{suggestion}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            }
+            ListFooterComponent={
+              loading ? (
+                <View style={s.thinkingWrap}>
+                  <Text style={s.thinkingText}>[01 Pilot] thinking...</Text>
+                </View>
+              ) : null
+            }
+          />
 
-      {/* Message list */}
-      <FlatList
-        ref={listRef}
-        data={messages}
-        keyExtractor={m => m.id}
-        renderItem={({ item }) => <Bubble msg={item} />}
-        contentContainerStyle={s.listContent}
-        onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
-        ListEmptyComponent={
-          <View style={s.emptyWrap}>
-            <Text style={s.emptyLine}>  _______ ___</Text>
-            <Text style={s.emptyLine}> |__  / __| _ \___ __ __</Text>
-            <Text style={s.emptyLine}>   / / (__| / / _ \\ V  V /</Text>
-            <Text style={s.emptyLine}>  /___\___|_|_\___/ \_/\_/</Text>
-            <Text style={s.emptyHint}>{'\n'}Agent brain ready.{'\n'}Type a message to begin.</Text>
-            <View style={s.suggestionsWrap}>
-              {[
-                'Every morning check my calendar and health, then DCA into SOL if conditions are good',
-                'Watch my notifications and reply to anything routine automatically',
-                'When my salary SMS arrives, convert 20% to SOL immediately',
-                'Check my portfolio balance and tell me how I\'m doing',
-                'Find agents in China that can help with supplier sourcing',
-              ].map(suggestion => (
-                <TouchableOpacity
-                  key={suggestion}
-                  style={s.suggestionChip}
-                  onPress={() => setDraft(suggestion)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={s.suggestionText}>{suggestion}</Text>
+          {/* ZeroClaw error banner */}
+          {error ? (
+            <View style={s.errorBanner}>
+              <Text style={s.errorText}>{error}</Text>
+              <Text style={s.errorHint}>
+                Enable AGENT BRAIN in Settings, then restart the node.
+              </Text>
+            </View>
+          ) : null}
+
+          {/* Upload error banner */}
+          {uploadError ? (
+            <View style={s.errorBanner}>
+              <Text style={s.errorText}>{uploadError}</Text>
+            </View>
+          ) : null}
+
+          {/* Input row */}
+          <View style={s.inputWrap}>
+            {/* Pending image indicator strip */}
+            {pendingImage && !imagePreviewVisible && (
+              <View style={s.pendingImageStrip}>
+                <Image source={{ uri: pendingImage.uri }} style={s.pendingThumb} resizeMode="cover" />
+                <Text style={s.pendingImageLabel}>Image attached</Text>
+                <TouchableOpacity onPress={discardPendingImage} style={s.pendingRemoveBtn}>
+                  <Text style={s.pendingRemoveText}>✕</Text>
                 </TouchableOpacity>
-              ))}
+              </View>
+            )}
+            <View style={s.inputRow}>
+              <TouchableOpacity
+                style={[s.attachBtn, loading && s.sendBtnDisabled]}
+                onPress={pickChatImage}
+                disabled={loading}
+              >
+                <Text style={s.attachBtnText}>📎</Text>
+              </TouchableOpacity>
+              <TextInput
+                style={s.input}
+                value={draft}
+                onChangeText={setDraft}
+                placeholder="Message 01 Pilot..."
+                placeholderTextColor={colors.sub}
+                multiline
+                maxLength={4000}
+                onSubmitEditing={handleSend}
+                blurOnSubmit={false}
+                editable={!loading}
+              />
+              <TouchableOpacity
+                style={[s.sendBtn, ((!draft.trim() && !pendingImage) || loading) && s.sendBtnDisabled]}
+                onPress={handleSend}
+                disabled={(!draft.trim() && !pendingImage) || loading}
+              >
+                <Text style={s.sendBtnText}>{loading ? '…' : '>'}</Text>
+              </TouchableOpacity>
             </View>
           </View>
-        }
-        ListFooterComponent={
-          loading ? (
-            <View style={s.thinkingWrap}>
-              <Text style={s.thinkingText}>[01 Pilot] thinking...</Text>
+        </>
+      )}
+
+      {mode === 'brief' && (
+        <View style={s.briefContainer}>
+          <TextInput
+            style={s.briefInput}
+            placeholder="Describe the task for Aria…"
+            placeholderTextColor="#9ca3af"
+            multiline
+            value={briefText}
+            onChangeText={setBriefText}
+          />
+          <TouchableOpacity
+            style={s.briefStartBtn}
+            onPress={() => {
+              if (!briefText.trim()) return;
+              send(briefText.trim());
+              setBriefText('');
+              setMode('chat');
+            }}
+          >
+            <Text style={s.briefStartBtnText}>Start</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {mode === 'deliver' && (
+        <View style={s.deliverModeContainer}>
+          {activeTask && (
+            <View style={s.deliverTaskCard}>
+              <Text style={s.deliverTaskTitle}>{activeTask.description}</Text>
+              <Text style={s.deliverTaskMeta}>{activeTask.reward} · {activeTask.fromAgent}</Text>
             </View>
-          ) : null
-        }
-      />
-
-      {/* ZeroClaw error banner */}
-      {error ? (
-        <View style={s.errorBanner}>
-          <Text style={s.errorText}>{error}</Text>
-          <Text style={s.errorHint}>
-            Enable AGENT BRAIN in Settings, then restart the node.
-          </Text>
+          )}
+          <TextInput
+            style={s.deliverModeInput}
+            placeholder="Add a delivery note or result summary…"
+            placeholderTextColor="#9ca3af"
+            multiline
+            value={deliverText}
+            onChangeText={setDeliverText}
+          />
+          <View style={s.deliverActions}>
+            <TouchableOpacity
+              style={s.deliverModeBtn}
+              onPress={() => {
+                handleDeliver();
+                setMode('chat');
+              }}
+            >
+              <Text style={s.deliverModeBtnText}>Deliver</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      ) : null}
-
-      {/* Upload error banner */}
-      {uploadError ? (
-        <View style={s.errorBanner}>
-          <Text style={s.errorText}>{uploadError}</Text>
-        </View>
-      ) : null}
+      )}
 
       {/* Bags rate-limit modal */}
       <Modal
@@ -869,47 +993,6 @@ export function ChatScreen() {
         </SafeAreaView>
       </Modal>
 
-      {/* Input row */}
-      <View style={s.inputWrap}>
-        {/* Pending image indicator strip */}
-        {pendingImage && !imagePreviewVisible && (
-          <View style={s.pendingImageStrip}>
-            <Image source={{ uri: pendingImage.uri }} style={s.pendingThumb} resizeMode="cover" />
-            <Text style={s.pendingImageLabel}>Image attached</Text>
-            <TouchableOpacity onPress={discardPendingImage} style={s.pendingRemoveBtn}>
-              <Text style={s.pendingRemoveText}>✕</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-        <View style={s.inputRow}>
-          <TouchableOpacity
-            style={[s.attachBtn, loading && s.sendBtnDisabled]}
-            onPress={pickChatImage}
-            disabled={loading}
-          >
-            <Text style={s.attachBtnText}>📎</Text>
-          </TouchableOpacity>
-          <TextInput
-            style={s.input}
-            value={draft}
-            onChangeText={setDraft}
-            placeholder="Message 01 Pilot..."
-            placeholderTextColor={colors.sub}
-            multiline
-            maxLength={4000}
-            onSubmitEditing={handleSend}
-            blurOnSubmit={false}
-            editable={!loading}
-          />
-          <TouchableOpacity
-            style={[s.sendBtn, ((!draft.trim() && !pendingImage) || loading) && s.sendBtnDisabled]}
-            onPress={handleSend}
-            disabled={(!draft.trim() && !pendingImage) || loading}
-          >
-            <Text style={s.sendBtnText}>{loading ? '…' : '>'}</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
       </View>
     </KeyboardAvoidingView>
   );
@@ -1016,5 +1099,27 @@ function useStyles(colors: ThemeColors, isTablet = false) {
   modalCancelText: { color: colors.sub, fontFamily: 'monospace', fontSize: 11 },
   modalSave: { backgroundColor: colors.green, borderRadius: 3, paddingHorizontal: 18, paddingVertical: 10 },
   modalSaveText: { color: '#000', fontFamily: 'monospace', fontSize: 11, fontWeight: '700', letterSpacing: 1 },
+  // mode pills
+  pillRow: { flexDirection: 'row', gap: 4, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
+  pill: { borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
+  pillActive: { backgroundColor: '#111', borderColor: '#111' },
+  pillDeliverHighlight: { backgroundColor: '#fffbeb', borderColor: '#fbbf24' },
+  pillText: { fontSize: 10, color: '#6b7280' },
+  pillTextActive: { color: '#fff', fontWeight: '500' },
+  pillTextDeliverHighlight: { color: '#b45309' },
+  // brief mode
+  briefContainer: { flex: 1, padding: 16, gap: 12 },
+  briefInput: { flex: 1, backgroundColor: '#f9fafb', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 12, padding: 14, fontSize: 13, color: '#111', textAlignVertical: 'top' },
+  briefStartBtn: { backgroundColor: '#111', borderRadius: 10, padding: 14, alignItems: 'center' as const },
+  briefStartBtnText: { fontSize: 13, color: '#fff', fontWeight: '600' as const },
+  // deliver mode
+  deliverModeContainer: { flex: 1, padding: 16, gap: 12 },
+  deliverTaskCard: { backgroundColor: '#f9fafb', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#e5e7eb' },
+  deliverTaskTitle: { fontSize: 12, color: '#111', fontWeight: '500' as const, marginBottom: 4 },
+  deliverTaskMeta: { fontSize: 10, color: '#9ca3af' },
+  deliverModeInput: { flex: 1, backgroundColor: '#f9fafb', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 12, padding: 14, fontSize: 13, color: '#111', textAlignVertical: 'top' },
+  deliverActions: { gap: 8 },
+  deliverModeBtn: { backgroundColor: '#111', borderRadius: 10, padding: 14, alignItems: 'center' as const },
+  deliverModeBtnText: { fontSize: 13, color: '#fff', fontWeight: '600' as const },
   }), [colors]);
 }
