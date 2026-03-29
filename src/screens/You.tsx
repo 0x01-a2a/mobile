@@ -749,20 +749,22 @@ function SettingsTab() {
   return (
     <ScrollView style={s.tabContent}>
       {/* Language */}
-      <View style={s.settingsRow}>
-        <Text style={s.settingsLabel}>{t('you.language')}</Text>
-        <View style={s.langPills}>
-          {(['en', 'zh-CN'] as const).map(lang => (
-            <TouchableOpacity
-              key={lang}
-              style={[s.langPill, currentLang === lang && s.langPillActive]}
-              onPress={() => handleLanguageChange(lang)}
-            >
-              <Text style={[s.langPillText, currentLang === lang && s.langPillTextActive]}>
-                {lang === 'en' ? t('you.langEnglish') : t('you.langChinese')}
-              </Text>
-            </TouchableOpacity>
-          ))}
+      <Text style={s.settingsSectionLabel}>{t('you.language').toUpperCase()}</Text>
+      <View style={s.settingsCard}>
+        <View style={s.settingsRow}>
+          <View style={s.langPills}>
+            {(['en', 'zh-CN'] as const).map(lang => (
+              <TouchableOpacity
+                key={lang}
+                style={[s.langPill, currentLang === lang && s.langPillActive]}
+                onPress={() => handleLanguageChange(lang)}
+              >
+                <Text style={[s.langPillText, currentLang === lang && s.langPillTextActive]}>
+                  {lang === 'en' ? t('you.langEnglish') : t('you.langChinese')}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
       </View>
 
