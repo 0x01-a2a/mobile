@@ -172,7 +172,7 @@ export default function InboxScreen() {
       payload_b64: '',
     });
     if (!ok) {
-      Alert.alert(t('common.error'), 'Failed to accept job. Try again.');
+      Alert.alert(t('common.error'), t('inbox.acceptError'));
       return;
     }
     setBounties(prev => prev.filter(b => b.conversationId !== card.conversationId));

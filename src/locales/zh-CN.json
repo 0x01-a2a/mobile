@@ -463,7 +463,8 @@
     "sending": "发送中…",
     "sendOfferError": "发送报价失败，请重试。",
     "paymentFailed": "无法购买代币，请重试。",
-    "manualPayment": "请在钱包中完成代币购买。"
+    "manualPayment": "请在钱包中完成代币购买。",
+    "acceptError": "接受任务失败，请重试。"
   },
   "you": {
     "title": "我的",
