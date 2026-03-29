@@ -17,6 +17,7 @@ import { initI18n } from './src/i18n';
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext';
 import { useScreenActionListener } from './src/hooks/useScreenActions';
 import { ScreenActionConfirmModal } from './src/components/ScreenActionConfirmModal';
+import { useIdentity, useOwnReel } from './src/hooks/useNodeApi';
 
 // ── Error boundary ────────────────────────────────────────────────────────────
 // Catches uncaught render errors so the app shows a recovery screen instead
@@ -66,6 +67,16 @@ function ScreenActionGate() {
   return <ScreenActionConfirmModal />;
 }
 
+/**
+ * Polls own agent's reel URL and saves newly generated reels to the camera roll.
+ * Renders nothing — side-effect only.
+ */
+function ReelWatcher() {
+  const identity = useIdentity();
+  useOwnReel(identity?.agent_id ?? null);
+  return null;
+}
+
 export default function App() {
   const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null);
   const [i18nReady, setI18nReady] = useState(false);
@@ -109,6 +120,7 @@ export default function App() {
               <NodeProvider>
                 <AppNavigator />
                 <ScreenActionGate />
+                <ReelWatcher />
               </NodeProvider>
             </NavigationContainer>
           </SignOutContext.Provider>
