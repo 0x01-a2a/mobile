@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { launchImageLibrary } from 'react-native-image-picker';
+import { useTranslation } from 'react-i18next';
 import { useNode } from '../hooks/useNode';
 import { NodeModule } from '../native/NodeModule';
 import { useAgentBrain, saveLlmApiKey } from '../hooks/useAgentBrain';
@@ -15,6 +16,7 @@ import {
 } from '../hooks/useNodeApi';
 import { useSignOut } from '../../App';
 import { DEFAULT_AGENT_ICON_URI } from '../assets/defaultAgentIcon';
+import { setLanguage } from '../i18n';
 
 const COLD_WALLET_KEY = 'zerox1:cold_wallet';
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
@@ -35,20 +37,23 @@ function isToday(tsSeconds: number): boolean {
 
 export default function YouScreen() {
   const [tab, setTab] = useState<SubTab>('Wallet');
+  const { t } = useTranslation();
 
   return (
     <View style={s.root}>
       {/* Header */}
       <View style={s.header}>
-        <Text style={s.title}>You</Text>
+        <Text style={s.title}>{t('you.title')}</Text>
         <View style={s.segmented}>
-          {(['Wallet', 'Agent', 'Settings'] as SubTab[]).map(t => (
+          {(['Wallet', 'Agent', 'Settings'] as SubTab[]).map(tabKey => (
             <TouchableOpacity
-              key={t}
-              style={[s.segment, tab === t && s.segmentActive]}
-              onPress={() => setTab(t)}
+              key={tabKey}
+              style={[s.segment, tab === tabKey && s.segmentActive]}
+              onPress={() => setTab(tabKey)}
             >
-              <Text style={[s.segmentText, tab === t && s.segmentTextActive]}>{t}</Text>
+              <Text style={[s.segmentText, tab === tabKey && s.segmentTextActive]}>
+                {tabKey === 'Wallet' ? t('you.tabWallet') : tabKey === 'Agent' ? t('you.tabAgent') : t('you.tabSettings')}
+              </Text>
             </TouchableOpacity>
           ))}
         </View>
@@ -64,6 +69,7 @@ export default function YouScreen() {
 // ── Wallet Tab ─────────────────────────────────────────────────────────────────
 
 function WalletTab() {
+  const { t } = useTranslation();
   const { tokens, solanaAddress, loading } = useHotKeyBalance();
   const { entries: taskEntries } = useTaskLog();
   const [coldWallet, setColdWallet] = useState<string | null>(null);
@@ -105,7 +111,7 @@ function WalletTab() {
     } catch (e: any) {
       const msg: string = e?.message ?? '';
       if (msg.includes('No wallet') || msg.includes('not found') || msg.includes('SolanaMobileWalletAdapterWalletNotInstalledError')) {
-        Alert.alert('Phantom not installed', 'Install Phantom from the Play Store, then try again.');
+        Alert.alert(t('you.phantomNotInstalled'), t('you.phantomInstallHint'));
       }
     } finally {
       setPhantomConnecting(false);
@@ -113,8 +119,8 @@ function WalletTab() {
   }, []);
 
   const handleUnlinkWallet = useCallback(() => {
-    Alert.alert('Unlink cold wallet', 'Remove linked cold wallet?', [
-      { text: 'Cancel', style: 'cancel' },
+    Alert.alert(t('you.unlinkColdWallet'), t('you.unlinkConfirm'), [
+      { text: t('common.cancel'), style: 'cancel' },
       { text: 'Unlink', style: 'destructive', onPress: async () => {
         await AsyncStorage.removeItem(COLD_WALLET_KEY);
         setColdWallet(null);
@@ -159,18 +165,18 @@ function WalletTab() {
     if (!coldWallet) return;
     const sweepAmount = solBalance - 0.01;
     Alert.alert(
-      'Sweep SOL',
-      `Send ~${sweepAmount.toFixed(4)} SOL to ${coldWallet.slice(0, 8)}…?\n\n0.01 SOL stays in the hot wallet for fees.`,
+      t('you.sweepConfirmTitle'),
+      t('you.sweepConfirmBody', { amount: sweepAmount.toFixed(4), dest: `${coldWallet.slice(0, 8)}…` }),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Sweep', style: 'destructive', onPress: async () => {
+          text: t('you.sweep'), style: 'destructive', onPress: async () => {
             setSweeping(true);
             try {
               const result = await sweepSol(coldWallet, solBalance);
-              Alert.alert('Swept', `${result.amount_sol.toFixed(4)} SOL sent.`);
+              Alert.alert(t('you.swept'), t('you.sweptBody', { amount: result.amount_sol.toFixed(4) }));
             } catch (e: any) {
-              Alert.alert('Error', e?.message ?? 'Sweep failed. Check node connection.');
+              Alert.alert(t('common.error'), e?.message ?? t('you.sweepError'));
             } finally {
               setSweeping(false);
             }
@@ -184,10 +190,10 @@ function WalletTab() {
     <ScrollView style={s.tabContent}>
       {/* Balance hero */}
       <View style={s.balanceHero}>
-        <Text style={s.balanceLabel}>HOLDINGS</Text>
+        <Text style={s.balanceLabel}>{t('you.holdings')}</Text>
         <Text style={s.balanceAmount}>{loading ? '—' : fmt(totalUsd)}</Text>
         {earnedToday > 0 && (
-          <Text style={s.balanceDelta}>↑ {fmt(earnedToday)} earned today</Text>
+          <Text style={s.balanceDelta}>↑ {fmt(earnedToday)} {t('you.earnedToday')}</Text>
         )}
         {!loading && tokens.length > 0 && (
           <View style={s.holdingsRow}>
@@ -213,7 +219,7 @@ function WalletTab() {
       {/* Address card */}
       <View style={s.addressCard}>
         <View style={s.addressRow}>
-          <Text style={s.addressLabel}>Hot wallet</Text>
+          <Text style={s.addressLabel}>{t('you.hotWallet')}</Text>
           <Text style={s.addressValue} numberOfLines={1}>
             {solanaAddress ? `${solanaAddress.slice(0, 4)}…${solanaAddress.slice(-4)}` : '—'}
           </Text>
@@ -223,7 +229,7 @@ function WalletTab() {
           style={s.addressRow}
           onPress={coldWallet ? handleUnlinkWallet : () => setLinkWalletVisible(true)}
         >
-          <Text style={s.addressLabel}>Cold wallet</Text>
+          <Text style={s.addressLabel}>{t('you.coldWallet')}</Text>
           {coldWallet ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <View style={s.greenDot} />
@@ -232,7 +238,7 @@ function WalletTab() {
               </Text>
             </View>
           ) : (
-            <Text style={[s.addressValueMuted, { color: '#374151' }]}>Link ›</Text>
+            <Text style={[s.addressValueMuted, { color: '#374151' }]}>{t('you.linkWallet')}</Text>
           )}
         </TouchableOpacity>
       </View>
@@ -244,20 +250,20 @@ function WalletTab() {
           onPress={handleSweep}
           disabled={!coldWallet || solBalance <= SOL_SWEEP_MIN || sweeping}
         >
-          <Text style={s.sweepBtnText}>{sweeping ? 'Sweeping…' : '→ Sweep SOL'}</Text>
+          <Text style={s.sweepBtnText}>{sweeping ? t('you.sweeping') : t('you.sweepSol')}</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={s.historyBtn}
           onPress={() => setHistoryVisible(true)}
         >
-          <Text style={s.historyBtnText}>History</Text>
+          <Text style={s.historyBtnText}>{t('you.history')}</Text>
         </TouchableOpacity>
       </View>
 
       {/* Recent */}
-      <Text style={[s.sectionLabel, { paddingHorizontal: 16, paddingTop: 16 }]}>RECENT</Text>
+      <Text style={[s.sectionLabel, { paddingHorizontal: 16, paddingTop: 16 }]}>{t('you.recent')}</Text>
       {recentHistory.length === 0 && (
-        <Text style={s.emptyText}>No transactions yet</Text>
+        <Text style={s.emptyText}>{t('you.noTransactions')}</Text>
       )}
       {recentHistory.map((entry, i) => (
         <View key={entry.id} style={[s.txRow, i < recentHistory.length - 1 && s.txRowBorder]}>
@@ -275,15 +281,13 @@ function WalletTab() {
       <Modal visible={linkWalletVisible} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setLinkWalletVisible(false)}>
         <View style={s.modalRoot}>
           <View style={s.modalHeader}>
-            <Text style={s.modalTitle}>Link cold wallet</Text>
+            <Text style={s.modalTitle}>{t('you.linkColdWallet')}</Text>
             <TouchableOpacity onPress={() => setLinkWalletVisible(false)}>
               <Text style={s.modalClose}>✕</Text>
             </TouchableOpacity>
           </View>
           <View style={{ padding: 16, gap: 14 }}>
-            <Text style={s.settingsHint}>
-              Your cold wallet is receive-only — earnings are swept here. No signing required, just the public address.
-            </Text>
+            <Text style={s.settingsHint}>{t('you.coldWalletHint')}</Text>
 
             {/* Wallet app option */}
             <TouchableOpacity
@@ -293,9 +297,9 @@ function WalletTab() {
             >
               <View>
                 <Text style={s.walletOptionLabel}>
-                  {phantomConnecting ? 'Connecting…' : 'Open Phantom'}
+                  {phantomConnecting ? t('you.connecting') : t('you.openPhantom')}
                 </Text>
-                <Text style={s.settingsHint}>Connect your wallet and import your address</Text>
+                <Text style={s.settingsHint}>{t('you.connectHint')}</Text>
               </View>
               <Text style={s.settingsValue}>{phantomConnecting ? '…' : '↗'}</Text>
             </TouchableOpacity>
@@ -314,7 +318,7 @@ function WalletTab() {
                 style={s.advancedInput}
                 value={walletInput}
                 onChangeText={setWalletInput}
-                placeholder="Solana address or .sol domain"
+                placeholder={t('you.walletInputPlaceholder')}
                 placeholderTextColor="#d1d5db"
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -336,7 +340,7 @@ function WalletTab() {
       <Modal visible={historyVisible} animationType="slide" onRequestClose={() => setHistoryVisible(false)}>
         <View style={s.modalRoot}>
           <View style={s.modalHeader}>
-            <Text style={s.modalTitle}>Transaction History</Text>
+            <Text style={s.modalTitle}>{t('you.transactionHistory')}</Text>
             <TouchableOpacity onPress={() => setHistoryVisible(false)}>
               <Text style={s.modalClose}>✕</Text>
             </TouchableOpacity>
@@ -357,7 +361,7 @@ function WalletTab() {
                 </Text>
               </View>
             )}
-            ListEmptyComponent={<Text style={s.emptyText}>No history yet</Text>}
+            ListEmptyComponent={<Text style={s.emptyText}>{t('you.noHistory')}</Text>}
             contentContainerStyle={{ padding: 16 }}
           />
         </View>
@@ -375,6 +379,7 @@ const PRESET_CAPS: Capability[] = ['summarization', 'qa', 'translation', 'code_r
 // ── Agent Tab ──────────────────────────────────────────────────────────────────
 
 function AgentTab() {
+  const { t } = useTranslation();
   const { status, config: nodeConfig, saveConfig, stop, start } = useNode();
   const { config, save, loading } = useAgentBrain();
   const isRunning = status === 'running';
@@ -418,8 +423,8 @@ function AgentTab() {
 
   const handleAddCap = () => {
     const available = PRESET_CAPS.filter(c => !caps.includes(c));
-    if (available.length === 0) { Alert.alert('All capabilities added'); return; }
-    Alert.alert('Add capability', 'Choose:', [
+    if (available.length === 0) { Alert.alert(t('you.allCapsAdded')); return; }
+    Alert.alert(t('you.addCapability'), t('you.chooseCapability'), [
       ...available.map(cap => ({ text: cap, onPress: () => setCaps(prev => [...prev, cap]) })),
       { text: 'Cancel', style: 'cancel' },
     ]);
@@ -452,7 +457,7 @@ function AgentTab() {
         try { await start(updatedNodeConfig); } catch { /* ignore */ }
       }
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'Failed to save.');
+      Alert.alert(t('common.error'), e?.message ?? t('you.saveError'));
     } finally {
       setSaving(false);
     }
@@ -476,13 +481,13 @@ function AgentTab() {
             style={s.agentNameInput}
             value={nameInput}
             onChangeText={setNameInput}
-            placeholder="Agent name"
+            placeholder={t('you.agentNamePlaceholder')}
             placeholderTextColor="#d1d5db"
             maxLength={32}
             returnKeyType="done"
           />
           <Text style={s.agentStatusText}>
-            {isRunning ? '● Active' : '○ Offline'}
+            {isRunning ? t('you.agentActive') : t('you.agentOffline')}
           </Text>
         </View>
       </View>
@@ -491,8 +496,8 @@ function AgentTab() {
       <View style={s.ruleRows}>
         <View style={s.ruleRow}>
           <View>
-            <Text style={s.ruleLabel}>Auto-accept above</Text>
-            <Text style={s.ruleHint}>Jobs under threshold need approval</Text>
+            <Text style={s.ruleLabel}>{t('you.autoAcceptAbove')}</Text>
+            <Text style={s.ruleHint}>{t('you.autoAcceptHint')}</Text>
           </View>
           <TextInput
             style={s.ruleInput}
@@ -503,7 +508,7 @@ function AgentTab() {
           />
         </View>
         <View style={[s.ruleRow, s.ruleRowBorder]}>
-          <Text style={s.ruleLabel}>Min reputation</Text>
+          <Text style={s.ruleLabel}>{t('you.minReputation')}</Text>
           <TextInput
             style={s.ruleInput}
             value={minRep}
@@ -513,7 +518,7 @@ function AgentTab() {
           />
         </View>
         <View style={[s.ruleRow, s.ruleRowBorder, { flexDirection: 'column', alignItems: 'flex-start', gap: 8 }]}>
-          <Text style={s.ruleLabel}>Capabilities</Text>
+          <Text style={s.ruleLabel}>{t('you.capabilities')}</Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
             {caps.map(cap => (
               <TouchableOpacity key={cap} style={s.capPill} onPress={() => setCaps(prev => prev.filter(c => c !== cap))}>
@@ -534,7 +539,7 @@ function AgentTab() {
           onPress={handleSave}
           disabled={!isDirty || saving}
         >
-          <Text style={s.saveBtnText}>{saving ? 'Saving…' : 'Save changes'}</Text>
+          <Text style={s.saveBtnText}>{saving ? t('you.saving') : t('you.save')}</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>
@@ -700,9 +705,15 @@ const SIGN_OUT_KEYS = [
 ];
 
 function SettingsTab() {
+  const { t, i18n } = useTranslation();
+  const currentLang = i18n.language;
   const signOut = useSignOut();
   const { config, saveConfig, autoStart, setAutoStart, backgroundNode, setBackgroundNode, status, stop, start } = useNode();
   const [advancedVisible, setAdvancedVisible] = useState(false);
+
+  const handleLanguageChange = useCallback(async (lang: string) => {
+    await setLanguage(lang);
+  }, []);
 
   const applyAndRestart = useCallback(async (updated: typeof config) => {
     await saveConfig(updated!);
@@ -721,8 +732,8 @@ function SettingsTab() {
   }, [setBackgroundNode]);
 
   const handleSignOut = useCallback(() => {
-    Alert.alert('Sign out', 'Clear all data and return to onboarding?', [
-      { text: 'Cancel', style: 'cancel' },
+    Alert.alert(t('you.signOut'), t('you.signOutBody'), [
+      { text: t('common.cancel'), style: 'cancel' },
       {
         text: 'Sign out', style: 'destructive', onPress: async () => {
           await AsyncStorage.multiRemove(SIGN_OUT_KEYS);
@@ -734,6 +745,24 @@ function SettingsTab() {
 
   return (
     <ScrollView style={s.tabContent}>
+      {/* Language */}
+      <View style={s.settingsRow}>
+        <Text style={s.settingsLabel}>{t('you.language')}</Text>
+        <View style={s.langPills}>
+          {(['en', 'zh-CN'] as const).map(lang => (
+            <TouchableOpacity
+              key={lang}
+              style={[s.langPill, currentLang === lang && s.langPillActive]}
+              onPress={() => handleLanguageChange(lang)}
+            >
+              <Text style={[s.langPillText, currentLang === lang && s.langPillTextActive]}>
+                {lang === 'en' ? t('you.langEnglish') : t('you.langChinese')}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+
       {/* Preferences */}
       <Text style={s.settingsSectionLabel}>PREFERENCES</Text>
       <View style={s.settingsCard}>
@@ -1345,4 +1374,10 @@ const s = StyleSheet.create({
   updateBtnText: { fontSize: 10, color: '#fff', fontWeight: '600' },
   progressTrack: { height: 3, backgroundColor: '#f3f4f6', borderRadius: 2, overflow: 'hidden' },
   progressFill: { height: 3, backgroundColor: '#22c55e', borderRadius: 2 },
+
+  langPills: { flexDirection: 'row', gap: 6 },
+  langPill: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, backgroundColor: '#f3f4f6' },
+  langPillActive: { backgroundColor: '#111' },
+  langPillText: { fontSize: 11, color: '#6b7280', fontWeight: '600' },
+  langPillTextActive: { color: '#fff' },
 });
