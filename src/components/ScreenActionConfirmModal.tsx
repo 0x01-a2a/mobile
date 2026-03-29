@@ -15,8 +15,8 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   usePendingScreenActions,
   useConfirmScreenAction,
@@ -24,6 +24,7 @@ import {
 } from '../hooks/useScreenActions';
 
 export function ScreenActionConfirmModal() {
+  const insets = useSafeAreaInsets();
   const queue = usePendingScreenActions();
   const confirm = useConfirmScreenAction();
 
@@ -42,7 +43,7 @@ export function ScreenActionConfirmModal() {
       onRequestClose={() => confirm(action.id, false)}
     >
       <View style={s.backdrop}>
-        <View style={s.sheet}>
+        <View style={[s.sheet, { paddingBottom: insets.bottom + 20 }]}>
           <View style={s.header}>
             <Text style={s.title}>AGENT ACTION REQUEST</Text>
             {remaining > 0 && (
@@ -94,7 +95,7 @@ const s = StyleSheet.create({
     borderTopColor: '#ffc107',
     paddingHorizontal: 20,
     paddingTop: 20,
-    paddingBottom: Platform.OS === 'ios' ? 36 : 20,
+    paddingBottom: 20,
     gap: 12,
   },
   header: {

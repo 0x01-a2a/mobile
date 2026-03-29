@@ -3,6 +3,7 @@ import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert,
   TextInput, Modal,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
@@ -81,6 +82,7 @@ function envelopeToCard(env: InboundEnvelope): BountyCard | null {
 }
 
 export default function InboxScreen() {
+  const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const { t } = useTranslation();
   const { config: brain } = useAgentBrain();
@@ -292,7 +294,7 @@ export default function InboxScreen() {
     <>
       <ScrollView style={s.root}>
         {/* ── Subtab selector ── */}
-        <View style={s.subtabRow}>
+        <View style={[s.subtabRow, { paddingTop: insets.top + 12 }]}>
           {(['offers', 'hire', 'active'] as const).map(tab => {
             const tabLabels = {
               offers: t('inbox.tabOffers'),
@@ -687,7 +689,8 @@ const s = StyleSheet.create({
 
   // ── Subtabs ──────────────────────────────────────────────────────────────
   subtabRow: {
-    flexDirection: 'row', gap: 6, padding: 12, paddingBottom: 6,
+    flexDirection: 'row', gap: 6,
+    paddingHorizontal: 12, paddingBottom: 6,
     borderBottomWidth: 1, borderBottomColor: '#f3f4f6',
   },
   subtabPill: {

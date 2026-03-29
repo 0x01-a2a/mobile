@@ -5,7 +5,7 @@
  * Agent selector pills are shown when the user owns more than one agent.
  */
 import { useTheme, ThemeColors } from '../theme/ThemeContext';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
@@ -14,7 +14,6 @@ import {
   KeyboardAvoidingView,
   Modal,
   Platform,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,

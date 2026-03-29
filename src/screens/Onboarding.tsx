@@ -9,6 +9,7 @@
  *   5 — Token choice (optional token launch)
  *   6 — Launch (node start + optional token + key backup)
  */
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLayout } from '../hooks/useLayout';
 import { useTranslation } from 'react-i18next';
 import React, { useState, useEffect } from 'react';
@@ -113,13 +114,14 @@ function StepShell({
   total?: number;
 }) {
   const { isTablet, contentHPad } = useLayout();
+  const insets = useSafeAreaInsets();
   return (
     <KeyboardAvoidingView
       style={s.root}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView
-        contentContainerStyle={[s.content, isTablet && s.contentTablet]}
+        contentContainerStyle={[s.content, isTablet && s.contentTablet, { paddingTop: insets.top + 28 }]}
         keyboardShouldPersistTaps="handled"
       >
         <View style={{ paddingHorizontal: contentHPad }}>
@@ -1057,7 +1059,7 @@ function LaunchSuccessStep({
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
-  content: { padding: 28, paddingTop: 56, paddingBottom: 48 },
+  content: { padding: 28, paddingBottom: 48 },
   contentTablet: { padding: 48, paddingTop: 64, paddingBottom: 64 },
 
   progressRow: { flexDirection: 'row', gap: 6, marginBottom: 36 },
