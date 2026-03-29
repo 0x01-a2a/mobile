@@ -9,6 +9,9 @@ jest.mock('../../hooks/useNodeApi', () => ({
     loading: false, solanaAddress: '7f3aBcDefg...', error: null,
   }),
   useTaskLog: () => ({ entries: [], loading: false, reload: jest.fn() }),
+  useSolPrice: () => 150,
+  useDexPrices: () => new Map([['EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', { priceUsd: 1.0, symbol: 'USDC' }]]),
+  useSkills: () => ({ skills: [], loading: false, reload: jest.fn() }),
   sweepSol: jest.fn().mockResolvedValue({ signature: 'abc', amount_sol: 0.5, amount_lamports: 500_000_000, destination: '9Abc' }),
 }));
 jest.mock('../../hooks/useAgentBrain', () => ({
@@ -16,6 +19,15 @@ jest.mock('../../hooks/useAgentBrain', () => ({
     config: { minFeeUsdc: 1.0, minReputation: 50, capabilities: ['code'], provider: 'openai', autoAccept: true },
     loading: false, save: jest.fn(), reload: jest.fn(),
   }),
+  PROVIDERS: [
+    { key: 'openai', label: 'OpenAI', model: 'gpt-4o-mini', hint: 'platform.openai.com' },
+    { key: 'anthropic', label: 'Anthropic', model: 'claude-3-haiku', hint: 'console.anthropic.com' },
+    { key: 'gemini', label: 'Gemini', model: 'gemini-2.0-flash', hint: 'aistudio.google.com' },
+    { key: 'custom', label: 'Custom', model: '', hint: 'your provider' },
+  ],
+  ALL_CAPABILITIES: ['summarization', 'qa', 'translation', 'code_review', 'data_analysis'],
+  saveLlmApiKey: jest.fn().mockResolvedValue(undefined),
+  getLlmApiKey: jest.fn().mockResolvedValue(null),
 }));
 jest.mock('../../hooks/useNode', () => ({
   useNode: () => ({ status: 'running', config: { agentName: 'Aria' } }),
@@ -26,6 +38,9 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 }));
 jest.mock('../../../App', () => ({
   useSignOut: () => jest.fn(),
+}));
+jest.mock('../../i18n', () => ({
+  setLanguage: jest.fn(),
 }));
 
 function wrap(ui: React.ReactElement) {
@@ -46,9 +61,9 @@ describe('YouScreen — Wallet tab', () => {
 
 describe('YouScreen — Agent tab', () => {
   it('shows agent name on Agent tab', () => {
-    const { getByText } = wrap(<YouScreen />);
+    const { getByText, getByDisplayValue } = wrap(<YouScreen />);
     fireEvent.press(getByText('Agent'));
-    expect(getByText('Aria')).toBeTruthy();
+    expect(getByDisplayValue('Aria')).toBeTruthy();
   });
 });
 
