@@ -12,4 +12,5 @@ module.exports = {
     'react-native-localize':     require.resolve('./__mocks__/react-native-localize.js'),
   },
   setupFilesAfterEnv: ['./jest.setup.js'],
+  testPathIgnorePatterns: ['/node_modules/', '/.claude/'],
 };
