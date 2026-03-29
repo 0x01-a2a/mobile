@@ -517,26 +517,26 @@ export function ChatScreen() {
   const handleDeliver = useCallback(() => {
     if (!selectedConvId) return;
     Alert.alert(
-      'Deliver task',
-      'How to deliver:',
+      t('chat.deliverTaskTitle'),
+      t('chat.deliverTaskHow'),
       [
-        { text: 'Text Result', onPress: () => setTextDeliverVisible(true) },
-        { text: 'Take Photo', onPress: () => pickAndDeliver('camera') },
-        { text: 'From Gallery', onPress: () => pickAndDeliver('gallery') },
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('chat.deliverTextResult'), onPress: () => setTextDeliverVisible(true) },
+        { text: t('chat.deliverTakePhoto'), onPress: () => pickAndDeliver('camera') },
+        { text: t('chat.deliverFromGallery'), onPress: () => pickAndDeliver('gallery') },
+        { text: t('common.cancel'), style: 'cancel' },
       ],
     );
-  }, [selectedConvId, pickAndDeliver]);
+  }, [selectedConvId, pickAndDeliver, t]);
 
   const handleReject = useCallback(() => {
     if (!selectedConvId) return;
     Alert.alert(
-      'Reject task',
-      'Send REJECT and remove this task from your active list?',
+      t('chat.rejectTaskTitle'),
+      t('chat.rejectTaskBody'),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'REJECT',
+          text: t('chat.reject'),
           style: 'destructive',
           onPress: async () => {
             await sendEnvelope({
@@ -556,7 +556,7 @@ export function ChatScreen() {
         },
       ],
     );
-  }, [selectedConvId, activeTask]);
+  }, [selectedConvId, activeTask, t]);
 
   return (
     <KeyboardAvoidingView
