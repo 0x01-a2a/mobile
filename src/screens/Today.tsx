@@ -44,12 +44,12 @@ function fmtRate(pct: number): string {
   return `${sign}${pct.toFixed(1)}%`;
 }
 
-function seasonCountdown(endsAt: number): string {
+function seasonCountdown(endsAt: number, t: (key: string, opts?: any) => string): string {
   const days = Math.ceil((endsAt * 1000 - Date.now()) / 86_400_000);
-  if (days >= 2) return `Season ends in ${days}d`;
-  if (days === 1) return 'Season ends tomorrow';
-  if (days === 0) return 'Season ends today';
-  return 'Season ended';
+  if (days >= 2) return t('today.seasonEndsIn', { count: days });
+  if (days === 1) return t('today.seasonEndsTomorrow');
+  if (days === 0) return t('today.seasonEndsToday');
+  return t('today.seasonEnded');
 }
 
 export default function TodayScreen() {
@@ -91,7 +91,7 @@ export default function TodayScreen() {
           <View style={s.heroInfo}>
             <Text style={s.agentName}>{agentName}</Text>
             <Text style={s.agentStatus}>
-              {isRunning ? `● ${t('today.statusWorking')}` : `○ ${t('today.statusIdle')}`}
+              {isRunning ? t('today.statusWorking') : t('today.statusIdle')}
             </Text>
           </View>
         </View>
@@ -120,7 +120,7 @@ export default function TodayScreen() {
           style={s.actionBtn}
           onPress={() => navigation.navigate('Inbox')}
         >
-          <Text style={s.actionText}>◈ Inbox</Text>
+          <Text style={s.actionText}>◈ {t('nav.inbox')}</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[s.actionBtn, s.actionBtnPrimary]}
@@ -173,7 +173,7 @@ export default function TodayScreen() {
         <View style={s.section}>
           <View style={s.leagueHeader}>
             <Text style={s.sectionLabel}>{t('today.earningsLeague')}</Text>
-            <Text style={s.leagueCountdown}>{seasonCountdown(leagueData.ends_at)}</Text>
+            <Text style={s.leagueCountdown}>{seasonCountdown(leagueData.ends_at, t)}</Text>
           </View>
           {leagueData.leaderboard.slice(0, 5).map((entry) => {
             const isYou =
