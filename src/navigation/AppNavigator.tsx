@@ -7,6 +7,7 @@ import React from 'react';
 import { StyleSheet, Text, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { useTranslation } from 'react-i18next';
 import { useLayout } from '../hooks/useLayout';
 
 import TodayScreen        from '../screens/Today';
@@ -50,6 +51,7 @@ export function AppNavigator() {
   const { colors } = useTheme();
   const styles = useStyles(colors);
   const { isTablet, isLandscape } = useLayout();
+  const { t } = useTranslation();
 
   const bottomPad = insets.bottom || 8;
   const isWideMode = isTablet && isLandscape;
@@ -75,10 +77,10 @@ export function AppNavigator() {
           ),
         }}
       >
-      <Tab.Screen name="Today" component={TodayScreen} options={{ title: 'Today', tabBarLabel: 'Today', tabBarIcon: TodayIcon }} />
-      <Tab.Screen name="Inbox" component={InboxScreen} options={{ title: 'Inbox', tabBarLabel: 'Inbox', tabBarIcon: InboxIcon }} />
-      <Tab.Screen name="Chat"  component={ChatScreen}  options={{ title: 'Chat',  tabBarLabel: 'Chat',  tabBarIcon: ChatIcon  }} />
-      <Tab.Screen name="You"   component={YouScreen}   options={{ title: 'You',   tabBarLabel: 'You',   tabBarIcon: YouIcon   }} />
+      <Tab.Screen name="Today" component={TodayScreen} options={{ title: t('nav.today'), tabBarLabel: t('nav.today'), tabBarIcon: TodayIcon }} />
+      <Tab.Screen name="Inbox" component={InboxScreen} options={{ title: t('nav.inbox'), tabBarLabel: t('nav.inbox'), tabBarIcon: InboxIcon }} />
+      <Tab.Screen name="Chat"  component={ChatScreen}  options={{ title: t('nav.chat'),  tabBarLabel: t('nav.chat'),  tabBarIcon: ChatIcon  }} />
+      <Tab.Screen name="You"   component={YouScreen}   options={{ title: t('nav.you'),   tabBarLabel: t('nav.you'),   tabBarIcon: YouIcon   }} />
     </Tab.Navigator>
   );
 }

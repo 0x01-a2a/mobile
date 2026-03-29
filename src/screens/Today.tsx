@@ -3,6 +3,7 @@ import {
   View, Text, TouchableOpacity, ScrollView, StyleSheet, Image, Modal,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { useTranslation } from 'react-i18next';
 import { useNode } from '../hooks/useNode';
 import { useTaskLog, useSkrLeague } from '../hooks/useNodeApi';
 import { DEFAULT_AGENT_ICON_URI } from '../assets/defaultAgentIcon';
@@ -53,6 +54,7 @@ function seasonCountdown(endsAt: number): string {
 
 export default function TodayScreen() {
   const navigation = useNavigation<any>();
+  const { t } = useTranslation();
   const { status, config } = useNode();
   const { entries, loading } = useTaskLog();
   const { data: leagueData } = useSkrLeague();
@@ -89,18 +91,18 @@ export default function TodayScreen() {
           <View style={s.heroInfo}>
             <Text style={s.agentName}>{agentName}</Text>
             <Text style={s.agentStatus}>
-              {isRunning ? '● Working' : '○ Idle'}
+              {isRunning ? `● ${t('today.statusWorking')}` : `○ ${t('today.statusIdle')}`}
             </Text>
           </View>
         </View>
         <View style={s.heroDivider} />
         <View style={s.earningsRow}>
           <View>
-            <Text style={s.earningsLabel}>EARNED TODAY</Text>
+            <Text style={s.earningsLabel}>{t('today.earnedToday')}</Text>
             <Text style={s.earningsAmount}>{fmt(earnedToday)}</Text>
           </View>
           <View style={s.earningsRight}>
-            <Text style={s.earningsLabel}>ALL TIME</Text>
+            <Text style={s.earningsLabel}>{t('today.allTime')}</Text>
             <Text style={[s.earningsAmount, s.earningsAmountMuted]}>{fmt(earnedAllTime)}</Text>
           </View>
         </View>
@@ -112,7 +114,7 @@ export default function TodayScreen() {
           style={s.actionBtn}
           onPress={() => navigation.navigate('Chat', { initialMode: 'brief' })}
         >
-          <Text style={s.actionText}>✦ Brief</Text>
+          <Text style={s.actionText}>✦ {t('today.brief')}</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={s.actionBtn}
@@ -124,7 +126,7 @@ export default function TodayScreen() {
           style={[s.actionBtn, s.actionBtnPrimary]}
           onPress={() => navigation.navigate('Chat', { initialMode: 'chat' })}
         >
-          <Text style={[s.actionText, s.actionTextPrimary]}>→ Send</Text>
+          <Text style={[s.actionText, s.actionTextPrimary]}>→ {t('today.send')}</Text>
         </TouchableOpacity>
       </View>
 
@@ -133,10 +135,10 @@ export default function TodayScreen() {
 
       {/* Recent jobs */}
       <View style={s.section}>
-        <Text style={s.sectionLabel}>RECENT JOBS</Text>
+        <Text style={s.sectionLabel}>{t('today.recentJobs')}</Text>
         {loading && <Text style={s.emptyText}>Loading…</Text>}
         {!loading && recentJobs.length === 0 && (
-          <Text style={s.emptyText}>No jobs completed yet</Text>
+          <Text style={s.emptyText}>{t('today.noJobs')}</Text>
         )}
         {recentJobs.map((entry, i) => {
           const isActive = entry.outcome !== 'success' && (entry.amount_usd ?? 0) === 0;
@@ -148,12 +150,12 @@ export default function TodayScreen() {
                   {entry.summary || 'Task'}
                 </Text>
                 <Text style={s.jobTime}>
-                  {isActive ? 'in progress' : relativeTime(entry.timestamp)}
+                  {isActive ? t('today.inProgress') : relativeTime(entry.timestamp)}
                 </Text>
               </View>
               {isActive ? (
                 <View style={s.workingBadge}>
-                  <Text style={s.workingBadgeText}>working</Text>
+                  <Text style={s.workingBadgeText}>{t('today.working')}</Text>
                 </View>
               ) : (
                 <Text style={s.jobAmount}>+{fmt(entry.amount_usd)}</Text>
@@ -170,7 +172,7 @@ export default function TodayScreen() {
       {leagueData && (
         <View style={s.section}>
           <View style={s.leagueHeader}>
-            <Text style={s.sectionLabel}>EARNINGS LEAGUE</Text>
+            <Text style={s.sectionLabel}>{t('today.earningsLeague')}</Text>
             <Text style={s.leagueCountdown}>{seasonCountdown(leagueData.ends_at)}</Text>
           </View>
           {leagueData.leaderboard.slice(0, 5).map((entry) => {
@@ -194,7 +196,7 @@ export default function TodayScreen() {
             </View>
           )}
           <TouchableOpacity style={s.leagueSeeAll} onPress={() => setLeagueModalVisible(true)}>
-            <Text style={s.leagueSeeAllText}>→ See all agents</Text>
+            <Text style={s.leagueSeeAllText}>→ {t('today.seeAllAgents')}</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -216,11 +218,11 @@ export default function TodayScreen() {
               </TouchableOpacity>
             </View>
             <ScrollView style={s.modalScroll} contentContainerStyle={s.modalScrollContent}>
-              <Text style={s.modalSectionLabel}>REWARDS</Text>
+              <Text style={s.modalSectionLabel}>{t('today.rewards')}</Text>
               {leagueData.rewards.map((r) => (
                 <Text key={r} style={s.modalInfoRow}>{r}</Text>
               ))}
-              <Text style={[s.modalSectionLabel, { marginTop: 16 }]}>HOW IT WORKS</Text>
+              <Text style={[s.modalSectionLabel, { marginTop: 16 }]}>{t('today.howItWorks')}</Text>
               {leagueData.scoring.map((r) => (
                 <Text key={r} style={s.modalInfoRow}>{r}</Text>
               ))}
@@ -245,11 +247,11 @@ export default function TodayScreen() {
                     <Text style={s.modalStatValue}>{fmtRate(leagueData.wallet.earn_rate_pct)}</Text>
                   </View>
                   <View style={s.modalStatCol}>
-                    <Text style={s.modalStatLabel}>TRADES</Text>
+                    <Text style={s.modalStatLabel}>{t('today.leagueTrades')}</Text>
                     <Text style={s.modalStatValue}>{leagueData.wallet.trade_count}</Text>
                   </View>
                   <View style={s.modalStatCol}>
-                    <Text style={s.modalStatLabel}>ACTIVE DAYS</Text>
+                    <Text style={s.modalStatLabel}>{t('today.leagueDays')}</Text>
                     <Text style={s.modalStatValue}>{leagueData.wallet.active_days}</Text>
                   </View>
                 </View>
