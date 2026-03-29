@@ -15,9 +15,10 @@
  *     not a query parameter, to prevent log leakage.
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { AppState } from 'react-native';
+import { AppState, PermissionsAndroid, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Keychain from 'react-native-keychain';
+import { CameraRoll } from '@react-native-camera-roll/camera-roll';
 import { NodeModule } from '../native/NodeModule';
 
 let _apiBase = 'http://127.0.0.1:9090';
@@ -249,6 +250,7 @@ export interface AgentSummary {
   token_address?: string;             // base58 mint; present when agent has launched a token
   downpayment_bps?: number;           // basis points required upfront; 0 or absent = none
   price_range_usd?: [number, number]; // [min, max] job price in USD
+  reel_url?: string;                  // AI-generated promo reel URL; absent if not yet generated
 }
 
 export interface SentOffer {
@@ -496,6 +498,72 @@ export function useIdentity() {
   }, []);
 
   return identity;
+}
+
+const OWN_REEL_KEY = 'zerox1:own_reel_url';
+
+/**
+ * Polls GET /agents/{agentId}/reel on the aggregator every 60 s.
+ * When a new reel URL is detected (different from the last saved value),
+ * saves the video to the device's camera roll automatically.
+ * Pass null agentId while identity is loading; hook becomes a no-op.
+ */
+export function useOwnReel(agentId: string | null) {
+  const [reelUrl, setReelUrl] = useState<string | null>(null);
+  const savedRef = useRef<string | null>(null);
+
+  // Load previously saved URL on mount so we don't re-download on every launch.
+  useEffect(() => {
+    AsyncStorage.getItem(OWN_REEL_KEY).then(v => {
+      if (v) { savedRef.current = v; setReelUrl(v); }
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!agentId) return;
+    let cancelled = false;
+
+    const requestAndroidPermission = async (): Promise<boolean> => {
+      if (Platform.OS !== 'android') return true;
+      if (Platform.Version >= 33) {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.READ_MEDIA_VIDEO,
+        );
+        return granted === PermissionsAndroid.RESULTS.GRANTED;
+      }
+      // Android < 13: WRITE_EXTERNAL_STORAGE covers gallery saves
+      const granted = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
+      );
+      return granted === PermissionsAndroid.RESULTS.GRANTED;
+    };
+
+    const check = async () => {
+      if (!_appActive) return;
+      try {
+        const res = await fetch(`${AGGREGATOR_API}/agents/${agentId}/reel`);
+        if (!res.ok) return; // 404 = no reel yet
+        const data: { reel_url: string } = await res.json();
+        if (cancelled || !data.reel_url) return;
+        const url = data.reel_url;
+        setReelUrl(url);
+        if (url === savedRef.current) return; // already saved
+        const ok = await requestAndroidPermission();
+        if (!ok || cancelled) return;
+        await CameraRoll.saveAsset(url, { type: 'video', album: '0x01' });
+        savedRef.current = url;
+        await AsyncStorage.setItem(OWN_REEL_KEY, url);
+      } catch {
+        // 404 = no reel yet; network errors — both are fine to swallow
+      }
+    };
+
+    check();
+    const id = setInterval(check, 60_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [agentId]);
+
+  return reelUrl;
 }
 
 /** Polls GET /agents on the aggregator. */
