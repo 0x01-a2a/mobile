@@ -463,7 +463,8 @@
     "sending": "Sending\u2026",
     "sendOfferError": "Failed to send offer. Try again.",
     "paymentFailed": "Could not buy token. Try again.",
-    "manualPayment": "Complete the token purchase in your wallet."
+    "manualPayment": "Complete the token purchase in your wallet.",
+    "acceptError": "Failed to accept job. Try again."
   },
   "you": {
     "title": "You",
