@@ -10,6 +10,7 @@
  *   6 — Launch (node start + optional token + key backup)
  */
 import { useLayout } from '../hooks/useLayout';
+import { useTranslation } from 'react-i18next';
 import React, { useState, useEffect } from 'react';
 import {
   Alert,
@@ -176,9 +177,10 @@ function GhostBtn({ label, onPress }: { label: string; onPress: () => void }) {
 }
 
 function BackBtn({ onPress }: { onPress: () => void }) {
+  const { t } = useTranslation();
   return (
     <TouchableOpacity style={s.backBtn} onPress={onPress} activeOpacity={0.7}>
-      <Text style={s.backBtnText}>← Back</Text>
+      <Text style={s.backBtnText}>{t('onboarding.back')}</Text>
     </TouchableOpacity>
   );
 }
@@ -198,12 +200,13 @@ function WelcomeStep({
   onEnable: () => void;
   onSkip: () => void;
 }) {
+  const { t } = useTranslation();
   const walletValid = phantomWallet.trim().length >= 32;
   return (
     <StepShell step={0}>
       <Text style={s.logo}>01</Text>
-      <Heading label="Your AI agent," />
-      <Text style={[s.heading, { color: C.green, marginTop: -8 }]}>working for you.</Text>
+      <Heading label={t('onboarding.welcomeHeading1')} />
+      <Text style={[s.heading, { color: C.green, marginTop: -8 }]}>{t('onboarding.welcomeHeading2')}</Text>
       <Sub>
         01 Pilot runs an autonomous AI agent on your phone — accepting tasks,
         building reputation, and settling payments on Solana while you sleep.
@@ -211,25 +214,29 @@ function WelcomeStep({
 
       <View style={s.featureList}>
         {[
-          ['◎', 'Accepts tasks from the mesh automatically'],
-          ['◈', 'Earns USDC, sweepable to your wallet'],
-          ['◆', 'Builds on-chain reputation over time'],
-          ['○', 'Runs in the background 24/7'],
-        ].map(([icon, text]) => (
-          <View key={text} style={s.featureRow}>
-            <Text style={s.featureIcon}>{icon}</Text>
-            <Text style={s.featureText}>{text}</Text>
-          </View>
-        ))}
+          t('onboarding.feature1Full'),
+          t('onboarding.feature2Full'),
+          t('onboarding.feature3Full'),
+          t('onboarding.feature4Full'),
+        ].map((text) => {
+          const icon = text.charAt(0);
+          const label = text.slice(2);
+          return (
+            <View key={text} style={s.featureRow}>
+              <Text style={s.featureIcon}>{icon}</Text>
+              <Text style={s.featureText}>{label}</Text>
+            </View>
+          );
+        })}
       </View>
 
       <View style={{ marginTop: 8, marginBottom: 16 }}>
-        <Text style={s.inputLabel}>OWNER WALLET (OPTIONAL)</Text>
+        <Text style={s.inputLabel}>{t('onboarding.ownerWallet')}</Text>
         <TextInput
           style={[s.textInput, walletValid && { borderColor: C.greenBorder }]}
           value={phantomWallet}
           onChangeText={onChangePhantomWallet}
-          placeholder="Your Solana address — enables earnings sweep"
+          placeholder={t('onboarding.ownerWalletPlaceholder')}
           placeholderTextColor={C.hint}
           autoCapitalize="none"
           autoCorrect={false}
@@ -237,13 +244,13 @@ function WelcomeStep({
         />
         {walletValid && (
           <Text style={[s.inputHint, { color: C.green }]}>
-            ✓ Earnings sweep and portfolio tracking enabled
+            {t('onboarding.ownerWalletEnabled')}
           </Text>
         )}
       </View>
 
-      <PrimaryBtn label="Set up agent →" onPress={onEnable} />
-      <GhostBtn label="Skip for now" onPress={onSkip} />
+      <PrimaryBtn label={t('onboarding.setupAgent')} onPress={onEnable} />
+      <GhostBtn label={t('onboarding.skipForNow')} onPress={onSkip} />
     </StepShell>
   );
 }
@@ -269,14 +276,12 @@ function NameStep({
   onNext: () => void;
   onSkip: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <StepShell step={1}>
       <BackBtn onPress={onBack} />
-      <Heading label="Name your agent" />
-      <Sub>
-        This is how your agent appears on the mesh — in the discovery feed,
-        reputation leaderboard, and task threads.
-      </Sub>
+      <Heading label={t('onboarding.nameYourAgent')} />
+      <Sub>{t('onboarding.nameDesc')}</Sub>
 
       <View style={{ alignItems: 'center', marginBottom: 28 }}>
         <TouchableOpacity
@@ -291,15 +296,15 @@ function NameStep({
             style={s.avatarImage}
           />
         </TouchableOpacity>
-        <Text style={[s.inputHint, { marginTop: 8 }]}>Tap to set photo</Text>
+        <Text style={[s.inputHint, { marginTop: 8 }]}>{t('onboarding.tapToSetPhoto')}</Text>
       </View>
 
-      <Text style={s.inputLabel}>AGENT NAME</Text>
+      <Text style={s.inputLabel}>{t('onboarding.agentNameLabel')}</Text>
       <TextInput
         style={s.textInput}
         value={agentName}
         onChangeText={onChangeName}
-        placeholder="e.g. fast-eddie, databot-9"
+        placeholder={t('onboarding.agentNamePlaceholder')}
         placeholderTextColor={C.hint}
         autoCapitalize="none"
         autoCorrect={false}
@@ -307,17 +312,17 @@ function NameStep({
       />
       {agentName.trim().length === 1 && (
         <Text style={[s.inputHint, { color: C.orange }]}>
-          Name must be at least 2 characters.
+          {t('onboarding.agentNameTooShort')}
         </Text>
       )}
-      <Text style={s.inputHint}>Max 32 characters. You can change this anytime in Settings.</Text>
+      <Text style={s.inputHint}>{t('onboarding.agentNameHint')}</Text>
 
       <PrimaryBtn
-        label="Continue →"
+        label={t('onboarding.continueBtn')}
         onPress={onNext}
         disabled={agentName.trim().length === 1}
       />
-      <GhostBtn label="Skip" onPress={onSkip} />
+      <GhostBtn label={t('onboarding.skip')} onPress={onSkip} />
     </StepShell>
   );
 }
@@ -341,6 +346,7 @@ function ProviderStep({
   onBack: () => void;
   onNext: () => void;
 }) {
+  const { t } = useTranslation();
   const { isTablet, isWide, width: screenWidth } = useLayout();
   const providerInfo = PROVIDERS.find(p => p.key === provider)!;
   const cardWidth = isWide ? '30%' : isTablet ? '47%' : screenWidth < 360 ? '100%' : '47%';
@@ -348,7 +354,7 @@ function ProviderStep({
   return (
     <StepShell step={2}>
       <BackBtn onPress={onBack} />
-      <Heading label="Choose your LLM" />
+      <Heading label={t('onboarding.chooseLlm')} />
       <Sub>
         Your agent uses a fast model for decisions. All inference goes directly
         from your device to the provider — not through 01 servers.
@@ -383,7 +389,7 @@ function ProviderStep({
       />
       <Text style={s.inputHint}>Get a key at {providerInfo.hint}</Text>
 
-      <PrimaryBtn label="Continue →" onPress={onNext} />
+      <PrimaryBtn label={t('onboarding.continueBtn')} onPress={onNext} />
     </StepShell>
   );
 }
@@ -415,11 +421,12 @@ function KeyStep({
   onNext: () => void;
   saving?: boolean;
 }) {
+  const { t } = useTranslation();
   const providerInfo = PROVIDERS.find(p => p.key === provider)!;
 
   const handleNext = () => {
     if (!apiKey.trim()) {
-      Alert.alert('Key required', `Paste your ${providerInfo.label} API key to continue.`);
+      Alert.alert(t('onboarding.apiKeyRequired'), t('onboarding.apiKeyRequiredBody'));
       return;
     }
     onNext();
@@ -434,7 +441,7 @@ function KeyStep({
         01 servers.
       </Sub>
 
-      <Text style={s.inputLabel}>API KEY</Text>
+      <Text style={s.inputLabel}>{t('onboarding.apiKeyLabel')}</Text>
       <TextInput
         style={[s.textInput, { fontFamily: 'monospace', fontSize: 13 }]}
         value={apiKey}
@@ -449,23 +456,23 @@ function KeyStep({
 
       {provider === 'custom' && (
         <>
-          <Text style={[s.inputLabel, { marginTop: 12 }]}>BASE URL</Text>
+          <Text style={[s.inputLabel, { marginTop: 12 }]}>{t('settings.baseUrl')}</Text>
           <TextInput
             style={s.textInput}
             value={customBaseUrl}
             onChangeText={onChangeUrl}
-            placeholder="https://api.openai.com/v1"
+            placeholder={t('settings.baseUrlPlaceholder')}
             placeholderTextColor={C.hint}
             autoCapitalize="none"
             autoCorrect={false}
             spellCheck={false}
           />
-          <Text style={[s.inputLabel, { marginTop: 12 }]}>MODEL (optional)</Text>
+          <Text style={[s.inputLabel, { marginTop: 12 }]}>{t('settings.model')}</Text>
           <TextInput
             style={s.textInput}
             value={customModel}
             onChangeText={onChangeModel}
-            placeholder="e.g. gpt-4o, my-model"
+            placeholder={t('settings.modelPlaceholder')}
             placeholderTextColor={C.hint}
             autoCapitalize="none"
             autoCorrect={false}
@@ -745,6 +752,7 @@ function LaunchSuccessStep({
   launchToken: boolean;
   onFinish: (config: AgentBrainConfig | null) => void;
 }) {
+  const { t } = useTranslation();
   const [phase, setPhase] = useState<'starting' | 'launching' | 'done' | 'error'>('starting');
   const [hotWalletAddress, setHotWalletAddress] = useState<string | null>(null);
   const [secretKeyB58, setSecretKeyB58] = useState<string | null>(null);
@@ -950,7 +958,7 @@ function LaunchSuccessStep({
       {launchToken && (
         tokenMint ? (
           <View style={[s.infoCard, { borderColor: C.greenBorder, backgroundColor: C.greenBg }]}>
-            <Text style={s.infoCardLabel}>YOUR AGENT TOKEN</Text>
+            <Text style={s.infoCardLabel}>{t('onboarding.yourAgentToken')}</Text>
             <Text style={s.infoCardHint}>
               Live on Bags.fm. Requesters buy it to hire you — trading fees go to your hot wallet.
             </Text>
@@ -960,7 +968,7 @@ function LaunchSuccessStep({
               onPress={() => Share.share({ message: tokenMint })}
               activeOpacity={0.7}
             >
-              <Text style={s.copyBtnText}>Copy mint address</Text>
+              <Text style={s.copyBtnText}>{t('onboarding.copyMint')}</Text>
             </TouchableOpacity>
           </View>
         ) : phase === 'done' && (
@@ -982,7 +990,7 @@ function LaunchSuccessStep({
 
       {/* Hot wallet & secret key */}
       <View style={[s.infoCard, { borderColor: '#fed7aa', backgroundColor: '#fff7ed', marginTop: 10 }]}>
-        <Text style={[s.infoCardLabel, { color: C.orange }]}>HOT WALLET — BACK UP NOW</Text>
+        <Text style={[s.infoCardLabel, { color: C.orange }]}>{t('onboarding.hotWalletWarning')}</Text>
         <Text style={s.infoCardHint}>
           Your agent's identity and earning wallet. Back up the secret key before closing
           this screen — it cannot be recovered if lost.
@@ -990,12 +998,12 @@ function LaunchSuccessStep({
 
         {hotWalletAddress && (
           <>
-            <Text style={[s.inputLabel, { marginTop: 12 }]}>ADDRESS</Text>
+            <Text style={[s.inputLabel, { marginTop: 12 }]}>{t('onboarding.addressLabel')}</Text>
             <Text style={s.monoText} selectable>{hotWalletAddress}</Text>
           </>
         )}
 
-        <Text style={[s.inputLabel, { marginTop: 12, color: C.orange }]}>SECRET KEY</Text>
+        <Text style={[s.inputLabel, { marginTop: 12, color: C.orange }]}>{t('onboarding.secretKeyLabel')}</Text>
 
         {secretKeyB58 ? (
           <>
@@ -1012,7 +1020,7 @@ function LaunchSuccessStep({
                 onPress={() => setSecretRevealed(true)}
                 activeOpacity={0.7}
               >
-                <Text style={[s.copyBtnText, { color: C.orange }]}>Tap to reveal</Text>
+                <Text style={[s.copyBtnText, { color: C.orange }]}>{t('onboarding.tapToReveal')}</Text>
               </TouchableOpacity>
             )}
             {secretRevealed && (

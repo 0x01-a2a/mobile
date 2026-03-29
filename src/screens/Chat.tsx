@@ -32,6 +32,7 @@ import { useBlobs } from '../hooks/useBlobs';
 import { sendEnvelope, setBagsApiKey } from '../hooks/useNodeApi';
 import { useNode } from '../hooks/useNode';
 import { useLayout } from '../hooks/useLayout';
+import { useTranslation } from 'react-i18next';
 export interface BountyTask {
   description: string;
   reward: string;
@@ -167,6 +168,7 @@ function tryParseLaunchResult(text: string): LaunchResult | null {
 
 function LaunchResultCard({ result }: { result: LaunchResult }) {
   const { colors } = useTheme();
+  const { t } = useTranslation();
   const s = useStyles(colors);
   const shortMint = result.token_mint.length > 20
     ? `${result.token_mint.slice(0, 8)}…${result.token_mint.slice(-6)}`
@@ -176,17 +178,17 @@ function LaunchResultCard({ result }: { result: LaunchResult }) {
     : result.txid;
   return (
     <View style={s.launchCard}>
-      <Text style={s.launchCardLabel}>TOKEN LAUNCHED</Text>
+      <Text style={s.launchCardLabel}>{t('chat.tokenLaunched')}</Text>
       {(result.name || result.symbol) && (
         <Text style={s.launchCardName}>
           {result.name ?? ''}{result.symbol ? ` (${result.symbol})` : ''}
         </Text>
       )}
-      <Text style={s.launchCardField}>MINT</Text>
+      <Text style={s.launchCardField}>{t('chat.mintLabel')}</Text>
       <Text style={s.launchCardValue} selectable>{shortMint}</Text>
       {shortTxid && (
         <>
-          <Text style={s.launchCardField}>TX</Text>
+          <Text style={s.launchCardField}>{t('chat.txLabel')}</Text>
           <Text style={s.launchCardValue} selectable>{shortTxid}</Text>
         </>
       )}
@@ -199,6 +201,7 @@ function LaunchResultCard({ result }: { result: LaunchResult }) {
 function Bubble({ msg }: { msg: ChatMessage }) {
   const { colors } = useTheme();
   const { isTablet } = useLayout();
+  const { t } = useTranslation();
   const s = useStyles(colors, isTablet);
   const isSystem = msg.role === 'system';
   if (isSystem) {
@@ -223,7 +226,7 @@ function Bubble({ msg }: { msg: ChatMessage }) {
 
   return (
     <View style={[s.bubbleRow, isUser ? s.rowRight : s.rowLeft]}>
-      {!isUser && <Text style={s.roleLabel}>[ZC]</Text>}
+      {!isUser && <Text style={s.roleLabel}>{t('chat.roleZC')}</Text>}
       <TouchableOpacity
         activeOpacity={0.85}
         onLongPress={handleLongPress}
@@ -244,7 +247,7 @@ function Bubble({ msg }: { msg: ChatMessage }) {
         ) : null}
         {launchResult ? <LaunchResultCard result={launchResult} /> : null}
       </TouchableOpacity>
-      {isUser && <Text style={s.roleLabel}>[YOU]</Text>}
+      {isUser && <Text style={s.roleLabel}>{t('chat.roleYou')}</Text>}
     </View>
   );
 }
@@ -267,6 +270,7 @@ export function ChatScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { isTablet, contentHPad } = useLayout();
+  const { t } = useTranslation();
   const s = useStyles(colors, isTablet);
   const route = useRoute();
   const navigation = useNavigation<any>();
@@ -572,7 +576,7 @@ export function ChatScreen() {
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#22c55e' }} />
           <TouchableOpacity onPress={resetSession} style={s.resetBtn}>
-            <Text style={s.resetBtnText}>[NEW]</Text>
+            <Text style={s.resetBtnText}>{t('chat.newSession')}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -625,7 +629,7 @@ export function ChatScreen() {
             style={[s.taskPill, !selectedConvId && s.taskPillActive]}
             onPress={() => setSelectedConvId(undefined)}
           >
-            <Text style={[s.taskPillText, !selectedConvId && s.taskPillTextActive]}>FREE CHAT</Text>
+            <Text style={[s.taskPillText, !selectedConvId && s.taskPillTextActive]}>{t('chat.freeChat')}</Text>
           </TouchableOpacity>
           {activeTasks.map(t => {
             const active = t.conversationId === selectedConvId;
@@ -663,7 +667,7 @@ export function ChatScreen() {
                 <Text style={s.emptyLine}> |__  / __| _ \___ __ __</Text>
                 <Text style={s.emptyLine}>   / / (__| / / _ \\ V  V /</Text>
                 <Text style={s.emptyLine}>  /___\___|_|_\___/ \_/\_/</Text>
-                <Text style={s.emptyHint}>{'\n'}Agent brain ready.{'\n'}Type a message to begin.</Text>
+                <Text style={s.emptyHint}>{t('chat.agentBrainReady')}</Text>
                 <View style={s.suggestionsWrap}>
                   {[
                     'Every morning check my calendar and health, then DCA into SOL if conditions are good',
@@ -687,7 +691,7 @@ export function ChatScreen() {
             ListFooterComponent={
               loading ? (
                 <View style={s.thinkingWrap}>
-                  <Text style={s.thinkingText}>[01 Pilot] thinking...</Text>
+                  <Text style={s.thinkingText}>{t('chat.thinking')}</Text>
                 </View>
               ) : null
             }
@@ -698,7 +702,7 @@ export function ChatScreen() {
             <View style={s.errorBanner}>
               <Text style={s.errorText}>{error}</Text>
               <Text style={s.errorHint}>
-                Enable AGENT BRAIN in Settings, then restart the node.
+                {t('chat.enableAgentBrain')}
               </Text>
             </View>
           ) : null}
@@ -716,7 +720,7 @@ export function ChatScreen() {
             {pendingImage && !imagePreviewVisible && (
               <View style={s.pendingImageStrip}>
                 <Image source={{ uri: pendingImage.uri }} style={s.pendingThumb} resizeMode="cover" />
-                <Text style={s.pendingImageLabel}>Image attached</Text>
+                <Text style={s.pendingImageLabel}>{t('chat.imageAttached')}</Text>
                 <TouchableOpacity onPress={discardPendingImage} style={s.pendingRemoveBtn}>
                   <Text style={s.pendingRemoveText}>✕</Text>
                 </TouchableOpacity>
@@ -734,7 +738,7 @@ export function ChatScreen() {
                 style={s.input}
                 value={draft}
                 onChangeText={setDraft}
-                placeholder="Message Aria…"
+                placeholder={t('you.messagePlaceholder', { name: config.agentName || '01 Pilot' })}
                 placeholderTextColor={colors.sub}
                 multiline
                 maxLength={4000}
@@ -758,7 +762,7 @@ export function ChatScreen() {
         <View style={s.briefContainer}>
           <TextInput
             style={s.briefInput}
-            placeholder="Describe the task for Aria…"
+            placeholder={t('you.briefPlaceholder', { name: config.agentName || '01 Pilot' })}
             placeholderTextColor="#9ca3af"
             multiline
             value={briefText}
@@ -814,7 +818,7 @@ export function ChatScreen() {
                 setDeliverText('');
               }}
             >
-              <Text style={s.deliverModeBtnText}>Deliver</Text>
+              <Text style={s.deliverModeBtnText}>{t('chat.deliver')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -830,15 +834,13 @@ export function ChatScreen() {
         <SafeAreaView style={{ flex: 1 }}>
           <View style={s.modalOverlay}>
             <View style={[s.modalCard, { paddingBottom: 32 }]}>
-              <Text style={s.modalTitle}>BAGS API KEY REQUIRED</Text>
-              <Text style={s.modalBody}>
-                The default Bags API key is rate-limited. Paste your own key from bags.fm to continue.
-              </Text>
+              <Text style={s.modalTitle}>{t('chat.bagsApiKeyRequired')}</Text>
+              <Text style={s.modalBody}>{t('chat.bagsApiKeyBody')}</Text>
               <TextInput
                 style={s.modalInput}
                 value={bagsKeyDraft}
                 onChangeText={setBagsKeyDraft}
-                placeholder="Enter Bags API key..."
+                placeholder={t('chat.bagsApiKeyPlaceholder')}
                 placeholderTextColor={colors.sub}
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -850,7 +852,7 @@ export function ChatScreen() {
                   onPress={() => { setBagsKeyModalVisible(false); setBagsKeyDraft(''); }}
                   disabled={bagsKeySaving}
                 >
-                  <Text style={s.modalCancelText}>CANCEL</Text>
+                  <Text style={s.modalCancelText}>{t('common.cancel')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[s.modalSave, { minHeight: 44, justifyContent: 'center' }, (!bagsKeyDraft.trim() || bagsKeySaving) && s.sendBtnDisabled]}
@@ -869,7 +871,7 @@ export function ChatScreen() {
                     }
                   }}
                 >
-                  <Text style={s.modalSaveText}>{bagsKeySaving ? '...' : 'SAVE'}</Text>
+                  <Text style={s.modalSaveText}>{bagsKeySaving ? t('common.loading') : t('common.save')}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -887,12 +889,12 @@ export function ChatScreen() {
         <SafeAreaView style={{ flex: 1 }}>
           <View style={s.modalOverlay}>
             <View style={[s.modalCard, { paddingBottom: 32 }]}>
-              <Text style={s.modalTitle}>DELIVER RESULT</Text>
+              <Text style={s.modalTitle}>{t('chat.deliverResult')}</Text>
               <TextInput
                 style={[s.modalInput, { minHeight: 80, textAlignVertical: 'top' }]}
                 value={textDeliverInput}
                 onChangeText={setTextDeliverInput}
-                placeholder="Enter your result..."
+                placeholder={t('chat.deliverResultPlaceholder')}
                 placeholderTextColor={colors.sub}
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -904,14 +906,14 @@ export function ChatScreen() {
                   style={[s.modalCancel, { minHeight: 44, justifyContent: 'center' }]}
                   onPress={() => { setTextDeliverVisible(false); setTextDeliverInput(''); }}
                 >
-                  <Text style={s.modalCancelText}>CANCEL</Text>
+                  <Text style={s.modalCancelText}>{t('common.cancel')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[s.modalSave, { minHeight: 44, justifyContent: 'center' }, !textDeliverInput.trim() && s.sendBtnDisabled]}
                   disabled={!textDeliverInput.trim()}
                   onPress={submitTextDeliver}
                 >
-                  <Text style={s.modalSaveText}>SEND</Text>
+                  <Text style={s.modalSaveText}>{t('chat.send')}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -929,7 +931,7 @@ export function ChatScreen() {
         <SafeAreaView style={{ flex: 1 }}>
           <View style={s.modalOverlay}>
             <View style={[s.imgPreviewCard, { paddingBottom: 32 }]}>
-              <Text style={s.imgPreviewTitle}>ATTACH IMAGE</Text>
+              <Text style={s.imgPreviewTitle}>{t('chat.attachImageTitle')}</Text>
               {pendingImage && (
                 <Image
                   source={{ uri: pendingImage.uri }}
@@ -937,28 +939,26 @@ export function ChatScreen() {
                   resizeMode="cover"
                 />
               )}
-              <Text style={s.imgPreviewHint}>
-                Add a caption below, then tap SEND — or tap CANCEL to discard.
-              </Text>
+              <Text style={s.imgPreviewHint}>{t('chat.attachImageHint')}</Text>
               <TextInput
                 style={s.modalInput}
                 value={draft}
                 onChangeText={setDraft}
-                placeholder="Optional caption..."
+                placeholder={t('chat.optionalCaption')}
                 placeholderTextColor={colors.sub}
                 multiline
                 maxLength={500}
               />
               <View style={s.modalActions}>
                 <TouchableOpacity style={[s.modalCancel, { minHeight: 44, justifyContent: 'center' }]} onPress={discardPendingImage}>
-                  <Text style={s.modalCancelText}>CANCEL</Text>
+                  <Text style={s.modalCancelText}>{t('common.cancel')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[s.modalSave, { minHeight: 44, justifyContent: 'center' }, (uploading || loading) && s.sendBtnDisabled]}
                   disabled={uploading || loading}
                   onPress={() => { confirmPendingImage(); handleSend(); }}
                 >
-                  <Text style={s.modalSaveText}>{uploading ? '...' : 'SEND'}</Text>
+                  <Text style={s.modalSaveText}>{uploading ? t('common.loading') : t('chat.send')}</Text>
                 </TouchableOpacity>
               </View>
             </View>
