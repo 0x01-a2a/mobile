@@ -121,12 +121,12 @@ function WalletTab() {
   const handleUnlinkWallet = useCallback(() => {
     Alert.alert(t('you.unlinkColdWallet'), t('you.unlinkConfirm'), [
       { text: t('common.cancel'), style: 'cancel' },
-      { text: 'Unlink', style: 'destructive', onPress: async () => {
+      { text: t('you.unlinkColdWalletBtn'), style: 'destructive', onPress: async () => {
         await AsyncStorage.removeItem(COLD_WALLET_KEY);
         setColdWallet(null);
       }},
     ]);
-  }, []);
+  }, [t]);
 
   const solPrice = useSolPrice();
   const otherMints = useMemo(
@@ -426,7 +426,7 @@ function AgentTab() {
     if (available.length === 0) { Alert.alert(t('you.allCapsAdded')); return; }
     Alert.alert(t('you.addCapability'), t('you.chooseCapability'), [
       ...available.map(cap => ({ text: cap, onPress: () => setCaps(prev => [...prev, cap]) })),
-      { text: 'Cancel', style: 'cancel' },
+      { text: t('common.cancel'), style: 'cancel' },
     ]);
   };
 
@@ -549,6 +549,7 @@ function AgentTab() {
 // ── Skills Section ─────────────────────────────────────────────────────────────
 
 function SkillsSection() {
+  const { t } = useTranslation();
   const { skills, loading, refresh } = useSkills();
   const [installVisible, setInstallVisible] = useState(false);
   const [skillName, setSkillName] = useState('');
@@ -575,10 +576,10 @@ function SkillsSection() {
   }, [skillName, skillUrl, refresh]);
 
   const handleRemove = useCallback(async (skill: Skill) => {
-    Alert.alert(`Remove "${skill.label}"`, 'Your agent will lose this capability until reinstalled.', [
-      { text: 'Cancel', style: 'cancel' },
+    Alert.alert(`Remove "${skill.label}"`, t('you.removeCapabilityBody'), [
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: 'Remove', style: 'destructive', onPress: async () => {
+        text: t('you.removeCapabilityBtn'), style: 'destructive', onPress: async () => {
           setRemoving(skill.name);
           try {
             await skillRemove(skill.name);
@@ -591,7 +592,7 @@ function SkillsSection() {
         },
       },
     ]);
-  }, [refresh]);
+  }, [refresh, t]);
 
   return (
     <>
@@ -711,7 +712,7 @@ function SettingsTab() {
   const { config, saveConfig, autoStart, setAutoStart, backgroundNode, setBackgroundNode, status, stop, start } = useNode();
   const [advancedVisible, setAdvancedVisible] = useState(false);
 
-  const handleLanguageChange = useCallback(async (lang: string) => {
+  const handleLanguageChange = useCallback(async (lang: 'en' | 'zh-CN') => {
     await setLanguage(lang);
   }, []);
 
@@ -735,13 +736,13 @@ function SettingsTab() {
     Alert.alert(t('you.signOut'), t('you.signOutBody'), [
       { text: t('common.cancel'), style: 'cancel' },
       {
-        text: 'Sign out', style: 'destructive', onPress: async () => {
+        text: t('you.signOut'), style: 'destructive', onPress: async () => {
           await AsyncStorage.multiRemove(SIGN_OUT_KEYS);
           signOut();
         },
       },
     ]);
-  }, [signOut]);
+  }, [signOut, t]);
 
   return (
     <ScrollView style={s.tabContent}>
