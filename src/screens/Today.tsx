@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView, StyleSheet, Image, Modal,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 import { useNode } from '../hooks/useNode';
@@ -53,6 +54,7 @@ function seasonCountdown(endsAt: number, t: (key: string, opts?: any) => string)
 }
 
 export default function TodayScreen() {
+  const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const { t } = useTranslation();
   const { status, config } = useNode();
@@ -72,7 +74,7 @@ export default function TodayScreen() {
   return (
     <ScrollView style={s.root} contentContainerStyle={s.content}>
       {/* Top bar */}
-      <View style={s.topBar}>
+      <View style={[s.topBar, { paddingTop: insets.top + 12 }]}>
         <Text style={s.pilotLabel}>01 PILOT</Text>
         <TouchableOpacity onPress={() => navigation.navigate('You')}>
           <Text style={s.settingsIcon}>◎</Text>
@@ -269,7 +271,7 @@ const s = StyleSheet.create({
   content: { paddingBottom: 24 },
   topBar: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4,
+    paddingHorizontal: 16, paddingBottom: 4,
   },
   pilotLabel: { fontSize: 10, color: '#999', fontWeight: '600', letterSpacing: 0.5 },
   settingsIcon: { fontSize: 20, color: '#374151' },

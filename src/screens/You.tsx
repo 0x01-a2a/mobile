@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { launchImageLibrary } from 'react-native-image-picker';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 import { useNode } from '../hooks/useNode';
 import { NodeModule } from '../native/NodeModule';
@@ -36,13 +37,14 @@ function isToday(tsSeconds: number): boolean {
 }
 
 export default function YouScreen() {
+  const insets = useSafeAreaInsets();
   const [tab, setTab] = useState<SubTab>('Wallet');
   const { t } = useTranslation();
 
   return (
     <View style={s.root}>
       {/* Header */}
-      <View style={s.header}>
+      <View style={[s.header, { paddingTop: insets.top + 14 }]}>
         <Text style={s.title}>{t('you.title')}</Text>
         <View style={s.segmented}>
           {(['Wallet', 'Agent', 'Settings'] as SubTab[]).map(tabKey => (
@@ -1258,7 +1260,7 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#fff' },
-  header: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
+  header: { paddingHorizontal: 16, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
   title: { fontSize: 16, fontWeight: '700', color: '#111', marginBottom: 10 },
   segmented: { flexDirection: 'row', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 8, overflow: 'hidden' },
   segment: { flex: 1, padding: 6, alignItems: 'center' },
