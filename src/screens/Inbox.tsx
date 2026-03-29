@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
+import { useTranslation } from 'react-i18next';
 import {
   useInbox, sendEnvelope, decodeBidPayload, InboundEnvelope,
   useAgents, useAgentSearch, useAgentProfile, useSentOffers, buyAgentToken,
@@ -81,6 +82,7 @@ function envelopeToCard(env: InboundEnvelope): BountyCard | null {
 
 export default function InboxScreen() {
   const navigation = useNavigation<any>();
+  const { t } = useTranslation();
   const { config: brain } = useAgentBrain();
   const threshold = brain?.minFeeUsdc ?? 1.0;
 
@@ -170,7 +172,7 @@ export default function InboxScreen() {
       payload_b64: '',
     });
     if (!ok) {
-      Alert.alert('Error', 'Failed to accept job. Try again.');
+      Alert.alert(t('common.error'), 'Failed to accept job. Try again.');
       return;
     }
     setBounties(prev => prev.filter(b => b.conversationId !== card.conversationId));
@@ -221,7 +223,7 @@ export default function InboxScreen() {
     });
     setHireSending(false);
     if (!ok) {
-      Alert.alert('Error', 'Failed to send offer. Try again.');
+      Alert.alert(t('common.error'), t('inbox.sendOfferError'));
       return;
     }
     addOffer({
@@ -245,11 +247,11 @@ export default function InboxScreen() {
       offer.price_range_usd?.[1] ?? 1,
     );
     if (result === 'error') {
-      Alert.alert('Payment failed', 'Could not buy token. Try again.');
+      Alert.alert(t('common.error'), t('inbox.paymentFailed'));
       return;
     }
     if (result === 'not_implemented') {
-      Alert.alert('Manual payment required', 'Complete the token purchase in your wallet.');
+      Alert.alert(t('inbox.payAccept'), t('inbox.manualPayment'));
     }
     const sent = await sendEnvelope({
       msg_type: 'VERDICT',
@@ -291,17 +293,24 @@ export default function InboxScreen() {
       <ScrollView style={s.root}>
         {/* ── Subtab selector ── */}
         <View style={s.subtabRow}>
-          {(['offers', 'hire', 'active'] as const).map(tab => (
-            <TouchableOpacity
-              key={tab}
-              style={[s.subtabPill, subtab === tab && s.subtabPillActive]}
-              onPress={() => setSubtab(tab)}
-            >
-              <Text style={[s.subtabLabel, subtab === tab && s.subtabLabelActive]}>
-                {tab.toUpperCase()}
-              </Text>
-            </TouchableOpacity>
-          ))}
+          {(['offers', 'hire', 'active'] as const).map(tab => {
+            const tabLabels = {
+              offers: t('inbox.tabOffers'),
+              hire:   t('inbox.tabHire'),
+              active: t('inbox.tabActive'),
+            };
+            return (
+              <TouchableOpacity
+                key={tab}
+                style={[s.subtabPill, subtab === tab && s.subtabPillActive]}
+                onPress={() => setSubtab(tab)}
+              >
+                <Text style={[s.subtabLabel, subtab === tab && s.subtabLabelActive]}>
+                  {tabLabels[tab]}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
         {/* ── OFFERS tab ── */}
@@ -309,12 +318,12 @@ export default function InboxScreen() {
           <>
             <View style={s.header}>
               <Text style={s.subtitle}>
-                {`${bounties.length} new · auto-accepting above $${threshold.toFixed(2)}`}
+                {t('inbox.autoAcceptingAbove', { count: bounties.length, threshold: threshold.toFixed(2) })}
               </Text>
             </View>
             <View style={s.list}>
               {sorted.length === 0 && (
-                <Text style={s.emptyText}>No new jobs</Text>
+                <Text style={s.emptyText}>{t('inbox.noNewJobs')}</Text>
               )}
               {sorted.map(card => {
                 const isExpanded = expandedId === card.conversationId;
@@ -363,10 +372,10 @@ export default function InboxScreen() {
                         )}
                         <View style={s.actions}>
                           <TouchableOpacity style={s.acceptBtn} onPress={() => handleAccept(card)}>
-                            <Text style={s.acceptBtnText}>Accept · {fmtMicro(card.amountMicro)}</Text>
+                            <Text style={s.acceptBtnText}>{t('inbox.accept', { amount: fmtMicro(card.amountMicro) })}</Text>
                           </TouchableOpacity>
                           <TouchableOpacity style={s.passBtn} onPress={() => handlePass(card.conversationId)}>
-                            <Text style={s.passBtnText}>Pass</Text>
+                            <Text style={s.passBtnText}>{t('inbox.pass')}</Text>
                           </TouchableOpacity>
                         </View>
                       </View>
@@ -379,7 +388,7 @@ export default function InboxScreen() {
               <>
                 <View style={s.sectionDivider} />
                 <View style={s.section}>
-                  <Text style={s.sectionLabel}>COMPLETED TODAY</Text>
+                  <Text style={s.sectionLabel}>{t('inbox.completedToday')}</Text>
                   {completedToday.map((entry, i) => (
                     <View
                       key={entry.conversationId}
@@ -400,7 +409,7 @@ export default function InboxScreen() {
           <View style={s.hireRoot}>
             <TextInput
               style={s.searchInput}
-              placeholder="Search by capability..."
+              placeholder={t('inbox.searchPlaceholder')}
               placeholderTextColor="#9ca3af"
               value={searchQuery}
               onChangeText={setSearchQuery}
@@ -408,7 +417,7 @@ export default function InboxScreen() {
               autoCorrect={false}
             />
             {displayedAgents.length === 0 ? (
-              <Text style={s.emptyText}>No agents advertising right now</Text>
+              <Text style={s.emptyText}>{t('inbox.noAgents')}</Text>
             ) : (
               displayedAgents.map(agent => {
                 const hireable = !!agent.token_address;
@@ -452,7 +461,7 @@ export default function InboxScreen() {
         {subtab === 'active' && (
           <View style={s.activeRoot}>
             {sentOffers.length === 0 ? (
-              <Text style={s.emptyText}>No active offers</Text>
+              <Text style={s.emptyText}>{t('inbox.noActiveOffers')}</Text>
             ) : (
               sentOffers.map(offer => (
                 <View
@@ -470,13 +479,13 @@ export default function InboxScreen() {
                     <Text style={s.activeDesc} numberOfLines={1}>{offer.description}</Text>
                   </View>
                   {offer.status === 'pending' && (
-                    <Text style={s.activeStatusText}>Awaiting response</Text>
+                    <Text style={s.activeStatusText}>{t('inbox.awaitingResponse')}</Text>
                   )}
                   {offer.status === 'accepted' && (
-                    <Text style={[s.activeStatusText, s.activeStatusGreen]}>Working on it…</Text>
+                    <Text style={[s.activeStatusText, s.activeStatusGreen]}>{t('inbox.workingOnIt')}</Text>
                   )}
                   {offer.status === 'rejected' && (
-                    <Text style={s.activeStatusText}>Declined</Text>
+                    <Text style={s.activeStatusText}>{t('inbox.declined')}</Text>
                   )}
                   {offer.status === 'delivered' && (
                     <>
@@ -490,13 +499,13 @@ export default function InboxScreen() {
                           style={s.payAcceptBtn}
                           onPress={() => handlePayAccept(offer)}
                         >
-                          <Text style={s.payAcceptBtnText}>Pay & Accept</Text>
+                          <Text style={s.payAcceptBtnText}>{t('inbox.payAccept')}</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                           style={s.disputeBtn}
                           onPress={() => handleDispute(offer)}
                         >
-                          <Text style={s.disputeBtnText}>Dispute</Text>
+                          <Text style={s.disputeBtnText}>{t('inbox.dispute')}</Text>
                         </TouchableOpacity>
                       </View>
                     </>
@@ -532,15 +541,15 @@ export default function InboxScreen() {
             {/* Stats row */}
             <View style={s.modalStatsRow}>
               <View style={s.modalStatCol}>
-                <Text style={s.modalStatLabel}>FEEDBACK</Text>
+                <Text style={s.modalStatLabel}>{t('inbox.feedback')}</Text>
                 <Text style={s.modalStatValue}>{selectedAgent.feedback_count}</Text>
               </View>
               <View style={s.modalStatCol}>
-                <Text style={s.modalStatLabel}>SCORE</Text>
+                <Text style={s.modalStatLabel}>{t('inbox.score')}</Text>
                 <Text style={s.modalStatValue}>{selectedAgent.average_score.toFixed(1)}</Text>
               </View>
               <View style={s.modalStatCol}>
-                <Text style={s.modalStatLabel}>REP</Text>
+                <Text style={s.modalStatLabel}>{t('inbox.rep')}</Text>
                 <Text style={s.modalStatValue}>
                   {selectedAgent.feedback_count > 0
                     ? `${Math.round((selectedAgent.positive_count / selectedAgent.feedback_count) * 100)}%`
@@ -566,7 +575,7 @@ export default function InboxScreen() {
               <TextInput
                 style={s.descInput}
                 multiline
-                placeholder="Describe what you need..."
+                placeholder={t('inbox.describePlaceholder')}
                 placeholderTextColor="#9ca3af"
                 value={hireDescription}
                 onChangeText={setHireDescription}
@@ -576,16 +585,16 @@ export default function InboxScreen() {
               {/* Fee (read-only) */}
               {selectedAgent.price_range_usd ? (
                 <Text style={s.feeText}>
-                  Agent charges ${selectedAgent.price_range_usd[0]}–${selectedAgent.price_range_usd[1]}
+                  {t('inbox.agentCharges', { min: selectedAgent.price_range_usd[0], max: selectedAgent.price_range_usd[1] })}
                 </Text>
               ) : (
-                <Text style={s.feeText}>Agent hasn't set a price range</Text>
+                <Text style={s.feeText}>{t('inbox.agentNoPriceRange')}</Text>
               )}
 
               {/* Downpayment note */}
               {!!selectedAgent.downpayment_bps && (
                 <Text style={s.downpaymentNote}>
-                  Requires {Math.round(selectedAgent.downpayment_bps / 100)}% token downpayment
+                  {t('inbox.downpaymentRequired', { pct: Math.round(selectedAgent.downpayment_bps / 100) })}
                 </Text>
               )}
 
@@ -596,8 +605,8 @@ export default function InboxScreen() {
               >
                 <Text style={s.sendBtnText}>
                   {!selectedAgent.token_address
-                    ? "Can't hire — no token"
-                    : hireSending ? 'Sending…' : 'Send Offer'}
+                    ? t('inbox.cantHireNoToken')
+                    : hireSending ? t('inbox.sending') : t('inbox.sendOffer')}
                 </Text>
               </TouchableOpacity>
             </ScrollView>
