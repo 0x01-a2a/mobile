@@ -428,7 +428,11 @@
     "daysLeft": "剩余 {{count}} 天",
     "leagueRank": "排名",
     "leagueTrades": "交易",
-    "leagueDays": "天数"
+    "leagueDays": "天数",
+    "seasonEndsIn": "赛季在 {{count}} 天后结束",
+    "seasonEndsTomorrow": "赛季明天结束",
+    "seasonEndsToday": "赛季今天结束",
+    "seasonEnded": "赛季已结束"
   },
   "inbox": {
     "tabOffers": "接单",

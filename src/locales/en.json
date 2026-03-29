@@ -428,7 +428,11 @@
     "daysLeft": "{{count}} days left",
     "leagueRank": "RANK",
     "leagueTrades": "TRADES",
-    "leagueDays": "DAYS"
+    "leagueDays": "DAYS",
+    "seasonEndsIn": "Season ends in {{count}}d",
+    "seasonEndsTomorrow": "Season ends tomorrow",
+    "seasonEndsToday": "Season ends today",
+    "seasonEnded": "Season ended"
   },
   "inbox": {
     "tabOffers": "OFFERS",
