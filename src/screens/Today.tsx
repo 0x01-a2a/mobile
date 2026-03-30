@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView, StyleSheet, Image, Modal,
+  ActivityIndicator, Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -61,6 +62,7 @@ export default function TodayScreen() {
   const { entries, loading } = useTaskLog();
   const { data: leagueData } = useSkrLeague();
   const [leagueModalVisible, setLeagueModalVisible] = useState(false);
+  const [leaguePeriod, setLeaguePeriod] = useState<'week' | 'month' | 'all'>('week');
 
   const agentName = config?.agentName ?? 'Aria';
   const isRunning = status === 'running';
@@ -138,9 +140,19 @@ export default function TodayScreen() {
       {/* Recent jobs */}
       <View style={s.section}>
         <Text style={s.sectionLabel}>{t('today.recentJobs')}</Text>
-        {loading && <Text style={s.emptyText}>Loading…</Text>}
+        {loading && (
+          <View style={s.loadingContainer}>
+            <ActivityIndicator size="small" color="#22c55e" />
+          </View>
+        )}
         {!loading && recentJobs.length === 0 && (
-          <Text style={s.emptyText}>{t('today.noJobs')}</Text>
+          <View style={s.emptyContainer}>
+            <Text style={s.emptyPrimary}>No completed jobs yet.</Text>
+            <Text style={s.emptySecondary}>Accept bounties in Inbox to start earning.</Text>
+            <TouchableOpacity style={s.emptyAction} onPress={() => navigation.navigate('Inbox')}>
+              <Text style={s.emptyActionText}>→ Browse Inbox</Text>
+            </TouchableOpacity>
+          </View>
         )}
         {recentJobs.map((entry, i) => {
           const isActive = entry.outcome !== 'success' && (entry.amount_usd ?? 0) === 0;
@@ -229,7 +241,31 @@ export default function TodayScreen() {
                 <Text key={r} style={s.modalInfoRow}>{r}</Text>
               ))}
               <View style={s.sectionDivider} />
-              {leagueData.leaderboard.map((entry) => {
+
+              {/* Period filter pills */}
+              <View style={s.periodFilterRow}>
+                {(['week', 'month', 'all'] as const).map((period) => {
+                  const labels: Record<typeof period, string> = {
+                    week: 'This Week',
+                    month: 'This Month',
+                    all: 'All Time',
+                  };
+                  const selected = leaguePeriod === period;
+                  return (
+                    <TouchableOpacity
+                      key={period}
+                      style={[s.periodPill, selected && s.periodPillSelected]}
+                      onPress={() => setLeaguePeriod(period)}
+                    >
+                      <Text style={[s.periodPillText, selected && s.periodPillTextSelected]}>
+                        {labels[period]}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {leagueData.leaderboard.slice(0, 10).map((entry) => {
                 const isYou =
                   leagueData.wallet.rank !== null &&
                   leagueData.wallet.rank >= 1 &&
@@ -244,10 +280,18 @@ export default function TodayScreen() {
               })}
               {leagueData.wallet.rank !== null && leagueData.wallet.rank >= 1 && (
                 <View style={s.modalFooter}>
-                  <View style={s.modalStatCol}>
-                    <Text style={s.modalStatLabel}>EARN RATE</Text>
+                  <TouchableOpacity
+                    style={s.modalStatCol}
+                    onPress={() =>
+                      Alert.alert(
+                        'Earn Rate',
+                        '% weekly gains relative to your token price. Updates daily at midnight UTC.',
+                      )
+                    }
+                  >
+                    <Text style={s.modalStatLabel}>EARN RATE <Text style={s.modalStatHint}>(?)</Text></Text>
                     <Text style={s.modalStatValue}>{fmtRate(leagueData.wallet.earn_rate_pct)}</Text>
-                  </View>
+                  </TouchableOpacity>
                   <View style={s.modalStatCol}>
                     <Text style={s.modalStatLabel}>{t('today.leagueTrades')}</Text>
                     <Text style={s.modalStatValue}>{leagueData.wallet.trade_count}</Text>
@@ -258,6 +302,7 @@ export default function TodayScreen() {
                   </View>
                 </View>
               )}
+              <Text style={s.modalFootnote}>% weekly gains · updates daily</Text>
             </ScrollView>
           </View>
         )}
@@ -319,6 +364,17 @@ const s = StyleSheet.create({
   },
   emptyText: { fontSize: 14, color: '#d1d5db', textAlign: 'center', paddingVertical: 24 },
 
+  loadingContainer: { alignItems: 'center', paddingVertical: 24 },
+
+  emptyContainer: { alignItems: 'center', paddingVertical: 24 },
+  emptyPrimary: { fontSize: 13, color: '#374151', textAlign: 'center', marginBottom: 4 },
+  emptySecondary: { fontSize: 11, color: '#9ca3af', textAlign: 'center', marginBottom: 12 },
+  emptyAction: {
+    borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 8,
+    paddingHorizontal: 14, paddingVertical: 7,
+  },
+  emptyActionText: { fontSize: 11, color: '#374151', fontWeight: '600' },
+
   jobRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingVertical: 8,
@@ -360,4 +416,15 @@ const s = StyleSheet.create({
   modalStatCol: { alignItems: 'center' as const },
   modalStatLabel: { fontSize: 9, color: '#9ca3af', letterSpacing: 0.3, marginBottom: 4 },
   modalStatValue: { fontSize: 15, fontWeight: '700', color: '#111' },
+  modalStatHint: { fontSize: 9, color: '#9ca3af' },
+  modalFootnote: { fontSize: 10, color: '#9ca3af', textAlign: 'center', marginTop: 8 },
+  // ── Period filter pills ───────────────────────────────────────────────────
+  periodFilterRow: { flexDirection: 'row', gap: 8, marginBottom: 12, marginTop: 4 },
+  periodPill: {
+    borderWidth: 1, borderColor: '#d1d5db', borderRadius: 20,
+    paddingHorizontal: 10, paddingVertical: 4,
+  },
+  periodPillSelected: { backgroundColor: '#111', borderColor: '#111' },
+  periodPillText: { fontSize: 11, color: '#6b7280', fontWeight: '500' },
+  periodPillTextSelected: { color: '#fff' },
 });

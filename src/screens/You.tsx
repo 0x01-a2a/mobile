@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput,
-  Switch, Alert, Modal, FlatList, Image, Linking,
+  Switch, Alert, Modal, FlatList, Image, Linking, ActivityIndicator,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { launchImageLibrary } from 'react-native-image-picker';
@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 import { useNode } from '../hooks/useNode';
 import { NodeModule } from '../native/NodeModule';
-import { useAgentBrain, saveLlmApiKey } from '../hooks/useAgentBrain';
+import { useAgentBrain, saveLlmApiKey, saveFalApiKey, saveReplicateApiKey, ALL_CAPABILITIES } from '../hooks/useAgentBrain';
 import {
   useHotKeyBalance, useTaskLog, sweepSol,
   useSkills, skillInstallUrl, skillRemove, useSolPrice, useDexPrices,
@@ -25,7 +25,7 @@ const SOL_MINT = 'So11111111111111111111111111111111111111112';
 // Minimum sweepable SOL — must cover fee reserve (0.01 SOL)
 const SOL_SWEEP_MIN = 0.011;
 
-type SubTab = 'Wallet' | 'Agent' | 'Settings';
+type SubTab = 'Wallet' | 'Brain' | 'Advanced';
 
 function fmt(amount: number): string {
   return `$${amount.toFixed(2)}`;
@@ -40,21 +40,26 @@ export default function YouScreen() {
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState<SubTab>('Wallet');
   const { t } = useTranslation();
+  const { status } = useNode();
+  const isRunning = status === 'running';
 
   return (
     <View style={s.root}>
       {/* Header */}
       <View style={[s.header, { paddingTop: insets.top + 14 }]}>
-        <Text style={s.title}>{t('you.title')}</Text>
+        <View style={s.titleRow}>
+          <Text style={s.title}>{t('you.title')}</Text>
+          <View style={[s.statusDot, { backgroundColor: isRunning ? '#22c55e' : '#d1d5db' }]} />
+        </View>
         <View style={s.segmented}>
-          {(['Wallet', 'Agent', 'Settings'] as SubTab[]).map(tabKey => (
+          {(['Wallet', 'Brain', 'Advanced'] as SubTab[]).map(tabKey => (
             <TouchableOpacity
               key={tabKey}
               style={[s.segment, tab === tabKey && s.segmentActive]}
               onPress={() => setTab(tabKey)}
             >
               <Text style={[s.segmentText, tab === tabKey && s.segmentTextActive]}>
-                {tabKey === 'Wallet' ? t('you.tabWallet') : tabKey === 'Agent' ? t('you.tabAgent') : t('you.tabSettings')}
+                {tabKey}
               </Text>
             </TouchableOpacity>
           ))}
@@ -62,8 +67,8 @@ export default function YouScreen() {
       </View>
 
       {tab === 'Wallet' && <WalletTab />}
-      {tab === 'Agent' && <AgentTab />}
-      {tab === 'Settings' && <SettingsTab />}
+      {tab === 'Brain' && <BrainTab />}
+      {tab === 'Advanced' && <AdvancedTab />}
     </View>
   );
 }
@@ -163,30 +168,30 @@ function WalletTab() {
     [taskEntries],
   );
 
-  const handleSweep = useCallback(async () => {
+  const doSweep = useCallback(async () => {
     if (!coldWallet) return;
-    const sweepAmount = solBalance - 0.01;
+    setSweeping(true);
+    try {
+      const result = await sweepSol(coldWallet, solBalance);
+      Alert.alert(t('you.swept'), t('you.sweptBody', { amount: result.amount_sol.toFixed(4) }));
+    } catch (e: any) {
+      Alert.alert(t('common.error'), e?.message ?? t('you.sweepError'));
+    } finally {
+      setSweeping(false);
+    }
+  }, [coldWallet, solBalance]);
+
+  const handleSweep = useCallback(() => {
+    if (!coldWallet) return;
     Alert.alert(
-      t('you.sweepConfirmTitle'),
-      t('you.sweepConfirmBody', { amount: sweepAmount.toFixed(4), dest: `${coldWallet.slice(0, 8)}…` }),
+      'Sweep Earnings',
+      'Keep ~0.01 SOL for transaction fees.\n\nSweep remaining USDC to your personal wallet?',
       [
-        { text: t('common.cancel'), style: 'cancel' },
-        {
-          text: t('you.sweep'), style: 'destructive', onPress: async () => {
-            setSweeping(true);
-            try {
-              const result = await sweepSol(coldWallet, solBalance);
-              Alert.alert(t('you.swept'), t('you.sweptBody', { amount: result.amount_sol.toFixed(4) }));
-            } catch (e: any) {
-              Alert.alert(t('common.error'), e?.message ?? t('you.sweepError'));
-            } finally {
-              setSweeping(false);
-            }
-          },
-        },
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Sweep', onPress: doSweep },
       ],
     );
-  }, [coldWallet, solBalance]);
+  }, [coldWallet, doSweep]);
 
   return (
     <ScrollView style={s.tabContent}>
@@ -220,18 +225,26 @@ function WalletTab() {
 
       {/* Address card */}
       <View style={s.addressCard}>
+        {/* Agent Earnings */}
         <View style={s.addressRow}>
-          <Text style={s.addressLabel}>{t('you.hotWallet')}</Text>
+          <View>
+            <Text style={s.addressLabel}>Agent Earnings</Text>
+            <Text style={s.walletDescText}>Your agent's on-chain wallet. Job fees arrive here.</Text>
+          </View>
           <Text style={s.addressValue} numberOfLines={1}>
             {solanaAddress ? `${solanaAddress.slice(0, 4)}…${solanaAddress.slice(-4)}` : '—'}
           </Text>
         </View>
         <View style={s.addressDivider} />
+        {/* Your Personal Wallet */}
         <TouchableOpacity
           style={s.addressRow}
           onPress={coldWallet ? handleUnlinkWallet : () => setLinkWalletVisible(true)}
         >
-          <Text style={s.addressLabel}>{t('you.coldWallet')}</Text>
+          <View>
+            <Text style={s.addressLabel}>Your Personal Wallet</Text>
+            <Text style={s.walletDescText}>Your Solana wallet. Link it to sweep earnings.</Text>
+          </View>
           {coldWallet ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <View style={s.greenDot} />
@@ -378,85 +391,79 @@ import { PROVIDERS as PROVIDER_INFOS } from '../hooks/useAgentBrain';
 const PROVIDERS: LlmProvider[] = PROVIDER_INFOS.map(p => p.key);
 const PRESET_CAPS: Capability[] = ['summarization', 'qa', 'translation', 'code_review', 'data_analysis'];
 
-// ── Agent Tab ──────────────────────────────────────────────────────────────────
+const CAPABILITY_DESCRIPTIONS: Record<Capability, string> = {
+  summarization: 'Condense long text',
+  qa: 'Answer questions accurately',
+  translation: 'Translate between languages',
+  code_review: 'Review code and suggest improvements',
+  data_analysis: 'Analyze datasets and extract insights',
+};
 
-function AgentTab() {
+// ── Brain Tab ──────────────────────────────────────────────────────────────────
+
+function BrainTab() {
   const { t } = useTranslation();
   const { status, config: nodeConfig, saveConfig, stop, start } = useNode();
   const { config, save, loading } = useAgentBrain();
   const isRunning = status === 'running';
 
-  // Local editable state — committed only on "Save"
-  const [nameInput, setNameInput] = useState(nodeConfig?.agentName ?? '');
-  const [avatarUri, setAvatarUri] = useState(nodeConfig?.agentAvatar ?? '');
   const [minFee, setMinFee] = useState(String(config?.minFeeUsdc ?? 1.0));
   const [minRep, setMinRep] = useState(String(config?.minReputation ?? 50));
   const [caps, setCaps] = useState<Capability[]>(config?.capabilities ?? []);
+  const [autoAccept, setAutoAccept] = useState(config?.autoAccept ?? false);
   const [saving, setSaving] = useState(false);
-
-  // Sync when remote config loads
-  useEffect(() => {
-    setNameInput(nodeConfig?.agentName ?? '');
-    setAvatarUri(nodeConfig?.agentAvatar ?? '');
-  }, [nodeConfig?.agentName, nodeConfig?.agentAvatar]);
+  const [capModalVisible, setCapModalVisible] = useState(false);
+  const [draftCaps, setDraftCaps] = useState<Capability[]>([]);
 
   useEffect(() => {
     setMinFee(String(config?.minFeeUsdc ?? 1.0));
     setMinRep(String(config?.minReputation ?? 50));
     setCaps(config?.capabilities ?? []);
-  }, [config?.minFeeUsdc, config?.minReputation, config?.capabilities]);
+    setAutoAccept(config?.autoAccept ?? false);
+  }, [config?.minFeeUsdc, config?.minReputation, config?.capabilities, config?.autoAccept]);
 
   const isDirty =
-    nameInput.trim() !== (nodeConfig?.agentName ?? '') ||
-    avatarUri !== (nodeConfig?.agentAvatar ?? '') ||
     minFee !== String(config?.minFeeUsdc ?? 1.0) ||
     minRep !== String(config?.minReputation ?? 50) ||
-    JSON.stringify(caps) !== JSON.stringify(config?.capabilities ?? []);
+    JSON.stringify(caps) !== JSON.stringify(config?.capabilities ?? []) ||
+    autoAccept !== (config?.autoAccept ?? false);
 
   if (loading) {
     return <View style={s.tabContent}><Text style={s.emptyText}>Loading…</Text></View>;
   }
 
-  const handlePickAvatar = async () => {
-    const result = await launchImageLibrary({ mediaType: 'photo', quality: 0.8 });
-    const uri = result.assets?.[0]?.uri;
-    if (uri) setAvatarUri(uri);
+  const handleOpenCapModal = () => {
+    setDraftCaps([...caps]);
+    setCapModalVisible(true);
   };
 
-  const handleAddCap = () => {
-    const available = PRESET_CAPS.filter(c => !caps.includes(c));
-    if (available.length === 0) { Alert.alert(t('you.allCapsAdded')); return; }
-    Alert.alert(t('you.addCapability'), t('you.chooseCapability'), [
-      ...available.map(cap => ({ text: cap, onPress: () => setCaps(prev => [...prev, cap]) })),
-      { text: t('common.cancel'), style: 'cancel' },
-    ]);
+  const handleDraftToggle = (cap: Capability) => {
+    setDraftCaps(prev =>
+      prev.includes(cap) ? prev.filter(c => c !== cap) : [...prev, cap],
+    );
+  };
+
+  const handleSaveCaps = () => {
+    setCaps(draftCaps);
+    setCapModalVisible(false);
   };
 
   const handleSave = async () => {
     if (!config || !save) return;
     setSaving(true);
     try {
-      // Save identity into node config
-      const updatedNodeConfig = {
-        ...nodeConfig,
-        ...(nameInput.trim() ? { agentName: nameInput.trim() } : {}),
-        agentAvatar: avatarUri,
-      };
-      await saveConfig(updatedNodeConfig);
-
-      // Save brain config
       const next = {
         ...config,
         minFeeUsdc: parseFloat(minFee) || 1.0,
         minReputation: parseInt(minRep, 10) || 0,
         capabilities: caps,
+        autoAccept,
       };
       await save(next);
 
-      // Restart to apply
       if (isRunning) {
         try { await stop(); } catch { /* ignore */ }
-        try { await start(updatedNodeConfig); } catch { /* ignore */ }
+        try { await start(nodeConfig!); } catch { /* ignore */ }
       }
     } catch (e: any) {
       Alert.alert(t('common.error'), e?.message ?? t('you.saveError'));
@@ -467,34 +474,7 @@ function AgentTab() {
 
   return (
     <ScrollView style={s.tabContent} contentContainerStyle={{ paddingBottom: 32 }}>
-      {/* Identity */}
-      <View style={s.agentIdentitySection}>
-        <TouchableOpacity onPress={handlePickAvatar} activeOpacity={0.8}>
-          <View style={s.agentAvatarCircle}>
-            <Image
-              source={{ uri: avatarUri || DEFAULT_AGENT_ICON_URI }}
-              style={s.agentAvatarImage}
-            />
-          </View>
-          <Text style={s.agentAvatarHint}>tap to change</Text>
-        </TouchableOpacity>
-        <View style={s.agentIdentityInfo}>
-          <TextInput
-            style={s.agentNameInput}
-            value={nameInput}
-            onChangeText={setNameInput}
-            placeholder={t('you.agentNamePlaceholder')}
-            placeholderTextColor="#d1d5db"
-            maxLength={32}
-            returnKeyType="done"
-          />
-          <Text style={s.agentStatusText}>
-            {isRunning ? t('you.agentActive') : t('you.agentOffline')}
-          </Text>
-        </View>
-      </View>
-
-      {/* Rule rows */}
+      {/* Rules */}
       <View style={s.ruleRows}>
         <View style={s.ruleRow}>
           <View>
@@ -519,17 +499,34 @@ function AgentTab() {
             selectTextOnFocus
           />
         </View>
+        <View style={[s.ruleRow, s.ruleRowBorder]}>
+          <View>
+            <Text style={s.ruleLabel}>Auto-accept jobs</Text>
+            <Text style={s.ruleHint}>Automatically accept matching proposals</Text>
+          </View>
+          <Switch
+            value={autoAccept}
+            onValueChange={setAutoAccept}
+            trackColor={{ true: '#22c55e', false: '#d1d5db' }}
+            thumbColor="#fff"
+          />
+        </View>
         <View style={[s.ruleRow, s.ruleRowBorder, { flexDirection: 'column', alignItems: 'flex-start', gap: 8 }]}>
-          <Text style={s.ruleLabel}>{t('you.capabilities')}</Text>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-            {caps.map(cap => (
-              <TouchableOpacity key={cap} style={s.capPill} onPress={() => setCaps(prev => prev.filter(c => c !== cap))}>
-                <Text style={s.capPillText}>{cap} ×</Text>
-              </TouchableOpacity>
-            ))}
-            <TouchableOpacity style={s.capPillAdd} onPress={handleAddCap}>
-              <Text style={s.capPillAddText}>+ add</Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+            <Text style={s.ruleLabel}>{t('you.capabilities')}</Text>
+            <TouchableOpacity style={s.capPillAdd} onPress={handleOpenCapModal}>
+              <Text style={s.capPillAddText}>edit</Text>
             </TouchableOpacity>
+          </View>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+            {caps.length === 0 && (
+              <Text style={s.capPillAddText}>None selected</Text>
+            )}
+            {caps.map(cap => (
+              <View key={cap} style={s.capPill}>
+                <Text style={s.capPillText}>{cap}</Text>
+              </View>
+            ))}
           </View>
         </View>
       </View>
@@ -544,6 +541,52 @@ function AgentTab() {
           <Text style={s.saveBtnText}>{saving ? t('you.saving') : t('you.save')}</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Capability picker modal */}
+      <Modal
+        visible={capModalVisible}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setCapModalVisible(false)}
+      >
+        <View style={s.modalRoot}>
+          {/* Handle bar */}
+          <View style={s.modalHandleBar} />
+          <View style={s.modalHeader}>
+            <Text style={s.modalTitle}>Capabilities</Text>
+            <TouchableOpacity onPress={() => setCapModalVisible(false)}>
+              <Text style={s.modalClose}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24 }}>
+            <Text style={[s.settingsHint, { marginBottom: 14, marginTop: 8 }]}>
+              Toggle the skills your agent will advertise to the mesh.
+            </Text>
+            {ALL_CAPABILITIES.map((cap, i) => (
+              <View key={cap}>
+                {i > 0 && <View style={s.settingsCardDivider} />}
+                <View style={s.capModalRow}>
+                  <View style={{ flex: 1, marginRight: 12 }}>
+                    <Text style={s.settingsLabel}>{cap}</Text>
+                    <Text style={s.settingsHint}>{CAPABILITY_DESCRIPTIONS[cap]}</Text>
+                  </View>
+                  <Switch
+                    value={draftCaps.includes(cap)}
+                    onValueChange={() => handleDraftToggle(cap)}
+                    trackColor={{ true: '#22c55e', false: '#d1d5db' }}
+                    thumbColor="#fff"
+                  />
+                </View>
+              </View>
+            ))}
+          </ScrollView>
+          <View style={{ padding: 16, paddingBottom: 32 }}>
+            <TouchableOpacity style={s.saveBtn} onPress={handleSaveCaps}>
+              <Text style={s.saveBtnText}>Save</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -691,7 +734,7 @@ function SkillsSection() {
   );
 }
 
-// ── Settings Tab ───────────────────────────────────────────────────────────────
+// ── Advanced Tab ───────────────────────────────────────────────────────────────
 
 const SIGN_OUT_KEYS = [
   'zerox1:node_config',
@@ -707,12 +750,57 @@ const SIGN_OUT_KEYS = [
   'zerox1:task_log',
 ];
 
-function SettingsTab() {
+function AdvancedTab() {
   const { t, i18n } = useTranslation();
   const currentLang = i18n.language;
   const signOut = useSignOut();
   const { config, saveConfig, autoStart, setAutoStart, backgroundNode, setBackgroundNode, status, stop, start } = useNode();
   const [advancedVisible, setAdvancedVisible] = useState(false);
+
+  // ── Identity ──────────────────────────────────────────────────────────────
+  const [nameInput, setNameInput] = useState(config?.agentName ?? '');
+  const [bioInput, setBioInput] = useState(config?.agentBio ?? '');
+  const [avatarUri, setAvatarUri] = useState(config?.agentAvatar ?? '');
+  const [identitySaving, setIdentitySaving] = useState(false);
+
+  useEffect(() => {
+    setNameInput(config?.agentName ?? '');
+    setBioInput(config?.agentBio ?? '');
+    setAvatarUri(config?.agentAvatar ?? '');
+  }, [config?.agentName, config?.agentBio, config?.agentAvatar]);
+
+  const identityDirty =
+    nameInput.trim() !== (config?.agentName ?? '') ||
+    bioInput !== (config?.agentBio ?? '') ||
+    avatarUri !== (config?.agentAvatar ?? '');
+
+  const handlePickAvatar = async () => {
+    const result = await launchImageLibrary({ mediaType: 'photo', quality: 0.8 });
+    const uri = result.assets?.[0]?.uri;
+    if (uri) setAvatarUri(uri);
+  };
+
+  const handleSaveIdentity = async () => {
+    if (!config) return;
+    setIdentitySaving(true);
+    try {
+      const updated = {
+        ...config,
+        ...(nameInput.trim() ? { agentName: nameInput.trim() } : {}),
+        agentBio: bioInput.trim(),
+        agentAvatar: avatarUri,
+      };
+      await saveConfig(updated);
+      if (status === 'running') {
+        try { await stop(); } catch { /* ignore */ }
+        try { await start(updated); } catch { /* ignore */ }
+      }
+    } catch (e: any) {
+      Alert.alert(t('common.error'), e?.message ?? t('you.saveError'));
+    } finally {
+      setIdentitySaving(false);
+    }
+  };
 
   const handleLanguageChange = useCallback(async (lang: 'en' | 'zh-CN') => {
     await setLanguage(lang);
@@ -748,6 +836,58 @@ function SettingsTab() {
 
   return (
     <ScrollView style={s.tabContent}>
+      {/* Identity */}
+      <Text style={s.settingsSectionLabel}>IDENTITY</Text>
+      <View style={s.settingsCard}>
+        <View style={[s.settingsRow, { gap: 12 }]}>
+          <TouchableOpacity onPress={handlePickAvatar} activeOpacity={0.8}>
+            <View style={s.agentAvatarCircle}>
+              <Image source={{ uri: avatarUri || DEFAULT_AGENT_ICON_URI }} style={s.agentAvatarImage} />
+            </View>
+            <Text style={s.agentAvatarHint}>tap</Text>
+          </TouchableOpacity>
+          <View style={{ flex: 1, gap: 6 }}>
+            <TextInput
+              style={s.agentNameInput}
+              value={nameInput}
+              onChangeText={setNameInput}
+              placeholder={t('you.agentNamePlaceholder')}
+              placeholderTextColor="#d1d5db"
+              maxLength={32}
+              returnKeyType="next"
+            />
+            <TextInput
+              style={s.agentBioInput}
+              value={bioInput}
+              onChangeText={setBioInput}
+              placeholder="Short bio…"
+              placeholderTextColor="#d1d5db"
+              maxLength={120}
+              multiline
+              numberOfLines={2}
+              returnKeyType="done"
+            />
+            {config?.nodeApiUrl ? (
+              <Text style={s.hostedBadge}>HOSTED @ {config.nodeApiUrl}</Text>
+            ) : null}
+          </View>
+        </View>
+        {identityDirty && (
+          <>
+            <View style={s.settingsCardDivider} />
+            <TouchableOpacity
+              style={[s.settingsRow, { justifyContent: 'center' }]}
+              onPress={handleSaveIdentity}
+              disabled={identitySaving}
+            >
+              <Text style={[s.settingsLabel, { color: '#22c55e' }]}>
+                {identitySaving ? t('you.saving') : t('you.save')}
+              </Text>
+            </TouchableOpacity>
+          </>
+        )}
+      </View>
+
       {/* Language */}
       <Text style={s.settingsSectionLabel}>{t('you.language').toUpperCase()}</Text>
       <View style={s.settingsCard}>
@@ -806,7 +946,7 @@ function SettingsTab() {
       {/* Skills */}
       <SkillsSection />
 
-      {/* Advanced + Account */}
+      {/* More */}
       <Text style={s.settingsSectionLabel}>MORE</Text>
       <View style={s.settingsCard}>
         <TouchableOpacity style={s.settingsRow} onPress={() => setAdvancedVisible(true)}>
@@ -967,6 +1107,12 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
   const [llmModel, setLlmModel] = useState(brain?.customModel ?? '');
   const [llmSaving, setLlmSaving] = useState(false);
 
+  // Video generation API key state
+  const [falApiKey, setFalApiKey] = useState('');
+  const [falSaving, setFalSaving] = useState(false);
+  const [replicateApiKey, setReplicateApiKey] = useState('');
+  const [replicateSaving, setReplicateSaving] = useState(false);
+
   // Load bridge capabilities and permission statuses when modal opens
   useEffect(() => {
     if (!visible) return;
@@ -975,6 +1121,8 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
     setBrainEnabled(brain?.enabled ?? false);
     setLlmProvider(brain?.provider ?? 'openai');
     setLlmApiKey('');
+    setFalApiKey('');
+    setReplicateApiKey('');
     setLlmBaseUrl(brain?.customBaseUrl ?? '');
     setLlmModel(brain?.customModel ?? '');
     NodeModule.getBridgeCapabilities().then(setCaps).catch(() => {});
@@ -1002,6 +1150,40 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
       setLlmSaving(false);
     }
   }, [brain, saveBrain, llmProvider, llmApiKey, llmBaseUrl, llmModel, config, applyAndRestart]);
+
+  const handleSaveFal = useCallback(async () => {
+    if (!falApiKey.trim()) return;
+    if (!brain || !saveBrain) return;
+    setFalSaving(true);
+    try {
+      await saveFalApiKey(falApiKey.trim());
+      await saveBrain({ ...brain, falApiKeySet: true });
+      setFalApiKey('');
+      Alert.alert('Saved', 'fal.ai API key stored. Agent restarting.');
+      await applyAndRestart(config);
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'Failed to save fal.ai API key.');
+    } finally {
+      setFalSaving(false);
+    }
+  }, [brain, saveBrain, falApiKey, config, applyAndRestart]);
+
+  const handleSaveReplicate = useCallback(async () => {
+    if (!replicateApiKey.trim()) return;
+    if (!brain || !saveBrain) return;
+    setReplicateSaving(true);
+    try {
+      await saveReplicateApiKey(replicateApiKey.trim());
+      await saveBrain({ ...brain, replicateApiKeySet: true });
+      setReplicateApiKey('');
+      Alert.alert('Saved', 'Replicate API key stored. Agent restarting.');
+      await applyAndRestart(config);
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'Failed to save Replicate API key.');
+    } finally {
+      setReplicateSaving(false);
+    }
+  }, [brain, saveBrain, replicateApiKey, config, applyAndRestart]);
 
   /** Returns true if ALL caps in the group are enabled */
   const groupEnabled = useCallback((def: CapDef) =>
@@ -1163,6 +1345,62 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
             <Text style={s.saveBtnText}>{llmSaving ? 'Saving…' : 'Save LLM settings'}</Text>
           </TouchableOpacity>
 
+          {/* Video generation keys */}
+          <Text style={s.settingsSectionLabel}>VIDEO GENERATION</Text>
+          <View style={s.settingsCard}>
+            {/* fal.ai */}
+            <View style={[s.settingsRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 6, paddingBottom: 14 }]}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%' }}>
+                <Text style={s.settingsLabel}>fal.ai API key</Text>
+                <Text style={s.settingsHint}>{brain?.falApiKeySet ? 'key stored ●●●●' : 'not set'}</Text>
+              </View>
+              <TextInput
+                style={s.advancedInput}
+                value={falApiKey}
+                onChangeText={setFalApiKey}
+                placeholder={brain?.falApiKeySet ? 'Enter new key to replace…' : 'fal-…'}
+                placeholderTextColor="#d1d5db"
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+            <View style={s.settingsCardDivider} />
+            {/* Replicate */}
+            <View style={[s.settingsRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 6, paddingBottom: 14 }]}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%' }}>
+                <Text style={s.settingsLabel}>Replicate API key</Text>
+                <Text style={s.settingsHint}>{brain?.replicateApiKeySet ? 'key stored ●●●●' : 'not set'}</Text>
+              </View>
+              <TextInput
+                style={s.advancedInput}
+                value={replicateApiKey}
+                onChangeText={setReplicateApiKey}
+                placeholder={brain?.replicateApiKeySet ? 'Enter new key to replace…' : 'r8_…'}
+                placeholderTextColor="#d1d5db"
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+          </View>
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 0 }}>
+            <TouchableOpacity
+              style={[s.saveBtn, { flex: 1 }, (falSaving || !falApiKey.trim()) && s.btnDisabled]}
+              onPress={handleSaveFal}
+              disabled={falSaving || !falApiKey.trim()}
+            >
+              <Text style={s.saveBtnText}>{falSaving ? 'Saving…' : 'Save fal.ai'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[s.saveBtn, { flex: 1 }, (replicateSaving || !replicateApiKey.trim()) && s.btnDisabled]}
+              onPress={handleSaveReplicate}
+              disabled={replicateSaving || !replicateApiKey.trim()}
+            >
+              <Text style={s.saveBtnText}>{replicateSaving ? 'Saving…' : 'Save Replicate'}</Text>
+            </TouchableOpacity>
+          </View>
+
           {/* Phone access — all bridge capabilities */}
           <Text style={s.settingsSectionLabel}>PHONE ACCESS</Text>
           <Text style={s.permSectionHint}>
@@ -1263,7 +1501,9 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#fff' },
   header: { paddingHorizontal: 16, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
-  title: { fontSize: 16, fontWeight: '700', color: '#111', marginBottom: 10 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  statusDot: { width: 7, height: 7, borderRadius: 3.5 },
+  title: { fontSize: 16, fontWeight: '700', color: '#111' },
   segmented: { flexDirection: 'row', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 8, overflow: 'hidden' },
   segment: { flex: 1, padding: 6, alignItems: 'center' },
   segmentActive: { backgroundColor: '#111' },
@@ -1271,6 +1511,29 @@ const s = StyleSheet.create({
   segmentTextActive: { color: '#fff', fontWeight: '600' },
 
   tabContent: { flex: 1 },
+
+  // Node tab — Start/Stop button
+  startStopWrapper: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 4 },
+  startStopBtn: {
+    width: '100%',
+    height: 44,
+    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  startStopBtnStart: { backgroundColor: '#22c55e' },
+  startStopBtnStop: { backgroundColor: '#fef2f2', borderWidth: 1, borderColor: '#fca5a5' },
+  startStopBtnStarting: { backgroundColor: '#f3f4f6' },
+  startStopTextStart: { fontSize: 13, fontWeight: '700', color: '#fff', letterSpacing: 0.5 },
+  startStopTextStop: { fontSize: 13, fontWeight: '700', color: '#dc2626', letterSpacing: 0.5 },
+  startStopTextStarting: { fontSize: 13, fontWeight: '600', color: '#9ca3af' },
+
+  nodeStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 },
+  nodeStatusDot: { width: 7, height: 7, borderRadius: 4 },
+  nodeStatusText: { fontSize: 10, color: '#6b7280' },
+
+  hostedBadge: { fontSize: 9, color: '#6b7280', marginTop: 2 },
 
   // Wallet
   balanceHero: { alignItems: 'center', paddingTop: 24, paddingBottom: 16 },
@@ -1284,10 +1547,11 @@ const s = StyleSheet.create({
   },
   addressRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 5 },
   addressDivider: { height: 1, backgroundColor: '#e5e7eb', marginVertical: 4 },
-  addressLabel: { fontSize: 10, color: '#6b7280' },
+  addressLabel: { fontSize: 10, color: '#6b7280', fontWeight: '600' },
   addressValue: { fontSize: 9, color: '#374151', fontFamily: 'monospace' },
   addressValueMuted: { fontSize: 9, color: '#9ca3af' },
   greenDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#22c55e' },
+  walletDescText: { fontSize: 11, color: '#9ca3af', marginTop: 2 },
 
   walletActions: { flexDirection: 'row', gap: 6, paddingHorizontal: 16, marginBottom: 4 },
   sweepBtn: { flex: 1, backgroundColor: '#111', borderRadius: 9, padding: 10, alignItems: 'center' },
@@ -1310,6 +1574,10 @@ const s = StyleSheet.create({
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
   modalTitle: { fontSize: 16, fontWeight: '700', color: '#111' },
   modalClose: { fontSize: 16, color: '#9ca3af' },
+  modalHandleBar: { width: 36, height: 4, borderRadius: 2, backgroundColor: '#e5e7eb', alignSelf: 'center', marginTop: 10, marginBottom: 4 },
+
+  // Capability modal row
+  capModalRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12 },
 
   // Agent
   agentIdentitySection: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, paddingBottom: 8 },
@@ -1317,7 +1585,8 @@ const s = StyleSheet.create({
   agentAvatarImage: { width: 56, height: 56 },
   agentAvatarHint: { fontSize: 9, color: '#9ca3af', textAlign: 'center', marginTop: 3 },
   agentIdentityInfo: { flex: 1 },
-  agentNameInput: { fontSize: 16, fontWeight: '700', color: '#111', marginBottom: 3, padding: 0 },
+  agentNameInput: { fontSize: 16, fontWeight: '700', color: '#111', padding: 0 },
+  agentBioInput: { fontSize: 12, color: '#374151', padding: 0, lineHeight: 18 },
   agentStatusText: { fontSize: 10, color: '#22c55e' },
 
   ruleRows: { paddingHorizontal: 16 },
@@ -1339,7 +1608,7 @@ const s = StyleSheet.create({
   providerPillText: { fontSize: 10, color: '#374151', fontWeight: '500' },
   providerPillTextActive: { color: '#fff' },
 
-  // Settings
+  // Settings / Advanced tab
   settingsSectionLabel: { fontSize: 10, color: '#9ca3af', letterSpacing: 0.5, marginBottom: 6, marginTop: 18, paddingHorizontal: 16 },
   settingsCard: { marginHorizontal: 16, backgroundColor: '#fff', borderWidth: 1, borderColor: '#f3f4f6', borderRadius: 12, paddingHorizontal: 14 },
   settingsCardDivider: { height: 1, backgroundColor: '#f3f4f6' },

@@ -182,6 +182,10 @@ function _parseNegotiationMsg(env: InboundEnvelope): NegotiationMsg {
   };
 }
 
+// MED-6: conversation_id must be exactly 32 lowercase hex chars to prevent
+// unbounded map keys from malicious peers injecting oversized/unicode values.
+const CONVERSATION_ID_RE = /^[0-9a-f]{32}$/;
+
 /** Group an inbox array into negotiation threads keyed by conversation_id. */
 export function groupNegotiations(inbox: InboundEnvelope[]): NegotiationThread[] {
   const map = new Map<string, NegotiationThread>();
@@ -189,6 +193,7 @@ export function groupNegotiations(inbox: InboundEnvelope[]): NegotiationThread[]
   for (let i = inbox.length - 1; i >= 0; i--) {
     const env = inbox[i];
     if (!NEGOTIATION_TYPES.has(env.msg_type)) continue;
+    if (!CONVERSATION_ID_RE.test(env.conversation_id)) continue;
     const msg = _parseNegotiationMsg(env);
     if (!map.has(env.conversation_id)) {
       map.set(env.conversation_id, {

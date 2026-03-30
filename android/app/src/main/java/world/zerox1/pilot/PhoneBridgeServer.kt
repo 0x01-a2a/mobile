@@ -626,6 +626,7 @@ class PhoneBridgeServer(
             method == "POST" && path == "/phone/highlight/start" -> handleHighlightStart()
             method == "POST" && path == "/phone/highlight/stop"  -> handleHighlightStop()
             method == "GET"  && path == "/phone/highlight/status" -> handleHighlightStatus()
+            method == "POST" && path == "/phone/highlight/publish" -> handleHighlightPublish(body)
 
             else -> jsonError("NOT_FOUND: $method $path", 404)
         }
@@ -2922,5 +2923,65 @@ class PhoneBridgeServer(
             put("has_grant", HighlightRecorder.hasGrant)
             put("recording", HighlightRecorder.isRecording)
         })
+    }
+
+    /**
+     * POST /phone/highlight/publish
+     * Body JSON: { "content_uri": "content://...", "aggregator_url": "https://...", "agent_id": "hex64" }
+     *
+     * Reads the video from MediaStore, uploads it to the aggregator's
+     * POST /agents/{agent_id}/reel/upload endpoint, and returns { "reel_url": "..." }.
+     */
+    private fun handleHighlightPublish(body: String): BridgeResponse {
+        val json = try { org.json.JSONObject(body) } catch (e: Exception) {
+            return jsonError("invalid_json: ${e.message}", 400)
+        }
+        val contentUri = json.optString("content_uri")
+        val aggregatorUrl = json.optString("aggregator_url")
+        val agentId = json.optString("agent_id")
+
+        if (contentUri.isBlank() || aggregatorUrl.isBlank() || agentId.isBlank()) {
+            return jsonError("missing fields: content_uri, aggregator_url, agent_id required", 400)
+        }
+
+        // Read video bytes from MediaStore
+        val uri = android.net.Uri.parse(contentUri)
+        val videoBytes = try {
+            context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                ?: return jsonError("failed_to_open_uri: no stream", 500)
+        } catch (e: Exception) {
+            return jsonError("failed_to_read_video: ${e.message}", 500)
+        }
+
+        if (videoBytes.isEmpty()) {
+            return jsonError("empty_video_file", 500)
+        }
+
+        // Upload to aggregator
+        val uploadUrl = "${aggregatorUrl.trimEnd('/')}/agents/$agentId/reel/upload"
+        return try {
+            val connection = java.net.URL(uploadUrl).openConnection() as java.net.HttpURLConnection
+            connection.apply {
+                requestMethod = "POST"
+                setRequestProperty("Content-Type", "video/mp4")
+                setRequestProperty("Content-Length", videoBytes.size.toString())
+                doOutput = true
+                connectTimeout = 30_000
+                readTimeout = 120_000
+            }
+            connection.outputStream.use { it.write(videoBytes) }
+            val responseCode = connection.responseCode
+            val responseBody = connection.inputStream.use { it.bufferedReader().readText() }
+            connection.disconnect()
+            if (responseCode in 200..299) {
+                val respJson = org.json.JSONObject(responseBody)
+                val reelUrl = respJson.optString("reel_url")
+                jsonOk(org.json.JSONObject().put("reel_url", reelUrl))
+            } else {
+                jsonError("aggregator_upload_failed: HTTP $responseCode — $responseBody", 502)
+            }
+        } catch (e: Exception) {
+            jsonError("upload_error: ${e.message}", 500)
+        }
     }
 }

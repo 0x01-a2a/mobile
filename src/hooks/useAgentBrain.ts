@@ -74,6 +74,10 @@ export interface AgentBrainConfig {
   maxCostPerDayCents: number;
   /** True when an API key is stored in the keychain. Never store the key here. */
   apiKeySet: boolean;
+  /** True when a fal.ai API key is stored in the keychain. */
+  falApiKeySet?: boolean;
+  /** True when a Replicate API key is stored in the keychain. */
+  replicateApiKeySet?: boolean;
   customModel?: string;
   customBaseUrl?: string;
   /** Bags.fm token mint address launched at onboarding. */
@@ -100,6 +104,8 @@ const DEFAULT_CONFIG: AgentBrainConfig = {
 
 const BRAIN_STORAGE_KEY = 'zerox1:agent_brain';
 const KEYCHAIN_SERVICE = 'zerox1.llm_api_key';
+const FAL_KEYCHAIN_SERVICE = 'zerox1.fal_api_key';
+const REPLICATE_KEYCHAIN_SERVICE = 'zerox1.replicate_api_key';
 
 // ============================================================================
 // Keychain helpers (exported for use in Onboarding + Settings)
@@ -131,6 +137,60 @@ export async function loadLlmApiKey(): Promise<string | null> {
 export async function clearLlmApiKey(): Promise<void> {
   try {
     await Keychain.resetGenericPassword({ service: KEYCHAIN_SERVICE });
+  } catch { /* already clear */ }
+}
+
+// ── fal.ai API key helpers ────────────────────────────────────────────────────
+
+export async function saveFalApiKey(key: string): Promise<void> {
+  await Keychain.setGenericPassword('fal_api_key', key, {
+    service: FAL_KEYCHAIN_SERVICE,
+    accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+  });
+  if (Platform.OS === 'android') {
+    await NodeModule.saveFalApiKey(key);
+  }
+}
+
+export async function loadFalApiKey(): Promise<string | null> {
+  try {
+    const creds = await Keychain.getGenericPassword({ service: FAL_KEYCHAIN_SERVICE });
+    return creds ? creds.password : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function clearFalApiKey(): Promise<void> {
+  try {
+    await Keychain.resetGenericPassword({ service: FAL_KEYCHAIN_SERVICE });
+  } catch { /* already clear */ }
+}
+
+// ── Replicate API key helpers ─────────────────────────────────────────────────
+
+export async function saveReplicateApiKey(key: string): Promise<void> {
+  await Keychain.setGenericPassword('replicate_api_key', key, {
+    service: REPLICATE_KEYCHAIN_SERVICE,
+    accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+  });
+  if (Platform.OS === 'android') {
+    await NodeModule.saveReplicateApiKey(key);
+  }
+}
+
+export async function loadReplicateApiKey(): Promise<string | null> {
+  try {
+    const creds = await Keychain.getGenericPassword({ service: REPLICATE_KEYCHAIN_SERVICE });
+    return creds ? creds.password : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function clearReplicateApiKey(): Promise<void> {
+  try {
+    await Keychain.resetGenericPassword({ service: REPLICATE_KEYCHAIN_SERVICE });
   } catch { /* already clear */ }
 }
 
