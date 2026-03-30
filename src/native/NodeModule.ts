@@ -27,6 +27,8 @@ export interface NodeConfig {
   fcmToken?: string;
   /** Human-readable agent name shown on the mesh dashboard. */
   agentName?: string;
+  /** Short bio / description shown on the agent's mesh profile. */
+  agentBio?: string;
   /** Local URI of the agent avatar image. */
   agentAvatar?: string;
   /** Solana RPC endpoint. Defaults to mainnet-beta. */
@@ -134,6 +136,20 @@ export const NodeModule = {
    */
   saveLlmApiKey: (key: string): Promise<void> =>
     ZeroxNodeModule.saveLlmApiKey(key),
+
+  /**
+   * Securely store the fal.ai API key in the Android Keystore (EncryptedSharedPreferences).
+   * NodeService reads it at agent launch and sets FAL_API_KEY env var on the zeroclaw process.
+   */
+  saveFalApiKey: (key: string): Promise<void> =>
+    ZeroxNodeModule.saveFalApiKey(key),
+
+  /**
+   * Securely store the Replicate API key in the Android Keystore.
+   * NodeService reads it at agent launch and sets REPLICATE_API_KEY env var on zeroclaw.
+   */
+  saveReplicateApiKey: (key: string): Promise<void> =>
+    ZeroxNodeModule.saveReplicateApiKey(key),
 
   /**
    * Update the LLM provider/model/baseUrl in SharedPreferences so the next
@@ -250,6 +266,34 @@ export const NodeModule = {
    */
   downloadAndInstall: (downloadUrl: string): Promise<void> =>
     ZeroxNodeModule.downloadAndInstall(downloadUrl),
+
+  /**
+   * Enable or disable "Agent Presence" for eligible 01PL holders.
+   * When enabled, the foreground notification gains rich content (agent name,
+   * status) and three quick-action buttons: Chat, Brief, Inbox.
+   * Requires node to be running; no-op otherwise.
+   */
+  setPresenceMode: (enabled: boolean): Promise<void> =>
+    ZeroxNodeModule.setPresenceMode(enabled),
+
+  /** Returns whether Agent Presence is currently enabled. */
+  getPresenceMode: (): Promise<boolean> =>
+    ZeroxNodeModule.getPresenceMode(),
+
+  /**
+   * Returns true if the "Draw over other apps" (SYSTEM_ALERT_WINDOW)
+   * permission is granted — required for the floating avatar bubble.
+   */
+  hasOverlayPermission: (): Promise<boolean> =>
+    ZeroxNodeModule.hasOverlayPermission(),
+
+  /**
+   * Open Android system settings to let the user grant the overlay
+   * permission. Resolves immediately; check hasOverlayPermission() after
+   * the user returns to the app.
+   */
+  requestOverlayPermission: (): Promise<void> =>
+    ZeroxNodeModule.requestOverlayPermission(),
 
   /**
    * Resolve a pending ASSISTED-mode screen action confirmation.

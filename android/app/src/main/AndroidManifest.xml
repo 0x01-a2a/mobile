@@ -11,12 +11,20 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Android 13+ push notification permission -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Android 13+ media permissions for saving generated reels to gallery -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29"
+        tools:ignore="ScopedStorage" />
     <!-- Auto-restart node service on device boot -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- OTA APK install — user is prompted by Android's package installer -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Allow exempting the app from Doze battery optimization for persistent mesh node -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- 01PL Holder Agent Presence: floating avatar bubble over other apps (opt-in, premium) -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <!-- Phone bridge capabilities -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
@@ -96,11 +104,18 @@
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
         <!-- Mobile Wallet Adapter callback URI for Phantom -->
-        <intent-filter>
+        <intent-filter android:autoVerify="true">
             <action android:name="android.intent.action.VIEW" />
             <category android:name="android.intent.category.DEFAULT" />
             <category android:name="android.intent.category.BROWSABLE" />
             <data android:scheme="solana-wallet" />
+        </intent-filter>
+        <!-- Agent Presence deep links: zerox1://chat, zerox1://inbox, zerox1://today -->
+        <intent-filter>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="zerox1" />
         </intent-filter>
       </activity>
 
@@ -108,6 +123,12 @@
       <service
         android:name=".NodeService"
         android:foregroundServiceType="dataSync|camera|microphone|mediaProjection"
+        android:exported="false" />
+
+      <!-- Agent Presence floating bubble — 01PL holder premium companion -->
+      <service
+        android:name=".PresenceBubbleService"
+        android:foregroundServiceType="specialUse"
         android:exported="false" />
 
       <!-- Restart node on boot if it was running when device was shut down -->

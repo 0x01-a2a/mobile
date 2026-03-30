@@ -15,9 +15,10 @@
  *     not a query parameter, to prevent log leakage.
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { AppState } from 'react-native';
+import { AppState, PermissionsAndroid, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Keychain from 'react-native-keychain';
+import { CameraRoll } from '@react-native-camera-roll/camera-roll';
 import { NodeModule } from '../native/NodeModule';
 
 let _apiBase = 'http://127.0.0.1:9090';
@@ -128,7 +129,7 @@ function _readBidAmount(raw: Uint8Array): number {
   return (lo >>> 0) + (hi >>> 0) * 4294967296;
 }
 
-function _decodeBidPayload(
+export function decodeBidPayload(
   payloadB64: string,
 ): { amount: number; body: Record<string, unknown> } | null {
   try {
@@ -169,7 +170,7 @@ function _parseNegotiationMsg(env: InboundEnvelope): NegotiationMsg {
     sender: env.sender,
     slot: env.slot,
   };
-  const decoded = _decodeBidPayload(env.payload_b64);
+  const decoded = decodeBidPayload(env.payload_b64);
   if (!decoded) return base;
   const { amount, body } = decoded;
   return {
@@ -181,6 +182,10 @@ function _parseNegotiationMsg(env: InboundEnvelope): NegotiationMsg {
   };
 }
 
+// MED-6: conversation_id must be exactly 32 lowercase hex chars to prevent
+// unbounded map keys from malicious peers injecting oversized/unicode values.
+const CONVERSATION_ID_RE = /^[0-9a-f]{32}$/;
+
 /** Group an inbox array into negotiation threads keyed by conversation_id. */
 export function groupNegotiations(inbox: InboundEnvelope[]): NegotiationThread[] {
   const map = new Map<string, NegotiationThread>();
@@ -188,6 +193,7 @@ export function groupNegotiations(inbox: InboundEnvelope[]): NegotiationThread[]
   for (let i = inbox.length - 1; i >= 0; i--) {
     const env = inbox[i];
     if (!NEGOTIATION_TYPES.has(env.msg_type)) continue;
+    if (!CONVERSATION_ID_RE.test(env.conversation_id)) continue;
     const msg = _parseNegotiationMsg(env);
     if (!map.has(env.conversation_id)) {
       map.set(env.conversation_id, {
@@ -246,6 +252,23 @@ export interface AgentSummary {
   verdict_count: number;
   trend: string;
   last_seen: number;
+  token_address?: string;             // base58 mint; present when agent has launched a token
+  downpayment_bps?: number;           // basis points required upfront; 0 or absent = none
+  price_range_usd?: [number, number]; // [min, max] job price in USD
+  reel_url?: string;                  // AI-generated promo reel URL; absent if not yet generated
+}
+
+export interface SentOffer {
+  conversation_id: string;
+  agent_id: string;
+  agent_name: string;
+  token_address: string;
+  description: string;
+  price_range_usd?: [number, number];
+  status: 'pending' | 'accepted' | 'delivered' | 'rejected' | 'completed';
+  sent_at: number;             // unix ms
+  delivered_payload?: string;  // populated when DELIVER arrives
+  rejected_at?: number;        // unix ms; used for 24h auto-prune
 }
 
 export type PortfolioEvent =
@@ -480,6 +503,72 @@ export function useIdentity() {
   }, []);
 
   return identity;
+}
+
+const OWN_REEL_KEY = 'zerox1:own_reel_url';
+
+/**
+ * Polls GET /agents/{agentId}/reel on the aggregator every 60 s.
+ * When a new reel URL is detected (different from the last saved value),
+ * saves the video to the device's camera roll automatically.
+ * Pass null agentId while identity is loading; hook becomes a no-op.
+ */
+export function useOwnReel(agentId: string | null) {
+  const [reelUrl, setReelUrl] = useState<string | null>(null);
+  const savedRef = useRef<string | null>(null);
+
+  // Load previously saved URL on mount so we don't re-download on every launch.
+  useEffect(() => {
+    AsyncStorage.getItem(OWN_REEL_KEY).then(v => {
+      if (v) { savedRef.current = v; setReelUrl(v); }
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!agentId) return;
+    let cancelled = false;
+
+    const requestAndroidPermission = async (): Promise<boolean> => {
+      if (Platform.OS !== 'android') return true;
+      if (Platform.Version >= 33) {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.READ_MEDIA_VIDEO,
+        );
+        return granted === PermissionsAndroid.RESULTS.GRANTED;
+      }
+      // Android < 13: WRITE_EXTERNAL_STORAGE covers gallery saves
+      const granted = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
+      );
+      return granted === PermissionsAndroid.RESULTS.GRANTED;
+    };
+
+    const check = async () => {
+      if (!_appActive) return;
+      try {
+        const res = await fetch(`${AGGREGATOR_API}/agents/${agentId}/reel`);
+        if (!res.ok) return; // 404 = no reel yet
+        const data: { reel_url: string } = await res.json();
+        if (cancelled || !data.reel_url) return;
+        const url = data.reel_url;
+        setReelUrl(url);
+        if (url === savedRef.current) return; // already saved
+        const ok = await requestAndroidPermission();
+        if (!ok || cancelled) return;
+        await CameraRoll.saveAsset(url, { type: 'video', album: '0x01' });
+        savedRef.current = url;
+        await AsyncStorage.setItem(OWN_REEL_KEY, url);
+      } catch {
+        // 404 = no reel yet; network errors — both are fine to swallow
+      }
+    };
+
+    check();
+    const id = setInterval(check, 60_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [agentId]);
+
+  return reelUrl;
 }
 
 /** Polls GET /agents on the aggregator. */
@@ -1176,204 +1265,49 @@ export function usePortfolioHistory(intervalMs = 30_000): PortfolioEvent[] {
   return events;
 }
 
-export interface SweepResult {
-  signature?: string; // omitted when routed via Kora (check `via` field)
-  amount_usdc: number;
+// ============================================================================
+// SOL sweep
+// ============================================================================
+
+export interface SweepSolResult {
+  signature: string;
+  amount_lamports: number;
+  amount_sol: number;
   destination: string;
-  via?: 'kora';
 }
 
-/**
- * Transfer USDC from the node's hot wallet to `destination` (base58 wallet).
- * Calls POST /wallet/sweep on the local node API.
- *
- * In hosted mode (no local node API reachable) this automatically falls back
- * to `sweepUsdcOnDevice`, which builds and signs the transaction in-process
- * using the identity key from Keychain.
- */
-export async function sweepUsdc(destination: string, amount?: number): Promise<SweepResult> {
-  // In hosted mode the local node is not running, so there is no
-  // /wallet/sweep endpoint to call.  Fall back to the on-device path.
-  if (_isHostedMode) {
-    return sweepUsdcOnDevice(destination, amount);
-  }
+/** Minimum SOL to keep in the hot wallet for transaction fees (~10 txs). */
+const SOL_SWEEP_RESERVE_LAMPORTS = 10_000_000; // 0.01 SOL
 
-  // Local mode: delegate to the node API which holds the hot key.
-  const res = await fetch(`${_apiBase}/wallet/sweep`, {
+/**
+ * Sweep SOL from the node's hot wallet to `destination`, leaving 0.01 SOL
+ * as a fee reserve. Uses POST /wallet/send with no mint (native SOL).
+ *
+ * `solBalance` is the human-readable SOL amount (e.g. 1.5 for 1.5 SOL).
+ */
+export async function sweepSol(
+  destination: string,
+  solBalance: number,
+): Promise<SweepSolResult> {
+  const totalLamports = Math.round(solBalance * 1e9);
+  const sweepLamports = totalLamports - SOL_SWEEP_RESERVE_LAMPORTS;
+  if (sweepLamports <= 0) {
+    throw new Error('Insufficient SOL balance to sweep (minimum 0.01 SOL reserve required)');
+  }
+  const res = await fetch(`${_apiBase}/wallet/send`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ destination, amount }),
+    body: JSON.stringify({ to: destination, amount: sweepLamports }),
   });
   if (!res.ok) {
-    // If the node API is unreachable (e.g. node stopped but not hosted mode),
-    // attempt the on-device path as a last resort.
-    if (res.status === 0 || res.status >= 500) {
-      return sweepUsdcOnDevice(destination, amount);
-    }
     const text = await res.text();
     throw new Error(text || `HTTP ${res.status}`);
   }
-  return res.json();
-}
-
-// RPC endpoints used by the on-device sweep path (mainnet).
-// Helius is prepended at runtime when an API key is available.
-function _sweepRpcs(): string[] {
-  const base = [
-    'https://api.mainnet-beta.solana.com',
-    'https://solana-rpc.publicnode.com',
-  ];
-  return _heliusRpcUrl ? [_heliusRpcUrl, ...base] : base;
-}
-
-async function _rpcPost(rpc: string, body: object): Promise<any> {
-  const res = await fetch(rpc, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const json = await res.json();
-  if (json.error) throw new Error(json.error.message ?? 'rpc error');
-  return json;
-}
-
-async function _rpcWithFallback(body: object): Promise<any> {
-  let lastErr: unknown;
-  for (const rpc of _sweepRpcs()) {
-    try { return await _rpcPost(rpc, body); } catch (e) { lastErr = e; }
-  }
-  throw lastErr ?? new Error('all RPCs failed');
-}
-
-/**
- * Build and sign an SPL USDC Transfer transaction in-process, then broadcast
- * it directly to the Solana mainnet RPC.
- *
- * Used when `sweepUsdc` is called in hosted mode (no local node API available).
- *
- * Flow:
- *   1. Export the Ed25519 identity key from the OS Keychain via
- *      `NodeModule.exportIdentityKey()` — returns a base58 64-byte string
- *      (seed || pubkey, Phantom-compatible format).
- *   2. Derive the Solana Keypair directly from those 64 bytes — the Ed25519
- *      secret and Solana secret key share the same curve and byte layout.
- *   3. Fetch the current USDC balance from the on-chain ATA.
- *   4. Build and sign an SPL Token Transfer instruction.
- *   5. Broadcast via the public Solana RPC.
- */
-export async function sweepUsdcOnDevice(
-  destination: string,
-  amount?: number,
-): Promise<SweepResult> {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const web3 = require('@solana/web3.js');
-  const { PublicKey, Transaction, TransactionInstruction, Keypair } = web3;
-
-  // ── Step 1: export identity key ─────────────────────────────────────────
-  let keyBase58: string;
-  try {
-    keyBase58 = await NodeModule.exportIdentityKey();
-  } catch (e: any) {
-    throw new Error(`exportIdentityKey failed: ${e?.message ?? e}`);
-  }
-
-  // ── Step 2: derive Solana Keypair ────────────────────────────────────────
-  // exportIdentityKey returns base58-encoded 64 bytes (seed || pubkey),
-  // which is exactly the format Keypair.fromSecretKey() expects.
-  let keypair: typeof Keypair;
-  try {
-    const keyBytes = Uint8Array.from(
-      (web3 as any).bs58
-        ? (web3 as any).bs58.decode(keyBase58)
-        : Uint8Array.from(atob(keyBase58), c => c.charCodeAt(0)), // fallback: should not happen
-    );
-    // Use bs58 from @solana/web3.js internals if present; otherwise decode
-    // manually.  Prefer the dedicated decode path to avoid a direct dep.
-    keypair = Keypair.fromSecretKey(keyBytes);
-  } catch {
-    // bs58 not bundled in web3 scope — decode via PublicKey helper trick:
-    // base58 → Uint8Array using Buffer polyfill available in RN.
-    const raw = require('bs58').decode(keyBase58);
-    keypair = Keypair.fromSecretKey(new Uint8Array(raw));
-  }
-
-  const payerPubkey: typeof PublicKey = keypair.publicKey;
-  const payerAddress: string = payerPubkey.toBase58();
-
-  // ── Step 3: resolve ATA addresses ────────────────────────────────────────
-  const ATA_PROGRAM = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJe1bJo');
-  const TOKEN_PROGRAM = new PublicKey(SPL_TOKEN_PROGRAM_ID);
-  const USDC_MINT = new PublicKey(USDC_MINT_MAINNET);
-  const DEST_PUBKEY = new PublicKey(destination);
-
-  const [payerAta] = PublicKey.findProgramAddressSync(
-    [payerPubkey.toBuffer(), TOKEN_PROGRAM.toBuffer(), USDC_MINT.toBuffer()],
-    ATA_PROGRAM,
-  );
-  const [destAta] = PublicKey.findProgramAddressSync(
-    [DEST_PUBKEY.toBuffer(), TOKEN_PROGRAM.toBuffer(), USDC_MINT.toBuffer()],
-    ATA_PROGRAM,
-  );
-
-  // ── Step 4: resolve amount from on-chain balance if not provided ─────────
-  let transferMicrounits: bigint;
-  if (amount !== undefined && amount > 0) {
-    // Caller supplied explicit amount in USDC (not microunits).
-    transferMicrounits = BigInt(Math.round(amount * 1_000_000));
-  } else {
-    // Sweep entire balance: fetch from chain.
-    const tokenResp = await _rpcWithFallback({
-      jsonrpc: '2.0', id: 1, method: 'getTokenAccountsByOwner',
-      params: [payerAddress, { mint: USDC_MINT_MAINNET }, { encoding: 'jsonParsed' }],
-    });
-    const accounts: any[] = tokenResp.result?.value ?? [];
-    let rawBalance = 0;
-    for (const acc of accounts) {
-      const info = acc.account?.data?.parsed?.info;
-      if (info?.mint === USDC_MINT_MAINNET) {
-        rawBalance = info?.tokenAmount?.amount ?? 0;
-        break;
-      }
-    }
-    transferMicrounits = BigInt(rawBalance);
-    if (transferMicrounits <= BigInt(0)) {
-      throw new Error('No USDC balance to sweep');
-    }
-  }
-
-  // ── Step 5: build transaction ────────────────────────────────────────────
-  const { blockhash } = (
-    await _rpcWithFallback({ jsonrpc: '2.0', id: 2, method: 'getLatestBlockhash', params: [] })
-  ).result.value;
-
-  const data = buildSplTransferData(transferMicrounits);
-
-  const keys = [
-    { pubkey: payerAta,  isSigner: false, isWritable: true },
-    { pubkey: destAta,   isSigner: false, isWritable: true },
-    { pubkey: payerPubkey, isSigner: true, isWritable: false },
-  ];
-
-  const ix = new TransactionInstruction({ keys, programId: TOKEN_PROGRAM, data });
-  const tx = new Transaction();
-  tx.recentBlockhash = blockhash;
-  tx.feePayer = payerPubkey;
-  tx.add(ix);
-  tx.sign(keypair);
-
-  const rawTx = tx.serialize();
-
-  // ── Step 6: broadcast ────────────────────────────────────────────────────
-  const sendResp = await _rpcWithFallback({
-    jsonrpc: '2.0', id: 3, method: 'sendTransaction',
-    params: [btoa(String.fromCharCode(...rawTx)), { encoding: 'base64' }],
-  });
-  const signature: string = sendResp.result;
-
+  const data = await res.json();
   return {
-    signature,
-    amount_usdc: Number(transferMicrounits) / 1_000_000,
+    signature: data.signature ?? data.txid ?? '',
+    amount_lamports: sweepLamports,
+    amount_sol: sweepLamports / 1e9,
     destination,
   };
 }
@@ -2415,6 +2349,92 @@ export function useBountyFeed(capability?: string, refreshTick = 0): {
   }, [capability, tick, refreshTick]);
 
   return { bounties, loading, reload };
+}
+
+// ── Sent offers (outbound job tracker) ──────────────────────────────────────
+
+const SENT_OFFERS_KEY = 'zerox1:sent_offers';
+
+function filterDisplayOffers(all: SentOffer[]): SentOffer[] {
+  const now = Date.now();
+  return all.filter(o => {
+    if (o.status === 'completed') return false;
+    if (o.status === 'rejected' && o.rejected_at && now - o.rejected_at > 86_400_000) return false;
+    return true;
+  });
+}
+
+export function useSentOffers(): {
+  offers: SentOffer[];
+  addOffer: (offer: SentOffer) => void;
+  updateStatus: (conversation_id: string, status: SentOffer['status'], extra?: Partial<SentOffer>) => void;
+} {
+  const [offers, setOffers] = useState<SentOffer[]>([]);
+
+  useEffect(() => {
+    AsyncStorage.getItem(SENT_OFFERS_KEY).then(raw => {
+      let all: SentOffer[];
+      try {
+        all = raw ? JSON.parse(raw) : [];
+      } catch {
+        all = [];
+      }
+      setOffers(filterDisplayOffers(all));
+    }).catch(() => {});
+  }, []);
+
+  // Persist to AsyncStorage whenever offers change (after mount)
+  const isMounted = useRef(false);
+  useEffect(() => {
+    if (!isMounted.current) {
+      isMounted.current = true;
+      return; // skip initial load-triggered write
+    }
+    AsyncStorage.setItem(SENT_OFFERS_KEY, JSON.stringify(offers)).catch(() => {});
+  }, [offers]);
+
+  const addOffer = useCallback((offer: SentOffer) => {
+    setOffers(prev => {
+      const next = [offer, ...prev].slice(0, 100);
+      return filterDisplayOffers(next);
+    });
+  }, []);
+
+  const updateStatus = useCallback((
+    conversation_id: string,
+    status: SentOffer['status'],
+    extra?: Partial<SentOffer>,
+  ) => {
+    setOffers(prev => {
+      const next = prev.map(o =>
+        o.conversation_id === conversation_id ? { ...o, status, ...extra } : o,
+      );
+      return filterDisplayOffers(next);
+    });
+  }, []);
+
+  return { offers, addOffer, updateStatus };
+}
+
+/** Attempt to buy an agent's token via the node wallet API.
+ *  Returns 'ok' | 'not_implemented' | 'error'.
+ *  'not_implemented' means the endpoint doesn't exist yet — caller shows a manual-payment toast. */
+export async function buyAgentToken(
+  tokenAddress: string,
+  amountUsd: number,
+): Promise<'ok' | 'not_implemented' | 'error'> {
+  try {
+    const res = await fetch(`${_apiBase}/wallet/bags-buy`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token_address: tokenAddress, amount_usd: amountUsd }),
+    });
+    if (res.ok) return 'ok';
+    if (res.status === 404) return 'not_implemented';
+    return 'error';
+  } catch {
+    return 'error';
+  }
 }
 
 export function useAgentSearch(capability: string): {

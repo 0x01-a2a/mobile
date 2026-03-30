@@ -9,6 +9,8 @@ module.exports = {
     ),
     'react-native-image-picker': require.resolve('./__mocks__/react-native-image-picker.js'),
     'react-native-keychain':     require.resolve('./__mocks__/react-native-keychain.js'),
+    'react-native-localize':     require.resolve('./__mocks__/react-native-localize.js'),
   },
   setupFilesAfterEnv: ['./jest.setup.js'],
+  testPathIgnorePatterns: ['/node_modules/', '/.claude/'],
 };

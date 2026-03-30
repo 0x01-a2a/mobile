@@ -5,11 +5,10 @@
  * After onboarding completes (or is skipped), saves the config and renders
  * the main AppNavigator.
  */
-import React, { useEffect, useState, Component, ErrorInfo, ReactNode } from 'react';
+import React, { useEffect, useState, Component, ErrorInfo, ReactNode, createContext, useContext } from 'react';
 import { StatusBar, View, Text, StyleSheet } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import * as Sentry from '@sentry/react-native';
 import { AppNavigator } from './src/navigation/AppNavigator';
 import { OnboardingScreen, checkOnboardingDone } from './src/screens/Onboarding';
 import { AgentBrainConfig, useAgentBrain } from './src/hooks/useAgentBrain';
@@ -18,17 +17,32 @@ import { initI18n } from './src/i18n';
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext';
 import { useScreenActionListener } from './src/hooks/useScreenActions';
 import { ScreenActionConfirmModal } from './src/components/ScreenActionConfirmModal';
+import { useIdentity, useOwnReel } from './src/hooks/useNodeApi';
 
-// Set SENTRY_DSN to your project's DSN from sentry.io to enable crash reporting.
-// Leave empty to disable (safe for dev builds).
-const SENTRY_DSN = '';
-if (SENTRY_DSN) {
-  Sentry.init({
-    dsn: SENTRY_DSN,
-    tracesSampleRate: 0.2,
-    environment: __DEV__ ? 'development' : 'production',
-  });
-}
+// ── Deep link config for Agent Presence notification actions ──────────────────
+// zerox1://chat        → Chat tab (normal chat)
+// zerox1://chat?mode=brief → Chat tab with initialMode='brief'
+// zerox1://inbox       → Inbox tab
+// zerox1://today       → Today tab
+const DEEP_LINKING = {
+  prefixes: ['zerox1://'],
+  config: {
+    screens: {
+      Today: {
+        path: 'today',
+      },
+      Inbox: {
+        path: 'inbox',
+      },
+      Chat: {
+        path: 'chat',
+        parse: {
+          mode: (m: string) => m || 'chat',
+        },
+      },
+    },
+  },
+};
 
 // ── Error boundary ────────────────────────────────────────────────────────────
 // Catches uncaught render errors so the app shows a recovery screen instead
@@ -45,7 +59,6 @@ class ErrorBoundary extends Component<{ children: ReactNode }, EBState> {
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('[ErrorBoundary]', error, info.componentStack);
-    if (SENTRY_DSN) Sentry.captureException(error, { extra: { componentStack: info.componentStack } });
   }
 
   render() {
@@ -65,6 +78,9 @@ class ErrorBoundary extends Component<{ children: ReactNode }, EBState> {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+export const SignOutContext = createContext<() => void>(() => {});
+export function useSignOut() { return useContext(SignOutContext); }
+
 function ThemedStatusBar() {
   const { isDark, colors } = useTheme();
   return <StatusBar barStyle={isDark ? "light-content" : "dark-content"} backgroundColor={colors.bg} />;
@@ -74,6 +90,16 @@ function ThemedStatusBar() {
 function ScreenActionGate() {
   useScreenActionListener();
   return <ScreenActionConfirmModal />;
+}
+
+/**
+ * Polls own agent's reel URL and saves newly generated reels to the camera roll.
+ * Renders nothing — side-effect only.
+ */
+function ReelWatcher() {
+  const identity = useIdentity();
+  useOwnReel(identity?.agent_id ?? null);
+  return null;
 }
 
 export default function App() {
@@ -114,12 +140,15 @@ export default function App() {
       <ThemeProvider>
         <SafeAreaProvider>
           <ThemedStatusBar />
-          <NavigationContainer>
-            <NodeProvider>
-              <AppNavigator />
-              <ScreenActionGate />
-            </NodeProvider>
-          </NavigationContainer>
+          <SignOutContext.Provider value={() => setOnboardingDone(false)}>
+            <NavigationContainer linking={DEEP_LINKING}>
+              <NodeProvider>
+                <AppNavigator />
+                <ScreenActionGate />
+                <ReelWatcher />
+              </NodeProvider>
+            </NavigationContainer>
+          </SignOutContext.Provider>
         </SafeAreaProvider>
       </ThemeProvider>
     </ErrorBoundary>

@@ -48,14 +48,17 @@ class NodeService : Service() {
 
         // ZeroClaw agent brain binary
         const val AGENT_BINARY_NAME    = "zeroclaw"
-        const val AGENT_ASSET_VERSION  = "0.2.5"   // bump when zeroclaw binary changes
+        const val AGENT_ASSET_VERSION  = "0.2.7"   // bump when zeroclaw binary changes
         const val AGENT_CONFIG_FILE    = "config.toml"  // zeroclaw --config-dir looks for config.toml
         const val AGENT_GATEWAY_PORT   = 42617
         const val AGENT_BRIDGE_PORT    = 9092
         const val SECURE_PREFS_NAME    = "zerox1_secure"
         const val KEY_LLM_API_KEY      = "llm_api_key"
+        const val KEY_FAL_API_KEY        = "fal_api_key"
+        const val KEY_REPLICATE_API_KEY  = "replicate_api_key"
         const val KEY_NODE_API_SECRET  = "local_node_api_secret"
         const val KEY_GATEWAY_TOKEN    = "local_gateway_token"
+        const val KEY_BRIDGE_SECRET    = "bridge_secret"
         const val TOML_TQ              = "\"\"\""
 
         // Intent extras — node
@@ -88,10 +91,13 @@ class NodeService : Service() {
         const val EXTRA_MAX_COST       = "max_cost_per_day_cents"
 
         // Broadcast action so NodeModule can observe state changes
-        const val ACTION_STATUS     = "world.zerox1.01pilot.STATUS"
-        const val STATUS_RUNNING    = "running"
-        const val STATUS_STOPPED    = "stopped"
-        const val STATUS_ERROR      = "error"
+        const val ACTION_STATUS        = "world.zerox1.01pilot.STATUS"
+        const val STATUS_RUNNING       = "running"
+        const val STATUS_STOPPED       = "stopped"
+        const val STATUS_ERROR         = "error"
+
+        // Sent by NodeModule.setPresenceMode() to trigger a notification rebuild
+        const val ACTION_REFRESH_NOTIF = "world.zerox1.01pilot.REFRESH_NOTIF"
 
         /** True while NodeService is in the foreground (set in onCreate/onDestroy). */
         @Volatile var isRunning: Boolean = false
@@ -1041,7 +1047,7 @@ query = "Research topic or question"
 name        = "web_fetch"
 description = "Fetch the raw content of a URL (HTML or plain text). Use for reading a specific page."
 kind        = "shell"
-command     = ${TOML_TQ}curl -sf --max-time 20 -L -A "zerox1-agent" "{url}"${TOML_TQ}
+command     = ${TOML_TQ}curl -sf --max-time 20 -L --proto '=https' -A "zerox1-agent" "{url}"${TOML_TQ}
 
 [tools.args]
 url = "Full URL to fetch, must start with https://"
@@ -1430,6 +1436,16 @@ include_system = "true to include system apps (default: false)"
     private var bridgeSecret: String = ""
     private val secureRandom = SecureRandom()
 
+    /** Last status string passed to updateNotification() — used to replay on presence toggle. */
+    @Volatile private var lastNotifStatus: String = "Running"
+
+    /** Receives ACTION_REFRESH_NOTIF from NodeModule.setPresenceMode(). */
+    private val refreshNotifReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context?, intent: Intent?) {
+            updateNotification(lastNotifStatus)
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Lifecycle
     // -------------------------------------------------------------------------
@@ -1444,6 +1460,11 @@ include_system = "true to include system apps (default: false)"
         createNotificationChannel()
         val wm = getSystemService(POWER_SERVICE) as PowerManager
         wakeLock = wm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "zerox1:NodeWakeLock")
+        // Listen for presence toggle from NodeModule.
+        // LocalBroadcastManager is not a dependency; sender-side setPackage(packageName) in
+        // NodeModule prevents other apps from delivering this action, so a plain
+        // registerReceiver is safe on all API levels.
+        registerReceiver(refreshNotifReceiver, android.content.IntentFilter(ACTION_REFRESH_NOTIF))
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -1531,10 +1552,16 @@ include_system = "true to include system apps (default: false)"
         val maxActionsPerHour  = intent?.getIntExtra(EXTRA_MAX_ACTIONS, 100) ?: 100
         val maxCostPerDayCents = intent?.getIntExtra(EXTRA_MAX_COST, 1000) ?: 1000
 
-        // CRIT-1: Generate a random bridge secret — 128-bit (32 hex chars) via SecureRandom.
+        // MED-4: Load or generate bridge secret from EncryptedSharedPreferences so it
+        // survives OS service restarts and the running zeroclaw process stays authenticated.
         if (bridgeSecret.isEmpty()) {
-            bridgeSecret = randomHex(32)
-            Log.i(TAG, "Phone Bridge Secret generated.")
+            bridgeSecret = loadSecureString(KEY_BRIDGE_SECRET)?.takeIf { it.isNotBlank() }
+                ?: run {
+                    val newSecret = randomHex(32)
+                    runCatching { securePrefs().edit().putString(KEY_BRIDGE_SECRET, newSecret).apply() }
+                    newSecret
+                }
+            Log.i(TAG, "Phone Bridge Secret loaded/generated.")
         }
 
         // Apply flavor-appropriate capability defaults on first launch.
@@ -1585,6 +1612,12 @@ include_system = "true to include system apps (default: false)"
                         val currentMaxActions = prefs.getInt("max_actions_per_hour",   maxActionsPerHour)
                         val currentMaxCost    = prefs.getInt("max_cost_per_day_cents", maxCostPerDayCents)
                         writeAgentConfig(currentProvider, currentModel, currentBaseUrl, currentCaps, minFee, minRep, autoAccept, currentMaxActions, currentMaxCost)
+                        // LOW-3: Skip launch if no LLM API key is configured (except for custom endpoints where key may be optional)
+                        val apiKey = getLlmApiKey()
+                        if (apiKey.isNullOrEmpty() && currentProvider != "custom") {
+                            Log.w(TAG, "Skipping zeroclaw launch: no LLM API key configured")
+                            break
+                        }
                         launchAgent(agentBinary)
                         if (!isActive) break
                         Log.i(TAG, "ZeroClaw exited — restarting in 3s…")
@@ -1603,6 +1636,7 @@ include_system = "true to include system apps (default: false)"
     override fun onDestroy() {
         isRunning = false
         super.onDestroy()
+        try { unregisterReceiver(refreshNotifReceiver) } catch (_: Exception) {}
         serviceScope.cancel()
         agentProcess?.destroy()
         agentProcess = null
@@ -1643,16 +1677,22 @@ include_system = "true to include system apps (default: false)"
         return binary
     }
 
-    private fun securePrefs() = EncryptedSharedPreferences.create(
-        applicationContext,
-        SECURE_PREFS_NAME,
-        MasterKey.Builder(applicationContext)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .setRequestStrongBoxBacked(false)  // emulator compatibility: no StrongBox HSM
-            .build(),
-        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-    )
+    @Volatile private var _securePrefs: android.content.SharedPreferences? = null
+
+    private fun securePrefs(): android.content.SharedPreferences {
+        return _securePrefs ?: synchronized(this) {
+            _securePrefs ?: EncryptedSharedPreferences.create(
+                applicationContext,
+                SECURE_PREFS_NAME,
+                MasterKey.Builder(applicationContext)
+                    .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                    .setRequestStrongBoxBacked(false)
+                    .build(),
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            ).also { _securePrefs = it }
+        }
+    }
 
     private fun randomHex(bytes: Int): String {
         val data = ByteArray(bytes)
@@ -1673,14 +1713,13 @@ include_system = "true to include system apps (default: false)"
 
     private fun extractProcessPid(process: Process): Long? {
         return try {
+            // Process.pid() is Java 9+ and unavailable on Android's runtime.
+            // Reflect on ProcessImpl's "pid" field which exists on all Android versions.
             val field = process.javaClass.getDeclaredField("pid")
             field.isAccessible = true
-            when (val value = field.get(process)) {
-                is Int -> value.toLong()
-                is Long -> value
-                else -> null
-            }
-        } catch (_: Exception) {
+            field.getInt(process).toLong()
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not get process PID: $e")
             null
         }
     }
@@ -1779,7 +1818,7 @@ include_system = "true to include system apps (default: false)"
         fcmToken?.let  { cmd += listOf("--fcm-token",  it) }
         bagsApiKey?.let { cmd += listOf("--bags-api-key", it) }
         bagsPartnerWallet?.let { cmd += listOf("--bags-partner-wallet", it) }
-        bagsPartnerKey?.let { cmd += listOf("--bags-partner-key", it) }
+        // bagsPartnerKey is passed via env var (see ProcessBuilder env block below) to avoid CLI exposure
         jupiterApiKey?.let { apiKey: String ->
             cmd += listOf("--jupiter-api-key", apiKey)
         }
@@ -1795,7 +1834,7 @@ include_system = "true to include system apps (default: false)"
 
         // Redact sensitive flags before logging.
         val safeCmd = cmd.toMutableList().also { list ->
-            for (flag in listOf("--bags-api-key", "--bags-partner-key", "--jupiter-api-key", "--jupiter-fee-account", "--api-secret", "--fcm-token")) {
+            for (flag in listOf("--bags-api-key", "--jupiter-api-key", "--jupiter-fee-account", "--api-secret", "--fcm-token")) {
                 val idx = list.indexOf(flag)
                 if (idx >= 0 && idx + 1 < list.size) list[idx + 1] = "[REDACTED]"
             }
@@ -1804,6 +1843,12 @@ include_system = "true to include system apps (default: false)"
 
         val process = ProcessBuilder(cmd)
             .redirectErrorStream(true)
+            .also {
+                // Pass bagsPartnerKey via environment variable to avoid CLI exposure
+                if (!bagsPartnerKey.isNullOrBlank()) {
+                    it.environment()["ZX01_BAGS_PARTNER_KEY"] = bagsPartnerKey
+                }
+            }
             .start()
 
         nodeProcess = process
@@ -1847,6 +1892,24 @@ include_system = "true to include system apps (default: false)"
         }
     }
 
+    private fun getFalApiKey(): String? {
+        return try {
+            securePrefs().getString(KEY_FAL_API_KEY, null)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to read fal.ai API key from encrypted storage: $e")
+            null
+        }
+    }
+
+    private fun getReplicateApiKey(): String? {
+        return try {
+            securePrefs().getString(KEY_REPLICATE_API_KEY, null)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to read Replicate API key from encrypted storage: $e")
+            null
+        }
+    }
+
     /**
      * Escape a user-provided string for safe embedding inside a TOML basic string (double-quoted).
      * Replaces backslashes, double-quotes, and newline characters.
@@ -1873,11 +1936,22 @@ include_system = "true to include system apps (default: false)"
         } catch (_: Exception) { false }
     }
 
-    private fun escapeTOMLString(s: String): String =
-        s.replace("\\", "\\\\")
-         .replace("\"", "\\\"")
-         .replace("\n", "\\n")
-         .replace("\r", "\\r")
+    private fun escapeTOMLString(s: String): String {
+        val sb = StringBuilder(s.length + 8)
+        for (ch in s) {
+            when {
+                ch == '\\'  -> sb.append("\\\\")
+                ch == '"'   -> sb.append("\\\"")
+                ch == '\n'  -> sb.append("\\n")
+                ch == '\r'  -> sb.append("\\r")
+                ch == '\t'  -> sb.append("\\t")
+                ch.code in 0x00..0x1F || ch.code == 0x7F ->
+                    sb.append("\\u%04X".format(ch.code))
+                else        -> sb.append(ch)
+            }
+        }
+        return sb.toString()
+    }
 
     /**
      * Write a TOML config file for ZeroClaw into filesDir, and install bundled skills.
@@ -1911,6 +1985,9 @@ include_system = "true to include system apps (default: false)"
         // CRIT-4: Read API key from secure storage, not from intent.
         val apiKey = getLlmApiKey() ?: ""
         val escapedKey = escapeTOMLString(apiKey)
+        val falApiKey = getFalApiKey() ?: ""
+        val escapedFalKey = escapeTOMLString(falApiKey)
+        val replicateApiKey = getReplicateApiKey() ?: ""
         // For "custom" provider, ZeroClaw uses "custom:<base_url>" syntax.
         // If the base URL is missing, preserve any existing "custom:..." provider
         // from config.toml rather than silently downgrading to another provider.
@@ -1987,7 +2064,7 @@ allowed_commands       = ["curl", "jq", "sh", "bash"]
 forbidden_paths        = []
 max_actions_per_hour   = $maxActionsPerHour
 max_cost_per_day_cents = $maxCostPerDayCents
-shell_env_passthrough  = ["ZX01_NODE", "ZX01_TOKEN"]
+shell_env_passthrough  = ["ZX01_NODE", "ZX01_TOKEN", "FAL_API_KEY", "REPLICATE_API_KEY"]
 
 [memory]
 backend    = "sqlite"
@@ -2420,6 +2497,10 @@ the capability in the app Settings > Phone Bridge section instead.
                 if (bridgeSecret.isNotEmpty()) {
                     it.environment()["ZX01_BRIDGE_TOKEN"] = bridgeSecret
                 }
+                val falKey = getFalApiKey()
+                if (!falKey.isNullOrEmpty()) it.environment()["FAL_API_KEY"] = falKey
+                val replicateKey = getReplicateApiKey()
+                if (!replicateKey.isNullOrEmpty()) it.environment()["REPLICATE_API_KEY"] = replicateKey
                 // Prepend skill bin dir so curl/jq are found even on minimal system images.
                 val existingPath = it.environment()["PATH"] ?: "/system/bin:/system/xbin"
                 it.environment()["PATH"] = "$skillBinDir:$existingPath"
@@ -2450,11 +2531,11 @@ the capability in the app Settings > Phone Bridge section instead.
             Log.w(TAG, "Could not register zeroclaw PID: $e")
         }
 
-        // Pipe zeroclaw output to logcat (always, for diagnostics)
+        // Pipe zeroclaw output to logcat (debug builds only)
         launch {
             process.inputStream.bufferedReader().useLines { lines ->
                 lines.forEach { line ->
-                    Log.i(TAG, "[zeroclaw] $line")
+                    if (BuildConfig.DEBUG) Log.i(TAG, "[zeroclaw] $line")
                 }
             }
         }
@@ -2481,21 +2562,50 @@ the capability in the app Settings > Phone Bridge section instead.
     }
 
     private fun buildNotification(status: String): Notification {
+        val prefs = getSharedPreferences("zerox1", android.content.Context.MODE_PRIVATE)
+        val presenceEnabled = prefs.getBoolean("presence_enabled", false)
+        val agentName = prefs.getString("agent_name", null)?.takeIf { it.isNotBlank() } ?: "01 Pilot"
+
         val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
-        val pi = PendingIntent.getActivity(
+        val contentPi = PendingIntent.getActivity(
             this, 0, launchIntent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        return Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle("0x01 Node")
+
+        val builder = Notification.Builder(this, CHANNEL_ID)
+            .setContentTitle(if (presenceEnabled) agentName else "0x01 Node")
             .setContentText(status)
             .setSmallIcon(android.R.drawable.ic_menu_compass)
-            .setContentIntent(pi)
+            .setContentIntent(contentPi)
             .setOngoing(true)
-            .build()
+
+        if (presenceEnabled) {
+            // Quick-action buttons deep-link into the app via zerox1:// scheme.
+            fun actionIntent(deepLink: String, reqCode: Int): PendingIntent {
+                val i = android.content.Intent(android.content.Intent.ACTION_VIEW,
+                    android.net.Uri.parse(deepLink)).apply {
+                    setPackage(packageName)
+                    flags = android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                            android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
+                }
+                return PendingIntent.getActivity(this, reqCode, i,
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+            }
+
+            builder
+                .addAction(Notification.Action.Builder(null, "→ Chat",
+                    actionIntent("zerox1://chat", 101)).build())
+                .addAction(Notification.Action.Builder(null, "✦ Brief",
+                    actionIntent("zerox1://chat?mode=brief", 102)).build())
+                .addAction(Notification.Action.Builder(null, "◈ Inbox",
+                    actionIntent("zerox1://inbox", 103)).build())
+        }
+
+        return builder.build()
     }
 
     private fun updateNotification(status: String) {
+        lastNotifStatus = status
         val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         nm.notify(NOTIF_ID, buildNotification(status))
     }
@@ -2506,6 +2616,7 @@ the capability in the app Settings > Phone Bridge section instead.
 
     private fun broadcastStatus(status: String, detail: String = "") {
         sendBroadcast(Intent(ACTION_STATUS).apply {
+            setPackage(packageName)
             putExtra("status", status)
             putExtra("detail", detail)
         })

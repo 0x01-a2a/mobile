@@ -77,6 +77,8 @@ class NodeModule(private val ctx: ReactApplicationContext)
         private const val SCREEN_CAPTURE_REQUEST_CODE = 1337
         private const val SECURE_PREFS_NAME = "zerox1_secure"
         private const val KEY_LLM_API_KEY = "llm_api_key"
+        private const val KEY_FAL_API_KEY = "fal_api_key"
+        private const val KEY_REPLICATE_API_KEY = "replicate_api_key"
         private const val KEY_NODE_API_SECRET = "local_node_api_secret"
         private const val KEY_GATEWAY_TOKEN = "local_gateway_token"
         private const val KEY_BAGS_API_KEY = "bags_api_key"
@@ -183,16 +185,22 @@ class NodeModule(private val ctx: ReactApplicationContext)
         pendingStartPromise = null
     }
 
-    private fun securePrefs() = EncryptedSharedPreferences.create(
-        ctx,
-        SECURE_PREFS_NAME,
-        MasterKey.Builder(ctx)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .setRequestStrongBoxBacked(false)  // emulator compatibility: no StrongBox HSM
-            .build(),
-        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-    )
+    @Volatile private var _securePrefs: android.content.SharedPreferences? = null
+
+    private fun securePrefs(): android.content.SharedPreferences {
+        return _securePrefs ?: synchronized(this) {
+            _securePrefs ?: EncryptedSharedPreferences.create(
+                reactApplicationContext,
+                SECURE_PREFS_NAME,
+                MasterKey.Builder(reactApplicationContext)
+                    .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                    .setRequestStrongBoxBacked(false)
+                    .build(),
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            ).also { _securePrefs = it }
+        }
+    }
 
     private fun randomHex(bytes: Int): String {
         val data = ByteArray(bytes)
@@ -224,6 +232,30 @@ class NodeModule(private val ctx: ReactApplicationContext)
         }
     }
 
+    @ReactMethod
+    fun saveFalApiKey(key: String, promise: Promise) {
+        try {
+            val prefs = securePrefs()
+            prefs.edit().putString(KEY_FAL_API_KEY, key).apply()
+            promise.resolve(null)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save fal.ai API key to encrypted storage: $e")
+            promise.reject("SAVE_FAILED", e.message)
+        }
+    }
+
+    @ReactMethod
+    fun saveReplicateApiKey(key: String, promise: Promise) {
+        try {
+            val prefs = securePrefs()
+            prefs.edit().putString(KEY_REPLICATE_API_KEY, key).apply()
+            promise.resolve(null)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save Replicate API key to encrypted storage: $e")
+            promise.reject("SAVE_FAILED", e.message)
+        }
+    }
+
     /**
      * Update the LLM provider / model / base-url in SharedPreferences so that
      * the next zeroclaw restart picks up the new values from the restart loop.
@@ -242,6 +274,72 @@ class NodeModule(private val ctx: ReactApplicationContext)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to update brain config in SharedPreferences: $e")
             promise.reject("UPDATE_FAILED", e.message)
+        }
+    }
+
+    /**
+     * Enable or disable Agent Presence for eligible 01PL holders.
+     *
+     * Saves `presence_enabled` to SharedPreferences, signals NodeService to
+     * refresh its foreground notification, and starts/stops the floating
+     * avatar bubble (PresenceBubbleService) if overlay permission is granted.
+     */
+    @ReactMethod
+    fun setPresenceMode(enabled: Boolean, promise: Promise) {
+        try {
+            ctx.getSharedPreferences("zerox1", Context.MODE_PRIVATE).edit()
+                .putBoolean("presence_enabled", enabled)
+                .apply()
+            // Rebuild the persistent notification immediately.
+            ctx.sendBroadcast(
+                android.content.Intent(NodeService.ACTION_REFRESH_NOTIF).apply {
+                    setPackage(ctx.packageName)
+                }
+            )
+            // Start or stop the floating bubble companion.
+            val bubbleIntent = android.content.Intent(ctx, PresenceBubbleService::class.java)
+            if (enabled && android.provider.Settings.canDrawOverlays(ctx)) {
+                ctx.startForegroundService(bubbleIntent)
+            } else {
+                ctx.stopService(bubbleIntent)
+            }
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("ERR", e.message)
+        }
+    }
+
+    @ReactMethod
+    fun getPresenceMode(promise: Promise) {
+        val enabled = ctx.getSharedPreferences("zerox1", Context.MODE_PRIVATE)
+            .getBoolean("presence_enabled", false)
+        promise.resolve(enabled)
+    }
+
+    /** Returns true if the "Draw over other apps" permission is granted. */
+    @ReactMethod
+    fun hasOverlayPermission(promise: Promise) {
+        promise.resolve(android.provider.Settings.canDrawOverlays(ctx))
+    }
+
+    /**
+     * Open the Android system settings page where the user can grant
+     * "Draw over other apps" permission for the Agent Presence bubble.
+     * Resolves immediately after launching the settings screen.
+     */
+    @ReactMethod
+    fun requestOverlayPermission(promise: Promise) {
+        try {
+            val intent = android.content.Intent(
+                android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                android.net.Uri.parse("package:${ctx.packageName}")
+            ).apply {
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            ctx.startActivity(intent)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("ERR", e.message)
         }
     }
 
@@ -326,8 +424,9 @@ class NodeModule(private val ctx: ReactApplicationContext)
             // Persist config to SharedPreferences so BootReceiver can restore it on reboot.
             val prefs = ctx.getSharedPreferences("zerox1", Context.MODE_PRIVATE).edit()
             prefs.putBoolean("node_auto_start", true)
-            config.getString("agentName")?.let  { prefs.putString("agent_name",  it) }
-            config.getString("relayAddr")?.let  { prefs.putString("relay_addr",  it) }
+            config.getString("agentName")?.let   { prefs.putString("agent_name",   it) }
+            config.getString("agentAvatar")?.let { prefs.putString("agent_avatar", it) }
+            config.getString("relayAddr")?.let   { prefs.putString("relay_addr",   it) }
             config.getString("fcmToken")?.let   { prefs.putString("fcm_token",   it) }
             config.getString("rpcUrl")?.let     { prefs.putString("rpc_url",     it) }
             if (config.hasKey("agentBrainEnabled")) prefs.putBoolean("brain_enabled", config.getBoolean("agentBrainEnabled"))
@@ -908,6 +1007,12 @@ class NodeModule(private val ctx: ReactApplicationContext)
     fun downloadAndInstall(downloadUrl: String, promise: Promise) {
         moduleScope.launch {
             try {
+                val host = java.net.URL(downloadUrl).host
+                if (host != "github.com" && host != "objects.githubusercontent.com") {
+                    promise.reject("INVALID_URL", "Download URL must be from github.com")
+                    return@launch
+                }
+
                 val updatesDir = java.io.File(ctx.filesDir, "updates").also { it.mkdirs() }
                 val apkFile    = java.io.File(updatesDir, "update.apk")
 
@@ -920,6 +1025,7 @@ class NodeModule(private val ctx: ReactApplicationContext)
                 val totalBytes = conn.contentLengthLong
                 var downloaded = 0L
                 var lastPct    = -1
+                val MAX_APK_BYTES = 200L * 1024 * 1024
 
                 conn.inputStream.use { input ->
                     apkFile.outputStream().use { output ->
@@ -928,6 +1034,11 @@ class NodeModule(private val ctx: ReactApplicationContext)
                         while (input.read(buf).also { read = it } != -1) {
                             output.write(buf, 0, read)
                             downloaded += read
+                            if (downloaded > MAX_APK_BYTES) {
+                                apkFile.delete()
+                                promise.reject("FILE_TOO_LARGE", "APK exceeds 200 MB limit")
+                                return@launch
+                            }
                             if (totalBytes > 0) {
                                 val pct = ((downloaded * 100) / totalBytes).toInt()
                                 if (pct != lastPct) {
