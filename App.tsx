@@ -19,6 +19,31 @@ import { useScreenActionListener } from './src/hooks/useScreenActions';
 import { ScreenActionConfirmModal } from './src/components/ScreenActionConfirmModal';
 import { useIdentity, useOwnReel } from './src/hooks/useNodeApi';
 
+// ── Deep link config for Agent Presence notification actions ──────────────────
+// zerox1://chat        → Chat tab (normal chat)
+// zerox1://chat?mode=brief → Chat tab with initialMode='brief'
+// zerox1://inbox       → Inbox tab
+// zerox1://today       → Today tab
+const DEEP_LINKING = {
+  prefixes: ['zerox1://'],
+  config: {
+    screens: {
+      Today: {
+        path: 'today',
+      },
+      Inbox: {
+        path: 'inbox',
+      },
+      Chat: {
+        path: 'chat',
+        parse: {
+          mode: (m: string) => m || 'chat',
+        },
+      },
+    },
+  },
+};
+
 // ── Error boundary ────────────────────────────────────────────────────────────
 // Catches uncaught render errors so the app shows a recovery screen instead
 // of crashing entirely.  Without this, any render-time throw kills the app.
@@ -116,7 +141,7 @@ export default function App() {
         <SafeAreaProvider>
           <ThemedStatusBar />
           <SignOutContext.Provider value={() => setOnboardingDone(false)}>
-            <NavigationContainer>
+            <NavigationContainer linking={DEEP_LINKING}>
               <NodeProvider>
                 <AppNavigator />
                 <ScreenActionGate />

@@ -48,7 +48,7 @@ class NodeService : Service() {
 
         // ZeroClaw agent brain binary
         const val AGENT_BINARY_NAME    = "zeroclaw"
-        const val AGENT_ASSET_VERSION  = "0.2.5"   // bump when zeroclaw binary changes
+        const val AGENT_ASSET_VERSION  = "0.2.7"   // bump when zeroclaw binary changes
         const val AGENT_CONFIG_FILE    = "config.toml"  // zeroclaw --config-dir looks for config.toml
         const val AGENT_GATEWAY_PORT   = 42617
         const val AGENT_BRIDGE_PORT    = 9092
@@ -91,10 +91,13 @@ class NodeService : Service() {
         const val EXTRA_MAX_COST       = "max_cost_per_day_cents"
 
         // Broadcast action so NodeModule can observe state changes
-        const val ACTION_STATUS     = "world.zerox1.01pilot.STATUS"
-        const val STATUS_RUNNING    = "running"
-        const val STATUS_STOPPED    = "stopped"
-        const val STATUS_ERROR      = "error"
+        const val ACTION_STATUS        = "world.zerox1.01pilot.STATUS"
+        const val STATUS_RUNNING       = "running"
+        const val STATUS_STOPPED       = "stopped"
+        const val STATUS_ERROR         = "error"
+
+        // Sent by NodeModule.setPresenceMode() to trigger a notification rebuild
+        const val ACTION_REFRESH_NOTIF = "world.zerox1.01pilot.REFRESH_NOTIF"
 
         /** True while NodeService is in the foreground (set in onCreate/onDestroy). */
         @Volatile var isRunning: Boolean = false
@@ -1433,6 +1436,16 @@ include_system = "true to include system apps (default: false)"
     private var bridgeSecret: String = ""
     private val secureRandom = SecureRandom()
 
+    /** Last status string passed to updateNotification() — used to replay on presence toggle. */
+    @Volatile private var lastNotifStatus: String = "Running"
+
+    /** Receives ACTION_REFRESH_NOTIF from NodeModule.setPresenceMode(). */
+    private val refreshNotifReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context?, intent: Intent?) {
+            updateNotification(lastNotifStatus)
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Lifecycle
     // -------------------------------------------------------------------------
@@ -1447,6 +1460,11 @@ include_system = "true to include system apps (default: false)"
         createNotificationChannel()
         val wm = getSystemService(POWER_SERVICE) as PowerManager
         wakeLock = wm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "zerox1:NodeWakeLock")
+        // Listen for presence toggle from NodeModule.
+        // LocalBroadcastManager is not a dependency; sender-side setPackage(packageName) in
+        // NodeModule prevents other apps from delivering this action, so a plain
+        // registerReceiver is safe on all API levels.
+        registerReceiver(refreshNotifReceiver, android.content.IntentFilter(ACTION_REFRESH_NOTIF))
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -1618,6 +1636,7 @@ include_system = "true to include system apps (default: false)"
     override fun onDestroy() {
         isRunning = false
         super.onDestroy()
+        try { unregisterReceiver(refreshNotifReceiver) } catch (_: Exception) {}
         serviceScope.cancel()
         agentProcess?.destroy()
         agentProcess = null
@@ -1694,7 +1713,11 @@ include_system = "true to include system apps (default: false)"
 
     private fun extractProcessPid(process: Process): Long? {
         return try {
-            process.pid().toLong()  // Available since API 26 (Android 8.0+)
+            // Process.pid() is Java 9+ and unavailable on Android's runtime.
+            // Reflect on ProcessImpl's "pid" field which exists on all Android versions.
+            val field = process.javaClass.getDeclaredField("pid")
+            field.isAccessible = true
+            field.getInt(process).toLong()
         } catch (e: Exception) {
             Log.w(TAG, "Could not get process PID: $e")
             null
@@ -1823,7 +1846,7 @@ include_system = "true to include system apps (default: false)"
             .also {
                 // Pass bagsPartnerKey via environment variable to avoid CLI exposure
                 if (!bagsPartnerKey.isNullOrBlank()) {
-                    it.environment()["BAGS_PARTNER_KEY"] = bagsPartnerKey
+                    it.environment()["ZX01_BAGS_PARTNER_KEY"] = bagsPartnerKey
                 }
             }
             .start()
@@ -2539,21 +2562,50 @@ the capability in the app Settings > Phone Bridge section instead.
     }
 
     private fun buildNotification(status: String): Notification {
+        val prefs = getSharedPreferences("zerox1", android.content.Context.MODE_PRIVATE)
+        val presenceEnabled = prefs.getBoolean("presence_enabled", false)
+        val agentName = prefs.getString("agent_name", null)?.takeIf { it.isNotBlank() } ?: "01 Pilot"
+
         val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
-        val pi = PendingIntent.getActivity(
+        val contentPi = PendingIntent.getActivity(
             this, 0, launchIntent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        return Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle("0x01 Node")
+
+        val builder = Notification.Builder(this, CHANNEL_ID)
+            .setContentTitle(if (presenceEnabled) agentName else "0x01 Node")
             .setContentText(status)
             .setSmallIcon(android.R.drawable.ic_menu_compass)
-            .setContentIntent(pi)
+            .setContentIntent(contentPi)
             .setOngoing(true)
-            .build()
+
+        if (presenceEnabled) {
+            // Quick-action buttons deep-link into the app via zerox1:// scheme.
+            fun actionIntent(deepLink: String, reqCode: Int): PendingIntent {
+                val i = android.content.Intent(android.content.Intent.ACTION_VIEW,
+                    android.net.Uri.parse(deepLink)).apply {
+                    setPackage(packageName)
+                    flags = android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                            android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
+                }
+                return PendingIntent.getActivity(this, reqCode, i,
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+            }
+
+            builder
+                .addAction(Notification.Action.Builder(null, "→ Chat",
+                    actionIntent("zerox1://chat", 101)).build())
+                .addAction(Notification.Action.Builder(null, "✦ Brief",
+                    actionIntent("zerox1://chat?mode=brief", 102)).build())
+                .addAction(Notification.Action.Builder(null, "◈ Inbox",
+                    actionIntent("zerox1://inbox", 103)).build())
+        }
+
+        return builder.build()
     }
 
     private fun updateNotification(status: String) {
+        lastNotifStatus = status
         val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         nm.notify(NOTIF_ID, buildNotification(status))
     }
@@ -2564,6 +2616,7 @@ the capability in the app Settings > Phone Bridge section instead.
 
     private fun broadcastStatus(status: String, detail: String = "") {
         sendBroadcast(Intent(ACTION_STATUS).apply {
+            setPackage(packageName)
             putExtra("status", status)
             putExtra("detail", detail)
         })

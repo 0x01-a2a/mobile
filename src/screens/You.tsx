@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput,
   Switch, Alert, Modal, FlatList, Image, Linking, ActivityIndicator,
+  AppState, AppStateStatus, Platform,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { launchImageLibrary } from 'react-native-image-picker';
@@ -18,8 +19,10 @@ import {
 import { useSignOut } from '../../App';
 import { DEFAULT_AGENT_ICON_URI } from '../assets/defaultAgentIcon';
 import { setLanguage } from '../i18n';
+import { use01PLGate, PRESENCE_THRESHOLD, PILOT_TOKEN_MINT } from '../hooks/use01PLGate';
 
 const COLD_WALLET_KEY = 'zerox1:cold_wallet';
+const PRESENCE_ENABLED_KEY = 'zerox1:presence_enabled';
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 
 // Minimum sweepable SOL — must cover fee reserve (0.01 SOL)
@@ -92,6 +95,8 @@ function WalletTab() {
   const handleLinkWallet = useCallback(async () => {
     const addr = walletInput.trim();
     if (!addr) return;
+    const { PublicKey } = require('@solana/web3.js');
+    try { new PublicKey(addr); } catch { Alert.alert('Invalid address', 'Please enter a valid Solana wallet address.'); return; }
     await AsyncStorage.setItem(COLD_WALLET_KEY, addr);
     setColdWallet(addr);
     setWalletInput('');
@@ -292,6 +297,9 @@ function WalletTab() {
         </View>
       ))}
 
+      {/* Agent Presence — 01PL holder feature */}
+      <PresenceCard hotWallet={solanaAddress ?? null} coldWallet={coldWallet} onLinkWallet={() => setLinkWalletVisible(true)} />
+
       {/* Link wallet modal */}
       <Modal visible={linkWalletVisible} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setLinkWalletVisible(false)}>
         <View style={s.modalRoot}>
@@ -382,6 +390,191 @@ function WalletTab() {
         </View>
       </Modal>
     </ScrollView>
+  );
+}
+
+// ── Agent Presence Card ────────────────────────────────────────────────────────
+
+function PresenceCard({
+  hotWallet,
+  coldWallet,
+  onLinkWallet,
+}: {
+  hotWallet: string | null;
+  coldWallet: string | null;
+  onLinkWallet: () => void;
+}) {
+  const { eligible, balance, loading, error } = use01PLGate([hotWallet, coldWallet]);
+  const [presenceEnabled, setPresenceEnabled] = useState(false);
+  const [hasOverlay, setHasOverlay] = useState(false);
+  const [toggling, setToggling] = useState(false);
+  const togglingRef = useRef(false);
+  const mountedRef = useRef(true);
+
+  useEffect(() => { return () => { mountedRef.current = false; }; }, []);
+
+  // Load saved state + overlay permission on mount and when returning from settings
+  const refreshState = useCallback(async () => {
+    const [saved, overlay] = await Promise.all([
+      AsyncStorage.getItem(PRESENCE_ENABLED_KEY),
+      Platform.OS === 'android' ? NodeModule.hasOverlayPermission() : Promise.resolve(false),
+    ]);
+    if (!mountedRef.current) return;
+    setPresenceEnabled(saved === 'true');
+    setHasOverlay(overlay as boolean);
+  }, []);
+
+  useEffect(() => { refreshState(); }, [refreshState]);
+
+  useEffect(() => {
+    // Re-check overlay permission when app comes back from Settings
+    const sub = AppState.addEventListener('change', (state: AppStateStatus) => {
+      if (state === 'active') refreshState();
+    });
+    return () => sub.remove();
+  }, [refreshState]);
+
+  const handleToggle = useCallback(async (val: boolean) => {
+    if (!eligible) return;
+    if (togglingRef.current) return;
+    togglingRef.current = true;
+
+    // If enabling and overlay not yet granted, open settings first
+    if (val && !hasOverlay) {
+      Alert.alert(
+        'Allow Overlay',
+        'To show your agent bubble on the home screen, grant "Display over other apps" in the next screen.',
+        [
+          { text: 'Not now', style: 'cancel' },
+          {
+            text: 'Open settings',
+            onPress: async () => {
+              await NodeModule.requestOverlayPermission();
+              // Permission check happens when AppState returns to 'active'
+            },
+          },
+        ],
+      );
+      togglingRef.current = false;
+      return;
+    }
+
+    setToggling(true);
+    try {
+      await AsyncStorage.setItem(PRESENCE_ENABLED_KEY, val ? 'true' : 'false');
+      await NodeModule.setPresenceMode(val);
+      setPresenceEnabled(val);
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'Could not update presence settings.');
+    } finally {
+      togglingRef.current = false;
+      setToggling(false);
+    }
+  }, [eligible, hasOverlay]);
+
+  const fmtBalance = (n: number) =>
+    n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M`
+    : n >= 1_000 ? `${(n / 1_000).toFixed(1)}k`
+    : n.toFixed(0);
+
+  return (
+    <View style={s.presenceSection}>
+      <Text style={[s.sectionLabel, { paddingHorizontal: 0, marginBottom: 8 }]}>
+        AGENT PRESENCE · 01PL
+      </Text>
+
+      <View style={[s.presenceCard, eligible && s.presenceCardEligible]}>
+        {/* Header row */}
+        <View style={s.presenceTopRow}>
+          {eligible ? (
+            <View style={s.presenceBadge}>
+              <Text style={s.presenceBadgeText}>★ HOLDER</Text>
+            </View>
+          ) : (
+            <View style={[s.presenceBadge, s.presenceBadgeLocked]}>
+              <Text style={s.presenceBadgeText}>🔒 01PL EXCLUSIVE</Text>
+            </View>
+          )}
+          {eligible ? (
+            <Switch
+              value={presenceEnabled}
+              onValueChange={handleToggle}
+              disabled={toggling}
+              trackColor={{ true: '#22c55e', false: '#d1d5db' }}
+              thumbColor="#fff"
+            />
+          ) : (
+            <Text style={s.presenceLockText}>
+              {loading ? '…' : error ? 'RPC error — retry in 5m' : `${fmtBalance(balance)} / ${fmtBalance(PRESENCE_THRESHOLD)}`}
+            </Text>
+          )}
+        </View>
+
+        {/* Bubble preview + title */}
+        <View style={s.presenceHeroRow}>
+          {/* Simulated bubble preview */}
+          <View style={s.presenceBubblePreview}>
+            <View style={s.presenceBubbleRing} />
+            <View style={[s.presenceBubbleDot, presenceEnabled && eligible && s.presenceBubbleDotActive]} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={s.presenceTitle}>
+              {eligible ? (presenceEnabled ? 'Companion is live' : 'Digital Companion') : 'Digital Companion'}
+            </Text>
+            <Text style={s.presenceDesc}>
+              {eligible
+                ? presenceEnabled
+                  ? 'Your agent floats on screen as a bubble — always there, always aware.'
+                  : 'Enable to summon your agent avatar anywhere on your device, even when the app is closed.'
+                : `Hold ${fmtBalance(PRESENCE_THRESHOLD)} 01PL to unlock your agent as a persistent floating companion.`}
+            </Text>
+          </View>
+        </View>
+
+        {/* What's included — eligible */}
+        {eligible && (
+          <View style={s.presenceFeatureList}>
+            <Text style={s.presenceFeatureItem}>◉ Floating avatar</Text>
+            <Text style={s.presenceFeatureItem}>→ Tap to chat</Text>
+            <Text style={s.presenceFeatureItem}>✦ Notification actions</Text>
+          </View>
+        )}
+
+        {/* Permission hint */}
+        {eligible && presenceEnabled && !hasOverlay && (
+          <TouchableOpacity
+            style={s.presencePermHint}
+            onPress={() => NodeModule.requestOverlayPermission()}
+          >
+            <Text style={s.presencePermHintText}>
+              ⚠ Grant "Display over other apps" to show the bubble →
+            </Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Action row — not eligible */}
+        {!eligible && (
+          <View style={s.presenceActionRow}>
+            {!coldWallet ? (
+              <TouchableOpacity style={s.presenceLinkBtn} onPress={onLinkWallet}>
+                <Text style={s.presenceLinkBtnText}>Link wallet to check →</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={s.presenceLinkBtn}
+                onPress={() => Linking.openURL(
+                  `https://jup.ag/swap/SOL-${PILOT_TOKEN_MINT}`,
+                )}
+              >
+                <Text style={s.presenceLinkBtnText}>Buy 01PL on Jupiter →</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+      </View>
+
+      {/* TODO iPhone: Dynamic Island / Live Activity when available */}
+    </View>
   );
 }
 
@@ -1654,4 +1847,60 @@ const s = StyleSheet.create({
   langPillActive: { backgroundColor: '#111' },
   langPillText: { fontSize: 11, color: '#6b7280', fontWeight: '600' },
   langPillTextActive: { color: '#fff' },
+
+  // ── Agent Presence card ───────────────────────────────────────────────────
+  presenceSection: { paddingHorizontal: 16, paddingTop: 20, paddingBottom: 8 },
+  presenceCard: {
+    borderRadius: 14, borderWidth: 1, borderColor: '#e5e7eb',
+    backgroundColor: '#f9fafb', padding: 14,
+  },
+  presenceCardEligible: {
+    backgroundColor: '#f0fdf4', borderColor: '#bbf7d0',
+  },
+  presenceTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  presenceBadge: {
+    backgroundColor: '#111', borderRadius: 5,
+    paddingHorizontal: 7, paddingVertical: 3,
+  },
+  presenceBadgeLocked: { backgroundColor: '#6b7280' },
+  presenceBadgeText: { fontSize: 8, color: '#fff', fontWeight: '700', letterSpacing: 0.8 },
+  presenceLockText: { fontSize: 11, color: '#9ca3af', fontWeight: '600' },
+
+  presenceHeroRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 2 },
+  presenceBubblePreview: {
+    width: 44, height: 44, borderRadius: 22,
+    backgroundColor: '#fff', borderWidth: 2, borderColor: '#bbf7d0',
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 6,
+    elevation: 3,
+  },
+  presenceBubbleRing: {
+    width: 24, height: 24, borderRadius: 12,
+    backgroundColor: '#dcfce7', borderWidth: 1.5, borderColor: '#86efac',
+  },
+  presenceBubbleDot: {
+    position: 'absolute', bottom: 2, right: 2,
+    width: 10, height: 10, borderRadius: 5,
+    backgroundColor: '#d1d5db', borderWidth: 1.5, borderColor: '#fff',
+  },
+  presenceBubbleDotActive: { backgroundColor: '#22c55e' },
+
+  presenceTitle: { fontSize: 14, fontWeight: '700', color: '#111', marginBottom: 4 },
+  presenceDesc: { fontSize: 12, color: '#6b7280', lineHeight: 17 },
+  presenceActionRow: { marginTop: 12 },
+  presenceLinkBtn: {
+    borderWidth: 1, borderColor: '#d1d5db', borderRadius: 8,
+    paddingVertical: 8, paddingHorizontal: 12, alignSelf: 'flex-start',
+  },
+  presenceLinkBtnText: { fontSize: 11, color: '#374151', fontWeight: '600' },
+  presenceFeatureList: { flexDirection: 'row', gap: 8, marginTop: 12, flexWrap: 'wrap' },
+  presenceFeatureItem: {
+    fontSize: 10, color: '#16a34a', fontWeight: '600',
+    backgroundColor: '#dcfce7', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3,
+  },
+  presencePermHint: {
+    marginTop: 10, backgroundColor: '#fffbeb', borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 7, borderWidth: 1, borderColor: '#fde68a',
+  },
+  presencePermHintText: { fontSize: 11, color: '#92400e' },
 });
