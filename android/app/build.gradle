@@ -100,15 +100,15 @@ android {
         }
         release {
             storeFile file(System.getenv("ZEROX1_RELEASE_KEYSTORE") ?: "/Users/tobiasd/Desktop/zerox1/secrets/release.keystore")
-            storePassword System.getenv("ZEROX1_RELEASE_STORE_PASS") ?: 'zerox1-pass-2026'
+            storePassword System.getenv("ZEROX1_RELEASE_STORE_PASS") ?: { throw new GradleException("ZEROX1_RELEASE_STORE_PASS env var not set") }()
             keyAlias 'zerox1-release'
-            keyPassword System.getenv("ZEROX1_RELEASE_KEY_PASS") ?: 'zerox1-pass-2026'
+            keyPassword System.getenv("ZEROX1_RELEASE_KEY_PASS") ?: { throw new GradleException("ZEROX1_RELEASE_KEY_PASS env var not set") }()
         }
         dappstore {
             storeFile file(System.getenv("ZEROX1_DAPPSTORE_KEYSTORE") ?: "/Users/tobiasd/Desktop/zerox1/secrets/dappstore.keystore")
-            storePassword System.getenv("ZEROX1_DAPPSTORE_STORE_PASS") ?: 'zerox1-dappstore-2026'
+            storePassword System.getenv("ZEROX1_DAPPSTORE_STORE_PASS") ?: { throw new GradleException("ZEROX1_DAPPSTORE_STORE_PASS env var not set") }()
             keyAlias 'zerox1-dappstore'
-            keyPassword System.getenv("ZEROX1_DAPPSTORE_KEY_PASS") ?: 'zerox1-dappstore-2026'
+            keyPassword System.getenv("ZEROX1_DAPPSTORE_KEY_PASS") ?: { throw new GradleException("ZEROX1_DAPPSTORE_KEY_PASS env var not set") }()
         }
     }
     buildTypes {

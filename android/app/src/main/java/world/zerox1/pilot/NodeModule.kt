@@ -77,6 +77,8 @@ class NodeModule(private val ctx: ReactApplicationContext)
         private const val SCREEN_CAPTURE_REQUEST_CODE = 1337
         private const val SECURE_PREFS_NAME = "zerox1_secure"
         private const val KEY_LLM_API_KEY = "llm_api_key"
+        private const val KEY_FAL_API_KEY = "fal_api_key"
+        private const val KEY_REPLICATE_API_KEY = "replicate_api_key"
         private const val KEY_NODE_API_SECRET = "local_node_api_secret"
         private const val KEY_GATEWAY_TOKEN = "local_gateway_token"
         private const val KEY_BAGS_API_KEY = "bags_api_key"
@@ -183,16 +185,22 @@ class NodeModule(private val ctx: ReactApplicationContext)
         pendingStartPromise = null
     }
 
-    private fun securePrefs() = EncryptedSharedPreferences.create(
-        ctx,
-        SECURE_PREFS_NAME,
-        MasterKey.Builder(ctx)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .setRequestStrongBoxBacked(false)  // emulator compatibility: no StrongBox HSM
-            .build(),
-        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-    )
+    @Volatile private var _securePrefs: android.content.SharedPreferences? = null
+
+    private fun securePrefs(): android.content.SharedPreferences {
+        return _securePrefs ?: synchronized(this) {
+            _securePrefs ?: EncryptedSharedPreferences.create(
+                reactApplicationContext,
+                SECURE_PREFS_NAME,
+                MasterKey.Builder(reactApplicationContext)
+                    .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                    .setRequestStrongBoxBacked(false)
+                    .build(),
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            ).also { _securePrefs = it }
+        }
+    }
 
     private fun randomHex(bytes: Int): String {
         val data = ByteArray(bytes)
@@ -220,6 +228,30 @@ class NodeModule(private val ctx: ReactApplicationContext)
             promise.resolve(null)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save API key to encrypted storage: $e")
+            promise.reject("SAVE_FAILED", e.message)
+        }
+    }
+
+    @ReactMethod
+    fun saveFalApiKey(key: String, promise: Promise) {
+        try {
+            val prefs = securePrefs()
+            prefs.edit().putString(KEY_FAL_API_KEY, key).apply()
+            promise.resolve(null)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save fal.ai API key to encrypted storage: $e")
+            promise.reject("SAVE_FAILED", e.message)
+        }
+    }
+
+    @ReactMethod
+    fun saveReplicateApiKey(key: String, promise: Promise) {
+        try {
+            val prefs = securePrefs()
+            prefs.edit().putString(KEY_REPLICATE_API_KEY, key).apply()
+            promise.resolve(null)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save Replicate API key to encrypted storage: $e")
             promise.reject("SAVE_FAILED", e.message)
         }
     }
@@ -908,6 +940,12 @@ class NodeModule(private val ctx: ReactApplicationContext)
     fun downloadAndInstall(downloadUrl: String, promise: Promise) {
         moduleScope.launch {
             try {
+                val host = java.net.URL(downloadUrl).host
+                if (host != "github.com" && host != "objects.githubusercontent.com") {
+                    promise.reject("INVALID_URL", "Download URL must be from github.com")
+                    return@launch
+                }
+
                 val updatesDir = java.io.File(ctx.filesDir, "updates").also { it.mkdirs() }
                 val apkFile    = java.io.File(updatesDir, "update.apk")
 
@@ -920,6 +958,7 @@ class NodeModule(private val ctx: ReactApplicationContext)
                 val totalBytes = conn.contentLengthLong
                 var downloaded = 0L
                 var lastPct    = -1
+                val MAX_APK_BYTES = 200L * 1024 * 1024
 
                 conn.inputStream.use { input ->
                     apkFile.outputStream().use { output ->
@@ -928,6 +967,11 @@ class NodeModule(private val ctx: ReactApplicationContext)
                         while (input.read(buf).also { read = it } != -1) {
                             output.write(buf, 0, read)
                             downloaded += read
+                            if (downloaded > MAX_APK_BYTES) {
+                                apkFile.delete()
+                                promise.reject("FILE_TOO_LARGE", "APK exceeds 200 MB limit")
+                                return@launch
+                            }
                             if (totalBytes > 0) {
                                 val pct = ((downloaded * 100) / totalBytes).toInt()
                                 if (pct != lastPct) {

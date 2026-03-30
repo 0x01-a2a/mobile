@@ -107,6 +107,7 @@ export default function InboxScreen() {
 
   // ACTIVE tab
   const { offers: sentOffers, addOffer, updateStatus } = useSentOffers();
+  const [activeFilter, setActiveFilter] = useState<'all' | 'action' | 'active'>('all');
 
   // Debounce search query
   useEffect(() => {
@@ -325,7 +326,16 @@ export default function InboxScreen() {
             </View>
             <View style={s.list}>
               {sorted.length === 0 && (
-                <Text style={s.emptyText}>{t('inbox.noNewJobs')}</Text>
+                <View style={s.emptyStateContainer}>
+                  <Text style={s.emptyStatePrimary}>No incoming job requests yet.</Text>
+                  <Text style={s.emptyStateSecondary}>Make sure your agent is running and has capabilities set.</Text>
+                  <TouchableOpacity
+                    style={s.emptyStateBtn}
+                    onPress={() => navigation.navigate('You')}
+                  >
+                    <Text style={s.emptyStateBtnText}>→ Check Settings</Text>
+                  </TouchableOpacity>
+                </View>
               )}
               {sorted.map(card => {
                 const isExpanded = expandedId === card.conversationId;
@@ -419,7 +429,16 @@ export default function InboxScreen() {
               autoCorrect={false}
             />
             {displayedAgents.length === 0 ? (
-              <Text style={s.emptyText}>{t('inbox.noAgents')}</Text>
+              <View style={s.emptyStateContainer}>
+                <Text style={s.emptyStatePrimary}>No agents found matching your criteria.</Text>
+                <Text style={s.emptyStateSecondary}>Try refreshing or broadening your search.</Text>
+                <TouchableOpacity
+                  style={s.emptyStateBtn}
+                  onPress={() => setSearchQuery('')}
+                >
+                  <Text style={s.emptyStateBtnText}>↺ Clear Search</Text>
+                </TouchableOpacity>
+              </View>
             ) : (
               displayedAgents.map(agent => {
                 const hireable = !!agent.token_address;
@@ -462,59 +481,116 @@ export default function InboxScreen() {
         {/* ── ACTIVE tab ── */}
         {subtab === 'active' && (
           <View style={s.activeRoot}>
-            {sentOffers.length === 0 ? (
-              <Text style={s.emptyText}>{t('inbox.noActiveOffers')}</Text>
-            ) : (
-              sentOffers.map(offer => (
-                <View
-                  key={offer.conversation_id}
-                  style={[
-                    s.activeCard,
-                    offer.status === 'pending'   && s.activeCardPending,
-                    offer.status === 'accepted'  && s.activeCardAccepted,
-                    offer.status === 'delivered' && s.activeCardDelivered,
-                    offer.status === 'rejected'  && s.activeCardRejected,
-                  ]}
+            {/* Filter pills */}
+            <View style={s.activeFilterRow}>
+              {([
+                { key: 'all', label: 'All' },
+                { key: 'action', label: 'Needs Action' },
+                { key: 'active', label: 'In Progress' },
+              ] as const).map(f => (
+                <TouchableOpacity
+                  key={f.key}
+                  style={[s.activeFilterPill, activeFilter === f.key && s.activeFilterPillSelected]}
+                  onPress={() => setActiveFilter(f.key)}
                 >
-                  <View style={s.activeCardTop}>
-                    <Text style={s.activeAgentName}>{offer.agent_name}</Text>
-                    <Text style={s.activeDesc} numberOfLines={1}>{offer.description}</Text>
-                  </View>
-                  {offer.status === 'pending' && (
-                    <Text style={s.activeStatusText}>{t('inbox.awaitingResponse')}</Text>
+                  <Text style={[s.activeFilterPillText, activeFilter === f.key && s.activeFilterPillTextSelected]}>
+                    {f.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {sentOffers.length === 0 ? (
+              <View style={s.emptyStateContainer}>
+                <Text style={s.emptyStatePrimary}>No active offers.</Text>
+                <Text style={s.emptyStateSecondary}>Browse agents in the HIRE tab to send your first offer.</Text>
+              </View>
+            ) : (() => {
+              const filtered = sentOffers.filter(offer => {
+                if (activeFilter === 'action') return offer.status === 'delivered';
+                if (activeFilter === 'active') return offer.status === 'accepted';
+                return true;
+              });
+              return (
+                <>
+                  {activeFilter === 'action' && filtered.length > 0 && (
+                    <View style={s.actionBanner}>
+                      <Text style={s.actionBannerText}>
+                        {'💬 Agent delivered — review and pay to complete'}
+                      </Text>
+                    </View>
                   )}
-                  {offer.status === 'accepted' && (
-                    <Text style={[s.activeStatusText, s.activeStatusGreen]}>{t('inbox.workingOnIt')}</Text>
-                  )}
-                  {offer.status === 'rejected' && (
-                    <Text style={s.activeStatusText}>{t('inbox.declined')}</Text>
-                  )}
-                  {offer.status === 'delivered' && (
-                    <>
-                      {!!offer.delivered_payload && (
-                        <Text style={s.deliveredPayload} numberOfLines={4}>
-                          {offer.delivered_payload}
-                        </Text>
-                      )}
-                      <View style={s.deliveredActions}>
-                        <TouchableOpacity
-                          style={s.payAcceptBtn}
-                          onPress={() => handlePayAccept(offer)}
-                        >
-                          <Text style={s.payAcceptBtnText}>{t('inbox.payAccept')}</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={s.disputeBtn}
-                          onPress={() => handleDispute(offer)}
-                        >
-                          <Text style={s.disputeBtnText}>{t('inbox.dispute')}</Text>
-                        </TouchableOpacity>
+                  {filtered.length === 0 ? (
+                    <View style={s.emptyStateContainer}>
+                      <Text style={s.emptyStatePrimary}>No active offers.</Text>
+                      <Text style={s.emptyStateSecondary}>Browse agents in the HIRE tab to send your first offer.</Text>
+                    </View>
+                  ) : (
+                    filtered.map(offer => (
+                      <View
+                        key={offer.conversation_id}
+                        style={[
+                          s.activeCard,
+                          offer.status === 'pending'   && s.activeCardPending,
+                          offer.status === 'accepted'  && s.activeCardAccepted,
+                          offer.status === 'delivered' && s.activeCardDelivered,
+                          offer.status === 'rejected'  && s.activeCardRejected,
+                        ]}
+                      >
+                        <View style={s.activeCardTop}>
+                          <Text style={s.activeAgentName}>{offer.agent_name}</Text>
+                          <Text style={s.activeDesc} numberOfLines={1}>{offer.description}</Text>
+                        </View>
+                        {offer.status === 'pending' && (
+                          <Text style={s.activeStatusText}>{t('inbox.awaitingResponse')}</Text>
+                        )}
+                        {offer.status === 'accepted' && (
+                          <>
+                            <Text style={[s.activeStatusText, s.activeStatusGreen]}>{t('inbox.workingOnIt')}</Text>
+                            <TouchableOpacity
+                              style={s.continueChatBtn}
+                              onPress={() => navigation.navigate('Chat', {
+                                conversationId: offer.conversation_id,
+                                task: { description: offer.description, fromAgent: offer.agent_name },
+                                initialMode: 'chat',
+                              })}
+                            >
+                              <Text style={s.continueChatBtnText}>→ Continue in Chat</Text>
+                            </TouchableOpacity>
+                          </>
+                        )}
+                        {offer.status === 'rejected' && (
+                          <Text style={s.activeStatusText}>{t('inbox.declined')}</Text>
+                        )}
+                        {offer.status === 'delivered' && (
+                          <>
+                            {!!offer.delivered_payload && (
+                              <Text style={s.deliveredPayload} numberOfLines={4}>
+                                {offer.delivered_payload}
+                              </Text>
+                            )}
+                            <View style={s.deliveredActions}>
+                              <TouchableOpacity
+                                style={s.payAcceptBtn}
+                                onPress={() => handlePayAccept(offer)}
+                              >
+                                <Text style={s.payAcceptBtnText}>{t('inbox.payAccept')}</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                style={s.disputeBtn}
+                                onPress={() => handleDispute(offer)}
+                              >
+                                <Text style={s.disputeBtnText}>{t('inbox.dispute')}</Text>
+                              </TouchableOpacity>
+                            </View>
+                          </>
+                        )}
                       </View>
-                    </>
+                    ))
                   )}
-                </View>
-              ))
-            )}
+                </>
+              );
+            })()}
           </View>
         )}
       </ScrollView>
@@ -632,6 +708,16 @@ const s = StyleSheet.create({
     fontSize: 14, color: '#d1d5db', textAlign: 'center', paddingVertical: 32,
   },
 
+  // ── Empty state helpers ───────────────────────────────────────────────────
+  emptyStateContainer: { alignItems: 'center', paddingVertical: 32, paddingHorizontal: 24 },
+  emptyStatePrimary: { fontSize: 13, color: '#374151', textAlign: 'center', marginBottom: 4 },
+  emptyStateSecondary: { fontSize: 11, color: '#9ca3af', textAlign: 'center', marginBottom: 12 },
+  emptyStateBtn: {
+    borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 8,
+    paddingHorizontal: 14, paddingVertical: 7,
+  },
+  emptyStateBtnText: { fontSize: 11, color: '#6b7280', fontWeight: '600' },
+
   card: { borderWidth: 1, borderRadius: 12, padding: 11, backgroundColor: '#fff' },
   cardAbove: { borderColor: '#d1d5db', borderLeftWidth: 3, borderLeftColor: '#111' },
   cardBelow: { borderColor: '#f3f4f6', backgroundColor: '#fafafa' },
@@ -725,6 +811,26 @@ const s = StyleSheet.create({
 
   // ── ACTIVE tab ───────────────────────────────────────────────────────────
   activeRoot: { padding: 12 },
+  activeFilterRow: { flexDirection: 'row', gap: 6, marginBottom: 10 },
+  activeFilterPill: {
+    height: 28, borderRadius: 14, paddingHorizontal: 12,
+    justifyContent: 'center', alignItems: 'center',
+    borderWidth: 1, borderColor: '#e5e7eb',
+  },
+  activeFilterPillSelected: { backgroundColor: '#111', borderColor: '#111' },
+  activeFilterPillText: { fontSize: 11, color: '#6b7280' },
+  activeFilterPillTextSelected: { color: '#fff' },
+  actionBanner: {
+    backgroundColor: '#fef3c7', borderWidth: 1, borderColor: '#fde68a',
+    borderRadius: 8, padding: 10, marginBottom: 10,
+  },
+  actionBannerText: { fontSize: 11, color: '#92400e', lineHeight: 16 },
+  continueChatBtn: {
+    marginTop: 6, borderWidth: 1, borderColor: '#111',
+    borderRadius: 7, padding: 7, alignItems: 'center',
+    alignSelf: 'flex-start',
+  },
+  continueChatBtnText: { fontSize: 11, color: '#111', fontWeight: '600' },
   activeCard: {
     borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 10,
     padding: 10, marginBottom: 7, borderLeftWidth: 3,

@@ -584,8 +584,38 @@ export function ChatScreen() {
       <AgentSelector
         agents={agents}
         selectedId={selectedAgentId}
-        onSelect={a => setSelectedAgentId(a.id)}
+        onSelect={a => {
+          if (messages.length > 0) {
+            Alert.alert(
+              'Switch Agent?',
+              'This will start a new chat session.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Switch', style: 'destructive', onPress: () => { setSelectedAgentId(a.id); } },
+              ],
+            );
+          } else {
+            setSelectedAgentId(a.id);
+          }
+        }}
       />
+
+      {/* Sticky task context card — pinned below the agent selector when a task is active */}
+      {activeTask && (
+        <View style={{ backgroundColor: '#f0fdf4', borderBottomWidth: 1, borderBottomColor: '#bbf7d0', paddingVertical: 10, paddingHorizontal: 16 }}>
+          <Text style={{ fontSize: 12, fontWeight: '700', color: '#111', fontFamily: 'monospace', marginBottom: 2 }} numberOfLines={2}>
+            {activeTask.description}
+          </Text>
+          {activeTask.reward ? (
+            <Text style={{ fontSize: 11, color: '#16a34a', fontFamily: 'monospace', marginBottom: 2 }}>
+              {activeTask.reward}
+            </Text>
+          ) : null}
+          <Text style={{ fontSize: 10, color: '#6b7280', fontFamily: 'monospace' }}>
+            Awaiting delivery
+          </Text>
+        </View>
+      )}
 
       {/* Mode pills */}
       <View style={s.pillRow}>
@@ -712,6 +742,24 @@ export function ChatScreen() {
               <Text style={s.errorText}>{uploadError}</Text>
             </View>
           ) : null}
+
+          {/* Delivery action bar — visible when an active task is set */}
+          {activeTask && (
+            <View style={{ flexDirection: 'row', borderTopWidth: 1, borderTopColor: '#bbf7d0', backgroundColor: '#f0fdf4', paddingHorizontal: 12, paddingVertical: 6, gap: 8 }}>
+              <TouchableOpacity
+                style={{ flex: 1, height: 36, borderWidth: 1, borderColor: '#86efac', borderRadius: 4, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' }}
+                onPress={() => pickAndDeliver('gallery')}
+              >
+                <Text style={{ fontSize: 11, color: '#15803d', fontFamily: 'monospace', fontWeight: '600' }}>📷 Deliver Photo</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ flex: 1, height: 36, borderWidth: 1, borderColor: '#86efac', borderRadius: 4, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' }}
+                onPress={() => setTextDeliverVisible(true)}
+              >
+                <Text style={{ fontSize: 11, color: '#15803d', fontFamily: 'monospace', fontWeight: '600' }}>✎ Deliver Text</Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
           {/* Input row */}
           <View style={s.inputWrap}>

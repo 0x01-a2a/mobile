@@ -14,6 +14,7 @@ import { useLayout } from '../hooks/useLayout';
 import { useTranslation } from 'react-i18next';
 import React, { useState, useEffect } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -158,7 +159,7 @@ function PrimaryBtn({
 }) {
   return (
     <TouchableOpacity
-      style={[s.primaryBtn, disabled && s.primaryBtnDisabled]}
+      style={[s.primaryBtn, disabled && s.primaryBtnDisabled, disabled && { opacity: 0.4 }]}
       onPress={onPress}
       activeOpacity={0.8}
       disabled={disabled}
@@ -317,12 +318,16 @@ function NameStep({
           {t('onboarding.agentNameTooShort')}
         </Text>
       )}
+      <Text style={[s.inputHint, { color: '#9ca3af', fontSize: 10 }]}>Min. 2 characters</Text>
       <Text style={s.inputHint}>{t('onboarding.agentNameHint')}</Text>
 
       <PrimaryBtn
         label={t('onboarding.continueBtn')}
-        onPress={onNext}
-        disabled={agentName.trim().length === 1}
+        onPress={() => {
+          if (agentName.trim().length < 2) return;
+          onNext();
+        }}
+        disabled={agentName.trim().length < 2}
       />
       <GhostBtn label={t('onboarding.skip')} onPress={onSkip} />
     </StepShell>
@@ -361,6 +366,9 @@ function ProviderStep({
         Your agent uses a fast model for decisions. All inference goes directly
         from your device to the provider — not through 01 servers.
       </Sub>
+      <Text style={{ fontSize: 12, color: '#6b7280', marginTop: -20, marginBottom: 16 }}>
+        Pick your AI engine — powers your agent's reasoning. You can change this anytime.
+      </Text>
 
       <View style={s.providerGrid}>
         {PROVIDERS.map((p: ProviderInfo) => (
@@ -455,6 +463,9 @@ function KeyStep({
         autoCorrect={false}
         spellCheck={false}
       />
+      <Text style={{ fontSize: 11, color: '#6b7280', marginBottom: 12, marginTop: -4 }}>
+        🔒 Stored securely on your device. Never shared.
+      </Text>
 
       {provider === 'custom' && (
         <>
@@ -519,6 +530,22 @@ function TokenChoiceStep({
         by the 01 protocol.
       </Sub>
 
+      <View style={{
+        backgroundColor: '#f0fdf4',
+        borderWidth: 1,
+        borderColor: '#bbf7d0',
+        borderRadius: 10,
+        padding: 12,
+        marginBottom: 20,
+      }}>
+        <Text style={{ fontSize: 9, color: '#9ca3af', letterSpacing: 0.5, marginBottom: 6 }}>
+          WHAT'S AN AGENT TOKEN?
+        </Text>
+        <Text style={{ fontSize: 12, color: '#374151', lineHeight: 18 }}>
+          A Solana token representing your agent. As your reputation grows, token holders earn trading fees — and so do you. Free forever, sponsored by 01.
+        </Text>
+      </View>
+
       <View style={{ gap: 10, marginBottom: 28 }}>
         {[
           {
@@ -548,7 +575,7 @@ function TokenChoiceStep({
       </View>
 
       <PrimaryBtn label="Launch my token →" onPress={onLaunch} />
-      <GhostBtn label="Skip for now" onPress={onSkip} />
+      <GhostBtn label="Skip — I'll launch later" onPress={onSkip} />
     </StepShell>
   );
 }
@@ -764,167 +791,218 @@ function LaunchSuccessStep({
   const [keyCopied, setKeyCopied] = useState(false);
   const [tokenLaunchError, setTokenLaunchError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
+  // Phase indicators for the launch sequence
+  type PhaseStatus = 'pending' | 'in-progress' | 'done' | 'error';
+  const [phaseStatuses, setPhaseStatuses] = useState<PhaseStatus[]>(['in-progress', 'pending', 'pending']);
+  const phaseLabels = ['REST API ready', 'Identity confirmed', 'Token launched'];
+
+  const runLaunchSequence = async (cancelled: () => boolean) => {
+    try {
+      const { NodeModule } = require('../native/NodeModule');
+      const raw = await AsyncStorage.getItem(NODE_CONFIG_KEY);
+      const nodeConfig = raw ? JSON.parse(raw) : {};
+
+      let fullConfig = nodeConfig;
       try {
-        const { NodeModule } = require('../native/NodeModule');
-        const raw = await AsyncStorage.getItem(NODE_CONFIG_KEY);
-        const nodeConfig = raw ? JSON.parse(raw) : {};
-
-        let fullConfig = nodeConfig;
-        try {
-          const brainRaw = await AsyncStorage.getItem('zerox1:agent_brain');
-          const brain = brainRaw ? JSON.parse(brainRaw) : null;
-          if (brain?.enabled && brain?.apiKeySet) {
-            fullConfig = {
-              ...nodeConfig,
-              agentBrainEnabled: true,
-              llmProvider: brain.provider ?? 'gemini',
-              llmModel: brain.customModel ?? '',
-              llmBaseUrl: brain.customBaseUrl ?? '',
-              capabilities: JSON.stringify(brain.capabilities ?? []),
-              minFeeUsdc: brain.minFeeUsdc ?? 5,
-              minReputation: brain.minReputation ?? 50,
-              autoAccept: brain.autoAccept ?? true,
-            };
-          }
-        } catch { /* proceed without brain */ }
-
-        await NodeModule.startNode(fullConfig);
-        if (cancelled) return;
-
-        let auth: { nodeApiToken?: string } = {};
-        try { auth = await NodeModule.getLocalAuthConfig(); } catch { /* ok */ }
-        const apiToken: string = auth?.nodeApiToken ?? '';
-        const authHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (apiToken) authHeaders.Authorization = `Bearer ${apiToken}`;
-
-        let walletAddr: string | null = null;
-        let agentIdHex: string | null = null;
-        for (let i = 0; i < 30; i++) {
-          await new Promise<void>(r => setTimeout(r, 1000));
-          if (cancelled) return;
-          try {
-            const res = await fetch('http://127.0.0.1:9090/identity', { headers: authHeaders });
-            if (res.ok) {
-              const data: { agent_id: string } = await res.json();
-              agentIdHex = data.agent_id;
-              const hexId: string = data.agent_id ?? '';
-              if (hexId.length === 64 && /^[0-9a-fA-F]{64}$/.test(hexId)) {
-                const { PublicKey } = require('@solana/web3.js');
-                const bytes = Uint8Array.from(
-                  (hexId.match(/.{1,2}/g)!).map((b: string) => parseInt(b, 16)),
-                );
-                try { walletAddr = new PublicKey(bytes).toBase58(); } catch { /* invalid */ }
-              }
-              if (!cancelled) setHotWalletAddress(walletAddr);
-              break;
-            }
-          } catch { /* not ready */ }
-        }
-        if (cancelled) return;
-
-        try {
-          const keyRes = await fetch('http://127.0.0.1:9090/identity/export-key', { headers: authHeaders });
-          if (keyRes.ok) {
-            const keyData: { secret_key_b58: string } = await keyRes.json();
-            if (!cancelled) setSecretKeyB58(keyData.secret_key_b58);
-          }
-        } catch { /* non-fatal */ }
-
-        if (cancelled) return;
-
-        // Only launch token if the user chose to
-        if (launchToken) {
-          setPhase('launching');
-          const symbol = deriveSymbol(agentName || 'Agent');
-          const displayName = agentName.trim() || 'My Agent';
-          const launchBody: Record<string, unknown> = {
-            agent_id_hex: agentIdHex ?? '',
-            name: displayName,
-            symbol,
-            description: `${displayName} is an autonomous AI agent on the 01 mesh network. Hire me at 0x01.world.`,
+        const brainRaw = await AsyncStorage.getItem('zerox1:agent_brain');
+        const brain = brainRaw ? JSON.parse(brainRaw) : null;
+        if (brain?.enabled && brain?.apiKeySet) {
+          fullConfig = {
+            ...nodeConfig,
+            agentBrainEnabled: true,
+            llmProvider: brain.provider ?? 'gemini',
+            llmModel: brain.customModel ?? '',
+            llmBaseUrl: brain.customBaseUrl ?? '',
+            capabilities: JSON.stringify(brain.capabilities ?? []),
+            minFeeUsdc: brain.minFeeUsdc ?? 5,
+            minReputation: brain.minReputation ?? 50,
+            autoAccept: brain.autoAccept ?? true,
           };
-          if (agentAvatar?.startsWith('data:')) {
-            launchBody.image_b64 = agentAvatar.split(',')[1] ?? '';
-          } else {
-            launchBody.image_b64 = DEFAULT_AGENT_ICON_B64;
-          }
-
-          try {
-            const controller = new AbortController();
-            const launchTimeout = setTimeout(() => controller.abort(), 60_000);
-            let launchRes: Response;
-            try {
-              launchRes = await fetch(`${AGGREGATOR_API}/sponsor/launch`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(launchBody),
-                signal: controller.signal,
-              });
-            } finally {
-              clearTimeout(launchTimeout);
-            }
-
-            if (launchRes.ok) {
-              const lj: { token_mint?: string } = await launchRes.json().catch(() => ({}));
-              const mint = lj.token_mint ?? null;
-              if (!cancelled && mint) {
-                setTokenMint(mint);
-                const brainRaw = await AsyncStorage.getItem('zerox1:agent_brain');
-                const brain = brainRaw ? JSON.parse(brainRaw) : {};
-                await AsyncStorage.setItem('zerox1:agent_brain', JSON.stringify({ ...brain, tokenAddress: mint }));
-              }
-            } else if (launchRes.status === 409) {
-              await new Promise<void>(r => setTimeout(r, 8_000));
-              if (!cancelled) {
-                const retryController = new AbortController();
-                const retryTimeout = setTimeout(() => retryController.abort(), 60_000);
-                try {
-                  const retryRes = await fetch(`${AGGREGATOR_API}/sponsor/launch`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(launchBody),
-                    signal: retryController.signal,
-                  });
-                  if (retryRes.ok) {
-                    const lj: { token_mint?: string } = await retryRes.json().catch(() => ({}));
-                    const mint = lj.token_mint ?? null;
-                    if (!cancelled && mint) {
-                      setTokenMint(mint);
-                      const brainRaw = await AsyncStorage.getItem('zerox1:agent_brain');
-                      const brain = brainRaw ? JSON.parse(brainRaw) : {};
-                      await AsyncStorage.setItem('zerox1:agent_brain', JSON.stringify({ ...brain, tokenAddress: mint }));
-                    }
-                  } else {
-                    const errText = await retryRes.text().catch(() => '');
-                    if (!cancelled) setTokenLaunchError(errText || `HTTP ${retryRes.status}`);
-                  }
-                } finally {
-                  clearTimeout(retryTimeout);
-                }
-              }
-            } else {
-              const errText = await launchRes.text().catch(() => '');
-              if (!cancelled) setTokenLaunchError(errText || `HTTP ${launchRes.status}`);
-            }
-          } catch (e: any) {
-            if (!cancelled) setTokenLaunchError(e?.message ?? 'Unknown error');
-          }
         }
+      } catch { /* proceed without brain */ }
 
-        if (!cancelled) setPhase('done');
-      } catch (e: any) {
-        if (!cancelled) {
-          setErrorMsg(e?.message ?? 'Failed to start node.');
-          setPhase('error');
-        }
+      await NodeModule.startNode(fullConfig);
+      if (cancelled()) return;
+
+      let auth: { nodeApiToken?: string } = {};
+      try { auth = await NodeModule.getLocalAuthConfig(); } catch { /* ok */ }
+      const apiToken: string = auth?.nodeApiToken ?? '';
+      const authHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (apiToken) authHeaders.Authorization = `Bearer ${apiToken}`;
+
+      // Phase 0: wait for REST API
+      let walletAddr: string | null = null;
+      let agentIdHex: string | null = null;
+      let apiReady = false;
+      for (let i = 0; i < 30; i++) {
+        await new Promise<void>(r => setTimeout(r, 1000));
+        if (cancelled()) return;
+        try {
+          const res = await fetch('http://127.0.0.1:9090/identity', { headers: authHeaders });
+          if (res.ok) {
+            apiReady = true;
+            const data: { agent_id: string } = await res.json();
+            agentIdHex = data.agent_id;
+            const hexId: string = data.agent_id ?? '';
+            if (hexId.length === 64 && /^[0-9a-fA-F]{64}$/.test(hexId)) {
+              const { PublicKey } = require('@solana/web3.js');
+              const bytes = Uint8Array.from(
+                (hexId.match(/.{1,2}/g)!).map((b: string) => parseInt(b, 16)),
+              );
+              try { walletAddr = new PublicKey(bytes).toBase58(); } catch { /* invalid */ }
+            }
+            if (!cancelled()) setHotWalletAddress(walletAddr);
+            break;
+          }
+        } catch { /* not ready */ }
       }
-    })();
-    return () => { cancelled = true; };
+      if (cancelled()) return;
+
+      if (!apiReady) {
+        setPhaseStatuses(['error', 'pending', 'pending']);
+        setErrorMsg('Node REST API did not respond within 30 seconds.');
+        setPhase('error');
+        return;
+      }
+
+      // Phase 0 done, Phase 1 in-progress
+      setPhaseStatuses(['done', 'in-progress', 'pending']);
+
+      try {
+        const keyRes = await fetch('http://127.0.0.1:9090/identity/export-key', { headers: authHeaders });
+        if (keyRes.ok) {
+          const keyData: { secret_key_b58: string } = await keyRes.json();
+          if (!cancelled()) setSecretKeyB58(keyData.secret_key_b58);
+        }
+      } catch { /* non-fatal */ }
+
+      if (cancelled()) return;
+
+      // Phase 1 done
+      setPhaseStatuses(prev => {
+        const next = [...prev];
+        next[1] = 'done';
+        next[2] = launchToken ? 'in-progress' : 'done';
+        return next;
+      });
+
+      // Phase 2: token launch
+      if (launchToken) {
+        setPhase('launching');
+        const symbol = deriveSymbol(agentName || 'Agent');
+        const displayName = agentName.trim() || 'My Agent';
+        const launchBody: Record<string, unknown> = {
+          agent_id_hex: agentIdHex ?? '',
+          name: displayName,
+          symbol,
+          description: `${displayName} is an autonomous AI agent on the 01 mesh network. Hire me at 0x01.world.`,
+        };
+        if (agentAvatar?.startsWith('data:')) {
+          launchBody.image_b64 = agentAvatar.split(',')[1] ?? '';
+        } else {
+          launchBody.image_b64 = DEFAULT_AGENT_ICON_B64;
+        }
+
+        let tokenSuccess = false;
+        try {
+          const controller = new AbortController();
+          const launchTimeout = setTimeout(() => controller.abort(), 60_000);
+          let launchRes: Response;
+          try {
+            launchRes = await fetch(`${AGGREGATOR_API}/sponsor/launch`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(launchBody),
+              signal: controller.signal,
+            });
+          } finally {
+            clearTimeout(launchTimeout);
+          }
+
+          if (launchRes.ok) {
+            const lj: { token_mint?: string } = await launchRes.json().catch(() => ({}));
+            const mint = lj.token_mint ?? null;
+            if (!cancelled() && mint) {
+              setTokenMint(mint);
+              const brainRaw = await AsyncStorage.getItem('zerox1:agent_brain');
+              const brain = brainRaw ? JSON.parse(brainRaw) : {};
+              await AsyncStorage.setItem('zerox1:agent_brain', JSON.stringify({ ...brain, tokenAddress: mint }));
+              tokenSuccess = true;
+            }
+          } else if (launchRes.status === 409) {
+            await new Promise<void>(r => setTimeout(r, 8_000));
+            if (!cancelled()) {
+              const retryController = new AbortController();
+              const retryTimeout = setTimeout(() => retryController.abort(), 60_000);
+              try {
+                const retryRes = await fetch(`${AGGREGATOR_API}/sponsor/launch`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(launchBody),
+                  signal: retryController.signal,
+                });
+                if (retryRes.ok) {
+                  const lj: { token_mint?: string } = await retryRes.json().catch(() => ({}));
+                  const mint = lj.token_mint ?? null;
+                  if (!cancelled() && mint) {
+                    setTokenMint(mint);
+                    const brainRaw = await AsyncStorage.getItem('zerox1:agent_brain');
+                    const brain = brainRaw ? JSON.parse(brainRaw) : {};
+                    await AsyncStorage.setItem('zerox1:agent_brain', JSON.stringify({ ...brain, tokenAddress: mint }));
+                    tokenSuccess = true;
+                  }
+                } else {
+                  const errText = await retryRes.text().catch(() => '');
+                  if (!cancelled()) setTokenLaunchError(errText || `HTTP ${retryRes.status}`);
+                }
+              } finally {
+                clearTimeout(retryTimeout);
+              }
+            }
+          } else {
+            const errText = await launchRes.text().catch(() => '');
+            if (!cancelled()) setTokenLaunchError(errText || `HTTP ${launchRes.status}`);
+          }
+        } catch (e: any) {
+          if (!cancelled()) setTokenLaunchError(e?.message ?? 'Unknown error');
+        }
+
+        setPhaseStatuses(prev => {
+          const next = [...prev];
+          next[2] = tokenSuccess ? 'done' : 'error';
+          return next;
+        });
+      }
+
+      if (!cancelled()) setPhase('done');
+    } catch (e: any) {
+      if (!cancelled()) {
+        setErrorMsg(e?.message ?? 'Failed to start node.');
+        setPhaseStatuses(['error', 'pending', 'pending']);
+        setPhase('error');
+      }
+    }
+  };
+
+  useEffect(() => {
+    let isCancelled = false;
+    const cancelled = () => isCancelled;
+    runLaunchSequence(cancelled);
+    return () => { isCancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const handleRetry = () => {
+    setPhase('starting');
+    setPhaseStatuses(['in-progress', 'pending', 'pending']);
+    setErrorMsg(null);
+    setTokenLaunchError(null);
+    setTokenMint(null);
+    setHotWalletAddress(null);
+    setSecretKeyB58(null);
+    let isCancelled = false;
+    runLaunchSequence(() => isCancelled);
+  };
 
   const handleCopyKey = async () => {
     if (!secretKeyB58) return;
@@ -950,9 +1028,44 @@ function LaunchSuccessStep({
         </Sub>
       )}
 
+      {/* Phase step indicators */}
+      <View style={[s.infoCard, { marginBottom: 16 }]}>
+        {phaseLabels.map((label, idx) => {
+          const status = phaseStatuses[idx];
+          // Only show Token launched row when launchToken is true
+          if (idx === 2 && !launchToken) return null;
+          return (
+            <View key={label} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: idx < phaseLabels.length - 1 ? 10 : 0 }}>
+              {status === 'done' && (
+                <Text style={{ fontSize: 14, color: '#22c55e', width: 18 }}>✓</Text>
+              )}
+              {status === 'in-progress' && (
+                <ActivityIndicator size="small" color="#22c55e" style={{ width: 18 }} />
+              )}
+              {status === 'pending' && (
+                <Text style={{ fontSize: 18, color: '#9ca3af', width: 18, lineHeight: 20 }}>•</Text>
+              )}
+              {status === 'error' && (
+                <Text style={{ fontSize: 14, color: '#dc2626', width: 18 }}>✗</Text>
+              )}
+              <Text style={{ fontSize: 13, color: status === 'done' ? '#22c55e' : status === 'error' ? '#dc2626' : status === 'in-progress' ? '#111111' : '#9ca3af', flex: 1 }}>
+                {label}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+
       {phase === 'error' && (
         <View style={[s.infoCard, { borderColor: '#fecaca', backgroundColor: '#fef2f2' }]}>
-          <Text style={{ fontSize: 12, color: '#dc2626' }}>{errorMsg}</Text>
+          <Text style={{ fontSize: 12, color: '#dc2626', marginBottom: 10 }}>{errorMsg}</Text>
+          <TouchableOpacity
+            style={[s.copyBtn, { borderColor: '#dc2626' }]}
+            onPress={handleRetry}
+            activeOpacity={0.7}
+          >
+            <Text style={[s.copyBtnText, { color: '#dc2626' }]}>Retry</Text>
+          </TouchableOpacity>
         </View>
       )}
 
