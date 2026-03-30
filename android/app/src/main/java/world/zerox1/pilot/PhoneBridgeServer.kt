@@ -2932,10 +2932,8 @@ class PhoneBridgeServer(
      * Reads the video from MediaStore, uploads it to the aggregator's
      * POST /agents/{agent_id}/reel/upload endpoint, and returns { "reel_url": "..." }.
      */
-    private fun handleHighlightPublish(body: String): BridgeResponse {
-        val json = try { org.json.JSONObject(body) } catch (e: Exception) {
-            return jsonError("invalid_json: ${e.message}", 400)
-        }
+    private fun handleHighlightPublish(body: JSONObject?): BridgeResponse {
+        val json = body ?: return jsonError("invalid_json: empty body", 400)
         val contentUri = json.optString("content_uri")
         val aggregatorUrl = json.optString("aggregator_url")
         val agentId = json.optString("agent_id")

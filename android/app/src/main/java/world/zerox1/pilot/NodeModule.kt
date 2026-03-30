@@ -278,6 +278,72 @@ class NodeModule(private val ctx: ReactApplicationContext)
     }
 
     /**
+     * Enable or disable Agent Presence for eligible 01PL holders.
+     *
+     * Saves `presence_enabled` to SharedPreferences, signals NodeService to
+     * refresh its foreground notification, and starts/stops the floating
+     * avatar bubble (PresenceBubbleService) if overlay permission is granted.
+     */
+    @ReactMethod
+    fun setPresenceMode(enabled: Boolean, promise: Promise) {
+        try {
+            ctx.getSharedPreferences("zerox1", Context.MODE_PRIVATE).edit()
+                .putBoolean("presence_enabled", enabled)
+                .apply()
+            // Rebuild the persistent notification immediately.
+            ctx.sendBroadcast(
+                android.content.Intent(NodeService.ACTION_REFRESH_NOTIF).apply {
+                    setPackage(ctx.packageName)
+                }
+            )
+            // Start or stop the floating bubble companion.
+            val bubbleIntent = android.content.Intent(ctx, PresenceBubbleService::class.java)
+            if (enabled && android.provider.Settings.canDrawOverlays(ctx)) {
+                ctx.startForegroundService(bubbleIntent)
+            } else {
+                ctx.stopService(bubbleIntent)
+            }
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("ERR", e.message)
+        }
+    }
+
+    @ReactMethod
+    fun getPresenceMode(promise: Promise) {
+        val enabled = ctx.getSharedPreferences("zerox1", Context.MODE_PRIVATE)
+            .getBoolean("presence_enabled", false)
+        promise.resolve(enabled)
+    }
+
+    /** Returns true if the "Draw over other apps" permission is granted. */
+    @ReactMethod
+    fun hasOverlayPermission(promise: Promise) {
+        promise.resolve(android.provider.Settings.canDrawOverlays(ctx))
+    }
+
+    /**
+     * Open the Android system settings page where the user can grant
+     * "Draw over other apps" permission for the Agent Presence bubble.
+     * Resolves immediately after launching the settings screen.
+     */
+    @ReactMethod
+    fun requestOverlayPermission(promise: Promise) {
+        try {
+            val intent = android.content.Intent(
+                android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                android.net.Uri.parse("package:${ctx.packageName}")
+            ).apply {
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            ctx.startActivity(intent)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("ERR", e.message)
+        }
+    }
+
+    /**
      * Reload the agent brain without a full node restart.
      *
      * Calls POST /agent/reload on the local node API.  The node SIGTERMs zeroclaw;
@@ -358,8 +424,9 @@ class NodeModule(private val ctx: ReactApplicationContext)
             // Persist config to SharedPreferences so BootReceiver can restore it on reboot.
             val prefs = ctx.getSharedPreferences("zerox1", Context.MODE_PRIVATE).edit()
             prefs.putBoolean("node_auto_start", true)
-            config.getString("agentName")?.let  { prefs.putString("agent_name",  it) }
-            config.getString("relayAddr")?.let  { prefs.putString("relay_addr",  it) }
+            config.getString("agentName")?.let   { prefs.putString("agent_name",   it) }
+            config.getString("agentAvatar")?.let { prefs.putString("agent_avatar", it) }
+            config.getString("relayAddr")?.let   { prefs.putString("relay_addr",   it) }
             config.getString("fcmToken")?.let   { prefs.putString("fcm_token",   it) }
             config.getString("rpcUrl")?.let     { prefs.putString("rpc_url",     it) }
             if (config.hasKey("agentBrainEnabled")) prefs.putBoolean("brain_enabled", config.getBoolean("agentBrainEnabled"))

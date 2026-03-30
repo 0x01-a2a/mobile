@@ -268,6 +268,34 @@ export const NodeModule = {
     ZeroxNodeModule.downloadAndInstall(downloadUrl),
 
   /**
+   * Enable or disable "Agent Presence" for eligible 01PL holders.
+   * When enabled, the foreground notification gains rich content (agent name,
+   * status) and three quick-action buttons: Chat, Brief, Inbox.
+   * Requires node to be running; no-op otherwise.
+   */
+  setPresenceMode: (enabled: boolean): Promise<void> =>
+    ZeroxNodeModule.setPresenceMode(enabled),
+
+  /** Returns whether Agent Presence is currently enabled. */
+  getPresenceMode: (): Promise<boolean> =>
+    ZeroxNodeModule.getPresenceMode(),
+
+  /**
+   * Returns true if the "Draw over other apps" (SYSTEM_ALERT_WINDOW)
+   * permission is granted — required for the floating avatar bubble.
+   */
+  hasOverlayPermission: (): Promise<boolean> =>
+    ZeroxNodeModule.hasOverlayPermission(),
+
+  /**
+   * Open Android system settings to let the user grant the overlay
+   * permission. Resolves immediately; check hasOverlayPermission() after
+   * the user returns to the app.
+   */
+  requestOverlayPermission: (): Promise<void> =>
+    ZeroxNodeModule.requestOverlayPermission(),
+
+  /**
    * Resolve a pending ASSISTED-mode screen action confirmation.
    * Called from the ScreenActionConfirmModal after the user taps APPROVE or REJECT.
    * @param id       The action UUID from the 'screenActionPending' event.

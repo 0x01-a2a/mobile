@@ -51,6 +51,21 @@ class BootReceiver : BroadcastReceiver() {
             }
         }
 
-        context.startForegroundService(serviceIntent)
+        try {
+            context.startForegroundService(serviceIntent)
+        } catch (e: Exception) {
+            android.util.Log.e("BootReceiver", "Failed to start NodeService: $e")
+        }
+
+        // Restart the floating bubble companion if presence was enabled before reboot.
+        // Only starts if overlay permission is still granted (user may have revoked it).
+        if (prefs.getBoolean("presence_enabled", false) &&
+            android.provider.Settings.canDrawOverlays(context)) {
+            try {
+                context.startForegroundService(Intent(context, PresenceBubbleService::class.java))
+            } catch (e: Exception) {
+                android.util.Log.e("BootReceiver", "Failed to start PresenceBubbleService: $e")
+            }
+        }
     }
 }
