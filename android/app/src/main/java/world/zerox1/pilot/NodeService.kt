@@ -1464,7 +1464,12 @@ include_system = "true to include system apps (default: false)"
         // LocalBroadcastManager is not a dependency; sender-side setPackage(packageName) in
         // NodeModule prevents other apps from delivering this action, so a plain
         // registerReceiver is safe on all API levels.
-        registerReceiver(refreshNotifReceiver, android.content.IntentFilter(ACTION_REFRESH_NOTIF))
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(refreshNotifReceiver, android.content.IntentFilter(ACTION_REFRESH_NOTIF), RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            registerReceiver(refreshNotifReceiver, android.content.IntentFilter(ACTION_REFRESH_NOTIF))
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

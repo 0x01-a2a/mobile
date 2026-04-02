@@ -92,6 +92,7 @@ export interface LocalAuthConfig {
   nodeApiToken: string | null;
   gatewayToken: string | null;
   heliusApiKey: string | null;
+  agentRunning: boolean;
 }
 
 // ============================================================================
@@ -165,6 +166,14 @@ export const NodeModule = {
    */
   reloadAgent: (): Promise<void> =>
     ZeroxNodeModule.reloadAgent(),
+
+  /**
+   * Start zeroclaw directly when the node is already running but the brain is not.
+   * iOS-only; no-op on Android (Android manages zeroclaw within the foreground service).
+   * Pass the same brain config keys as startNode.
+   */
+  startBrainIfNeeded: (config: NodeConfig): Promise<void> =>
+    ZeroxNodeModule.startBrainIfNeeded ? ZeroxNodeModule.startBrainIfNeeded(config) : Promise.resolve(),
 
   /**
    * Upload a blob to the aggregator, signing the request with the agent's
@@ -320,7 +329,52 @@ export const NodeModule = {
    */
   hasScreenCaptureGrant: (): Promise<boolean> =>
     ZeroxNodeModule.hasScreenCaptureGrant(),
+
+  /**
+   * Start a Live Activity showing agent status on Lock Screen + Dynamic Island (iOS 16.1+).
+   * Returns the activity ID string, or null if Live Activities are not supported.
+   * On Android this resolves immediately with null (floating bubble is used instead).
+   */
+  startLiveActivity: (config: {
+    agentName: string;
+    status: string;
+    currentTask?: string;
+    earnedToday?: string;
+    isActive?: boolean;
+  }): Promise<string | null> =>
+    ZeroxNodeModule.startLiveActivity(config),
+
+  /**
+   * Update a running Live Activity's content state.
+   * On Android this is a no-op (resolves immediately).
+   */
+  updateLiveActivity: (activityId: string, state: {
+    status: string;
+    currentTask?: string;
+    earnedToday?: string;
+    isActive?: boolean;
+  }): Promise<void> =>
+    ZeroxNodeModule.updateLiveActivity(activityId, state),
+
+  /**
+   * End and dismiss a Live Activity immediately.
+   * On Android this is a no-op (resolves immediately).
+   */
+  endLiveActivity: (activityId: string): Promise<void> =>
+    ZeroxNodeModule.endLiveActivity(activityId),
 };
+
+// Temporary iOS bridge instrumentation to diagnose stale native module builds.
+if (__DEV__ && Platform.OS === 'ios' && ZeroxNodeModule) {
+  try {
+    console.log('[NodeModule] bridge keys', Object.keys(ZeroxNodeModule).sort());
+    console.log('[NodeModule] typeof getLocalAuthConfig', typeof ZeroxNodeModule.getLocalAuthConfig);
+    console.log('[NodeModule] typeof startBrainIfNeeded', typeof ZeroxNodeModule.startBrainIfNeeded);
+    console.log('[NodeModule] typeof reloadAgent', typeof ZeroxNodeModule.reloadAgent);
+  } catch (e) {
+    console.log('[NodeModule] bridge introspection failed', String(e));
+  }
+}
 
 // ============================================================================
 // Events

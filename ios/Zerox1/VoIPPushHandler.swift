@@ -1,6 +1,7 @@
 #if canImport(PushKit)
 import PushKit
 import Foundation
+import os.log
 
 /// Handles VoIP push registration and wake events.
 ///
@@ -40,7 +41,7 @@ final class VoIPPushHandler: NSObject, PKPushRegistryDelegate {
         // Persist so NodeModule can read it and include in node startup config
         KeychainHelper.save(token, key: "voip_push_token")
         UserDefaults.standard.set(token, forKey: "zerox1_voip_token")
-        NSLog("[VoIPPushHandler] VoIP push token: \(token)")
+        os_log(.debug, "[VoIPPushHandler] VoIP push token registered (%d chars)", token.count)
     }
 
     func pushRegistry(_ registry: PKPushRegistry,
@@ -53,8 +54,40 @@ final class VoIPPushHandler: NSObject, PKPushRegistryDelegate {
 
         // Load saved config from UserDefaults and start the node
         let config = AppDelegate.loadSavedConfigStatic()
-        NodeService.shared.start(config: config) { _ in
+
+        // Read hosted mode flag from UserDefaults (set by the RN JS layer via NodeModule)
+        let isHostedMode = UserDefaults.standard.bool(forKey: "zerox1_hosted_mode")
+
+        // H-3a: Read host URL from Keychain, migrate from UserDefaults if needed
+        var hostUrl: String?
+        if let url = KeychainHelper.load(key: "host_url") {
+            hostUrl = url
+        } else if let url = UserDefaults.standard.string(forKey: "zerox1_host_url") {
+            // Migrate from UserDefaults to Keychain
+            KeychainHelper.save(url, key: "host_url")
+            UserDefaults.standard.removeObject(forKey: "zerox1_host_url")
+            hostUrl = url
+        }
+
+        if isHostedMode, let url = hostUrl, !url.isEmpty {
+            // H-3b: Validate hostUrl before using
+            guard let parsed = URL(string: url),
+                  let scheme = parsed.scheme?.lowercased(),
+                  ["https", "http"].contains(scheme),
+                  parsed.host != nil else {
+                os_log(.error, "[VoIPPushHandler] Invalid host URL, falling back to local node")
+                NodeService.shared.start(config: config) { _ in
+                    completion()
+                }
+                return
+            }
+            // Hosted mode: don't start local node, just ensure zeroclaw is connected
+            NodeService.shared.startHostedMode(hostUrl: url, config: config)
             completion()
+        } else {
+            NodeService.shared.start(config: config) { _ in
+                completion()
+            }
         }
     }
 

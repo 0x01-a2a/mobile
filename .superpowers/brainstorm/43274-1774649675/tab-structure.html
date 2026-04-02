@@ -1,0 +1,156 @@
+<h2>Tab structure — what are the 4 screens?</h2>
+<p class="subtitle">Clean light style. Pick the tab layout that makes the most sense for a normal user.</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="A" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#f0f2f5;padding:16px;font-family:-apple-system,sans-serif;">
+      <div style="background:#fff;border-radius:16px;overflow:hidden;max-width:210px;margin:0 auto;box-shadow:0 2px 16px rgba(0,0,0,0.1);">
+        <!-- Screen content -->
+        <div style="padding:14px;">
+          <div style="font-size:10px;color:#999;letter-spacing:0.5px;margin-bottom:4px;">HOME</div>
+          <div style="font-size:22px;font-weight:700;color:#111;letter-spacing:-0.5px;">$47.83 <span style="font-size:11px;color:#22c55e;font-weight:500;">↑ $4.20</span></div>
+          <div style="height:1px;background:#f0f0f0;margin:10px 0;"></div>
+          <div style="font-size:10px;color:#999;margin-bottom:6px;">RECENT JOBS</div>
+          <div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="font-size:11px;color:#333;">Code review</span><span style="font-size:11px;color:#22c55e;">+$1.70</span></div>
+          <div style="display:flex;justify-content:space-between;padding:4px 0;"><span style="font-size:11px;color:#999;">Translation</span><span style="font-size:11px;color:#999;">+$0.80</span></div>
+        </div>
+        <!-- Tab bar -->
+        <div style="border-top:1px solid #f0f0f0;display:flex;">
+          <div style="flex:1;padding:8px 4px;text-align:center;border-top:2px solid #22c55e;">
+            <div style="font-size:10px;color:#22c55e;font-weight:600;">Home</div>
+            <div style="font-size:9px;color:#bbb;margin-top:1px;">Earnings</div>
+          </div>
+          <div style="flex:1;padding:8px 4px;text-align:center;">
+            <div style="font-size:10px;color:#999;">Jobs</div>
+            <div style="font-size:9px;color:#ccc;margin-top:1px;">Active work</div>
+          </div>
+          <div style="flex:1;padding:8px 4px;text-align:center;">
+            <div style="font-size:10px;color:#999;">Brief</div>
+            <div style="font-size:9px;color:#ccc;margin-top:1px;">Chat</div>
+          </div>
+          <div style="flex:1;padding:8px 4px;text-align:center;">
+            <div style="font-size:10px;color:#999;">Agent</div>
+            <div style="font-size:9px;color:#ccc;margin-top:1px;">Settings</div>
+          </div>
+        </div>
+      </div>
+      <!-- Tab descriptions -->
+      <div style="max-width:210px;margin:10px auto 0;">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <div style="background:#22c55e15;border:1px solid #22c55e30;border-radius:6px;padding:4px 8px;"><span style="font-size:9px;color:#22c55e;font-weight:600;">Home</span> <span style="font-size:9px;color:#555;">earnings + recent</span></div>
+          <div style="background:#f5f5f5;border-radius:6px;padding:4px 8px;"><span style="font-size:9px;color:#555;">Jobs</span> <span style="font-size:9px;color:#999;">new requests + active</span></div>
+          <div style="background:#f5f5f5;border-radius:6px;padding:4px 8px;"><span style="font-size:9px;color:#555;">Brief</span> <span style="font-size:9px;color:#999;">chat + instructions</span></div>
+          <div style="background:#f5f5f5;border-radius:6px;padding:4px 8px;"><span style="font-size:9px;color:#555;">Agent</span> <span style="font-size:9px;color:#999;">config + wallet + skills</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Home · Jobs · Brief · Agent</h3>
+      <p>Cleanest split. Home = earnings summary. Jobs = what's coming in. Brief = chat to instruct agent. Agent = everything config-related (node, wallet, skills, settings).</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="B" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#f0f2f5;padding:16px;font-family:-apple-system,sans-serif;">
+      <div style="background:#fff;border-radius:16px;overflow:hidden;max-width:210px;margin:0 auto;box-shadow:0 2px 16px rgba(0,0,0,0.1);">
+        <div style="padding:14px;">
+          <div style="font-size:10px;color:#999;letter-spacing:0.5px;margin-bottom:4px;">OVERVIEW</div>
+          <div style="font-size:22px;font-weight:700;color:#111;letter-spacing:-0.5px;">$47.83 <span style="font-size:11px;color:#22c55e;font-weight:500;">↑ $4.20</span></div>
+          <div style="height:1px;background:#f0f0f0;margin:10px 0;"></div>
+          <div style="display:flex;gap:6px;">
+            <div style="flex:1;background:#f8f8f8;border-radius:8px;padding:8px;text-align:center;">
+              <div style="font-size:14px;font-weight:700;color:#111;">3</div>
+              <div style="font-size:9px;color:#999;">open jobs</div>
+            </div>
+            <div style="flex:1;background:#f8f8f8;border-radius:8px;padding:8px;text-align:center;">
+              <div style="font-size:14px;font-weight:700;color:#22c55e;">$0.42</div>
+              <div style="font-size:9px;color:#999;">SOL</div>
+            </div>
+          </div>
+        </div>
+        <div style="border-top:1px solid #f0f0f0;display:flex;">
+          <div style="flex:1;padding:8px 4px;text-align:center;border-top:2px solid #22c55e;">
+            <div style="font-size:10px;color:#22c55e;font-weight:600;">Overview</div>
+            <div style="font-size:9px;color:#bbb;margin-top:1px;">Dashboard</div>
+          </div>
+          <div style="flex:1;padding:8px 4px;text-align:center;">
+            <div style="font-size:10px;color:#999;">Work</div>
+            <div style="font-size:9px;color:#ccc;margin-top:1px;">Jobs + chat</div>
+          </div>
+          <div style="flex:1;padding:8px 4px;text-align:center;">
+            <div style="font-size:10px;color:#999;">Wallet</div>
+            <div style="font-size:9px;color:#ccc;margin-top:1px;">Balance + send</div>
+          </div>
+          <div style="flex:1;padding:8px 4px;text-align:center;">
+            <div style="font-size:10px;color:#999;">Settings</div>
+            <div style="font-size:9px;color:#ccc;margin-top:1px;">Config</div>
+          </div>
+        </div>
+      </div>
+      <div style="max-width:210px;margin:10px auto 0;">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <div style="background:#22c55e15;border:1px solid #22c55e30;border-radius:6px;padding:4px 8px;"><span style="font-size:9px;color:#22c55e;font-weight:600;">Overview</span> <span style="font-size:9px;color:#555;">earnings + stats</span></div>
+          <div style="background:#f5f5f5;border-radius:6px;padding:4px 8px;"><span style="font-size:9px;color:#555;">Work</span> <span style="font-size:9px;color:#999;">jobs + brief in one tab</span></div>
+          <div style="background:#f5f5f5;border-radius:6px;padding:4px 8px;"><span style="font-size:9px;color:#555;">Wallet</span> <span style="font-size:9px;color:#999;">SOL + USDC + sweep</span></div>
+          <div style="background:#f5f5f5;border-radius:6px;padding:4px 8px;"><span style="font-size:9px;color:#555;">Settings</span> <span style="font-size:9px;color:#999;">node + agent + skills</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Overview · Work · Wallet · Settings</h3>
+      <p>Merges Jobs + Brief into one "Work" tab (the agent's workspace). Gives Wallet its own tab — useful since earnings → SOL → withdraw is a common flow.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="C" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#f0f2f5;padding:16px;font-family:-apple-system,sans-serif;">
+      <div style="background:#fff;border-radius:16px;overflow:hidden;max-width:210px;margin:0 auto;box-shadow:0 2px 16px rgba(0,0,0,0.1);">
+        <div style="padding:14px;">
+          <div style="font-size:10px;color:#999;letter-spacing:0.5px;margin-bottom:4px;">TODAY</div>
+          <div style="font-size:22px;font-weight:700;color:#111;letter-spacing:-0.5px;">$47.83 <span style="font-size:11px;color:#22c55e;font-weight:500;">↑ $4.20</span></div>
+          <div style="height:1px;background:#f0f0f0;margin:10px 0;"></div>
+          <!-- Agent status inline -->
+          <div style="display:flex;align-items:center;gap:8px;background:#f8fdf8;border:1px solid #dcfce7;border-radius:8px;padding:8px;">
+            <div style="width:8px;height:8px;border-radius:50%;background:#22c55e;flex-shrink:0;"></div>
+            <div>
+              <div style="font-size:11px;color:#333;font-weight:500;">Aria · working</div>
+              <div style="font-size:9px;color:#999;">Data analysis · 4m ago</div>
+            </div>
+          </div>
+        </div>
+        <div style="border-top:1px solid #f0f0f0;display:flex;">
+          <div style="flex:1;padding:8px 4px;text-align:center;border-top:2px solid #22c55e;">
+            <div style="font-size:10px;color:#22c55e;font-weight:600;">Today</div>
+            <div style="font-size:9px;color:#bbb;margin-top:1px;">Dashboard</div>
+          </div>
+          <div style="flex:1;padding:8px 4px;text-align:center;">
+            <div style="font-size:10px;color:#999;">Inbox</div>
+            <div style="font-size:9px;color:#ccc;margin-top:1px;">New jobs</div>
+          </div>
+          <div style="flex:1;padding:8px 4px;text-align:center;">
+            <div style="font-size:10px;color:#999;">Chat</div>
+            <div style="font-size:9px;color:#ccc;margin-top:1px;">Aria</div>
+          </div>
+          <div style="flex:1;padding:8px 4px;text-align:center;">
+            <div style="font-size:10px;color:#999;">You</div>
+            <div style="font-size:9px;color:#ccc;margin-top:1px;">Profile</div>
+          </div>
+        </div>
+      </div>
+      <div style="max-width:210px;margin:10px auto 0;">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <div style="background:#22c55e15;border:1px solid #22c55e30;border-radius:6px;padding:4px 8px;"><span style="font-size:9px;color:#22c55e;font-weight:600;">Today</span> <span style="font-size:9px;color:#555;">earnings + agent status</span></div>
+          <div style="background:#f5f5f5;border-radius:6px;padding:4px 8px;"><span style="font-size:9px;color:#555;">Inbox</span> <span style="font-size:9px;color:#999;">incoming job requests</span></div>
+          <div style="background:#f5f5f5;border-radius:6px;padding:4px 8px;"><span style="font-size:9px;color:#555;">Chat</span> <span style="font-size:9px;color:#999;">talk to your agent</span></div>
+          <div style="background:#f5f5f5;border-radius:6px;padding:4px 8px;"><span style="font-size:9px;color:#555;">You</span> <span style="font-size:9px;color:#999;">wallet + config + profile</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Today · Inbox · Chat · You</h3>
+      <p>Most consumer-friendly labels. "Inbox" for job requests (like email). "Chat" is obvious. "You" consolidates wallet, agent config, skills — everything personal.</p>
+    </div>
+  </div>
+
+</div>

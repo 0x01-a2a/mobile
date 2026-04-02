@@ -7,6 +7,7 @@
  */
 import React, { useEffect, useState, Component, ErrorInfo, ReactNode, createContext, useContext } from 'react';
 import { StatusBar, View, Text, StyleSheet } from 'react-native';
+import { LaunchScreen } from './src/components/LaunchScreen';
 import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppNavigator } from './src/navigation/AppNavigator';
@@ -105,6 +106,7 @@ function ReelWatcher() {
 export default function App() {
   const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null);
   const [i18nReady, setI18nReady] = useState(false);
+  const [launchDone, setLaunchDone] = useState(false);
   const { save: saveBrain } = useAgentBrain();
 
   useEffect(() => {
@@ -117,9 +119,9 @@ export default function App() {
     setOnboardingDone(true);
   };
 
-  // Still checking — render nothing (avoids flash)
-  if (onboardingDone === null || !i18nReady) {
-    return <View style={s.splash} />;
+  // Show launch animation until both it finishes AND async checks are done
+  if (!launchDone || onboardingDone === null || !i18nReady) {
+    return <LaunchScreen onDone={() => setLaunchDone(true)} />;
   }
 
   if (!onboardingDone) {
@@ -156,7 +158,6 @@ export default function App() {
 }
 
 const s = StyleSheet.create({
-  splash: { flex: 1, backgroundColor: '#050505' },
   errorContainer: {
     flex: 1,
     backgroundColor: '#050505',

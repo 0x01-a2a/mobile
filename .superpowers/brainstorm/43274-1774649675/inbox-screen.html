@@ -1,0 +1,184 @@
+<h2>Inbox screen — incoming job requests</h2>
+<p class="subtitle">Replaces the current bounty feed. How should a job request card look?</p>
+
+<div class="split">
+
+  <div class="mockup">
+    <div class="mockup-header">A — Compact list</div>
+    <div class="mockup-body" style="background:#f8f9fa;padding:0;font-family:-apple-system,sans-serif;">
+      <div style="background:#fff;min-height:460px;max-width:220px;margin:0 auto;">
+        <!-- Header -->
+        <div style="padding:14px 16px 10px;border-bottom:1px solid #f3f4f6;">
+          <div style="font-size:16px;font-weight:700;color:#111;">Inbox</div>
+          <div style="font-size:11px;color:#9ca3af;margin-top:2px;">3 new requests</div>
+        </div>
+        <!-- Job cards - compact -->
+        <div style="padding:8px 12px;">
+
+          <!-- Job 1 - urgent/new -->
+          <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin-bottom:8px;border-left:3px solid #111;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
+              <div style="font-size:12px;font-weight:600;color:#111;flex:1;margin-right:8px;">Code review needed</div>
+              <div style="font-size:13px;font-weight:700;color:#111;white-space:nowrap;">$2.50</div>
+            </div>
+            <div style="font-size:10px;color:#6b7280;margin-bottom:8px;">From Agent_7f3a · expires 4m</div>
+            <div style="display:flex;gap:6px;">
+              <div style="flex:1;background:#111;border-radius:6px;padding:6px;text-align:center;">
+                <div style="font-size:10px;color:#fff;font-weight:600;">Accept</div>
+              </div>
+              <div style="flex:1;border:1px solid #e5e7eb;border-radius:6px;padding:6px;text-align:center;">
+                <div style="font-size:10px;color:#6b7280;">Decline</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Job 2 -->
+          <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin-bottom:8px;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
+              <div style="font-size:12px;font-weight:600;color:#111;flex:1;margin-right:8px;">Translate document</div>
+              <div style="font-size:13px;font-weight:700;color:#111;white-space:nowrap;">$1.20</div>
+            </div>
+            <div style="font-size:10px;color:#6b7280;margin-bottom:8px;">From Agent_2b9c · expires 12m</div>
+            <div style="display:flex;gap:6px;">
+              <div style="flex:1;background:#111;border-radius:6px;padding:6px;text-align:center;">
+                <div style="font-size:10px;color:#fff;font-weight:600;">Accept</div>
+              </div>
+              <div style="flex:1;border:1px solid #e5e7eb;border-radius:6px;padding:6px;text-align:center;">
+                <div style="font-size:10px;color:#6b7280;">Decline</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Job 3 - low value -->
+          <div style="background:#fafafa;border:1px solid #f3f4f6;border-radius:12px;padding:12px;margin-bottom:8px;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
+              <div style="font-size:12px;font-weight:600;color:#6b7280;flex:1;margin-right:8px;">Data summarization</div>
+              <div style="font-size:13px;font-weight:700;color:#6b7280;white-space:nowrap;">$0.40</div>
+            </div>
+            <div style="font-size:10px;color:#9ca3af;margin-bottom:8px;">From Agent_cc12 · expires 28m</div>
+            <div style="display:flex;gap:6px;">
+              <div style="flex:1;background:#f3f4f6;border-radius:6px;padding:6px;text-align:center;">
+                <div style="font-size:10px;color:#6b7280;font-weight:600;">Accept</div>
+              </div>
+              <div style="flex:1;border:1px solid #f3f4f6;border-radius:6px;padding:6px;text-align:center;">
+                <div style="font-size:10px;color:#9ca3af;">Decline</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Auto-accept banner -->
+          <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 10px;display:flex;align-items:center;gap:6px;">
+            <div style="width:6px;height:6px;border-radius:50%;background:#22c55e;"></div>
+            <div style="font-size:9px;color:#16a34a;">Auto-accepting jobs above $1.00</div>
+          </div>
+        </div>
+
+        <!-- Bottom nav -->
+        <div style="border-top:1px solid #f3f4f6;display:flex;padding:6px 0 10px;position:absolute;bottom:0;left:0;right:0;background:#fff;">
+          <div style="flex:1;text-align:center;padding-top:6px;"><div style="font-size:9px;color:#9ca3af;">Today</div></div>
+          <div style="flex:1;text-align:center;border-top:2px solid #111;padding-top:6px;"><div style="font-size:9px;color:#111;font-weight:600;">Inbox</div></div>
+          <div style="flex:1;text-align:center;padding-top:6px;"><div style="font-size:9px;color:#9ca3af;">Chat</div></div>
+          <div style="flex:1;text-align:center;padding-top:6px;"><div style="font-size:9px;color:#9ca3af;">You</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">B — Expanded cards</div>
+    <div class="mockup-body" style="background:#f8f9fa;padding:0;font-family:-apple-system,sans-serif;">
+      <div style="background:#fff;min-height:460px;max-width:220px;margin:0 auto;position:relative;">
+        <!-- Header -->
+        <div style="padding:14px 16px 10px;border-bottom:1px solid #f3f4f6;">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div>
+              <div style="font-size:16px;font-weight:700;color:#111;">Inbox</div>
+              <div style="font-size:11px;color:#9ca3af;margin-top:1px;">3 new requests</div>
+            </div>
+            <div style="background:#f3f4f6;border-radius:6px;padding:4px 8px;">
+              <div style="font-size:9px;color:#374151;font-weight:500;">Filter</div>
+            </div>
+          </div>
+        </div>
+        <!-- Job cards - expanded -->
+        <div style="padding:10px 12px;">
+
+          <!-- Job 1 - expanded -->
+          <div style="background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:14px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,0.04);">
+            <!-- Sender row -->
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+              <div style="width:28px;height:28px;border-radius:50%;background:#f3f4f6;border:1px solid #e5e7eb;display:flex;align-items:center;justify-content:center;">
+                <div style="font-size:12px;color:#374151;">◉</div>
+              </div>
+              <div style="flex:1;">
+                <div style="font-size:11px;font-weight:600;color:#111;">Agent_7f3a</div>
+                <div style="font-size:9px;color:#9ca3af;">reputation: 84 · 47 jobs done</div>
+              </div>
+              <div style="text-align:right;">
+                <div style="font-size:15px;font-weight:700;color:#111;">$2.50</div>
+                <div style="font-size:9px;color:#ef4444;">4m left</div>
+              </div>
+            </div>
+            <!-- Task description -->
+            <div style="background:#f9fafb;border-radius:8px;padding:8px;margin-bottom:10px;">
+              <div style="font-size:11px;color:#374151;line-height:1.4;">Review this Rust function for memory safety and suggest improvements.</div>
+            </div>
+            <!-- Capability tags -->
+            <div style="display:flex;gap:4px;margin-bottom:10px;flex-wrap:wrap;">
+              <div style="background:#eff6ff;border-radius:4px;padding:2px 6px;"><div style="font-size:9px;color:#3b82f6;">code</div></div>
+              <div style="background:#f0fdf4;border-radius:4px;padding:2px 6px;"><div style="font-size:9px;color:#16a34a;">rust</div></div>
+            </div>
+            <!-- Actions -->
+            <div style="display:flex;gap:6px;">
+              <div style="flex:2;background:#111;border-radius:8px;padding:8px;text-align:center;">
+                <div style="font-size:11px;color:#fff;font-weight:600;">Accept · $2.50</div>
+              </div>
+              <div style="flex:1;border:1px solid #e5e7eb;border-radius:8px;padding:8px;text-align:center;">
+                <div style="font-size:11px;color:#9ca3af;">Pass</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Job 2 - compact preview -->
+          <div style="background:#fafafa;border:1px solid #f3f4f6;border-radius:12px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;">
+            <div>
+              <div style="font-size:11px;font-weight:600;color:#374151;">Translate document</div>
+              <div style="font-size:9px;color:#9ca3af;margin-top:1px;">Agent_2b9c · 12m left</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:12px;font-weight:700;color:#374151;">$1.20</div>
+              <div style="font-size:9px;color:#6b7280;">tap to expand</div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Bottom nav -->
+        <div style="border-top:1px solid #f3f4f6;display:flex;padding:6px 0 10px;position:absolute;bottom:0;left:0;right:0;background:#fff;">
+          <div style="flex:1;text-align:center;padding-top:6px;"><div style="font-size:9px;color:#9ca3af;">Today</div></div>
+          <div style="flex:1;text-align:center;border-top:2px solid #111;padding-top:6px;"><div style="font-size:9px;color:#111;font-weight:600;">Inbox</div></div>
+          <div style="flex:1;text-align:center;padding-top:6px;"><div style="font-size:9px;color:#9ca3af;">Chat</div></div>
+          <div style="flex:1;text-align:center;padding-top:6px;"><div style="font-size:9px;color:#9ca3af;">You</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="options" style="margin-top:24px;">
+  <div class="option" data-choice="A" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Compact list</h3>
+      <p>Title + amount + expiry + Accept/Decline. Fast to scan. Auto-accept banner shows the agent's current threshold. Best when auto-accept handles most jobs.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="B" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Expanded cards</h3>
+      <p>Full job description, sender reputation, capability tags. Tap to collapse other cards. Better for manual review — user can make informed decisions per job.</p>
+    </div>
+  </div>
+</div>

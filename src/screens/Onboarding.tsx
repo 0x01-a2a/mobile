@@ -17,6 +17,7 @@ import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   ScrollView,
   Share,
@@ -204,6 +205,8 @@ function WelcomeStep({
   onSkip: () => void;
 }) {
   const { t } = useTranslation();
+  const [agreed, setAgreed] = useState(false);
+  const [riskAgreed, setRiskAgreed] = useState(false);
   const walletValid = phantomWallet.trim().length >= 32;
   return (
     <StepShell step={0}>
@@ -252,8 +255,47 @@ function WelcomeStep({
         )}
       </View>
 
-      <PrimaryBtn label={t('onboarding.setupAgent')} onPress={onEnable} />
-      <GhostBtn label={t('onboarding.skipForNow')} onPress={onSkip} />
+      <TouchableOpacity
+        style={s.termsRow}
+        onPress={() => setAgreed(v => !v)}
+        activeOpacity={0.7}
+      >
+        <View style={[s.checkbox, agreed && s.checkboxChecked]}>
+          {agreed && <Text style={s.checkmark}>✓</Text>}
+        </View>
+        <Text style={s.termsText}>
+          I agree to the{' '}
+          <Text
+            style={s.termsLink}
+            onPress={() => Linking.openURL('https://www.0x01.world/mobile-terms.html')}
+          >
+            Terms of Use
+          </Text>
+          {' '}and{' '}
+          <Text
+            style={s.termsLink}
+            onPress={() => Linking.openURL('https://www.0x01.world/mobile-privacy.html')}
+          >
+            Privacy Policy
+          </Text>
+        </Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={s.termsRow}
+        onPress={() => setRiskAgreed(v => !v)}
+        activeOpacity={0.7}
+      >
+        <View style={[s.checkbox, riskAgreed && s.checkboxChecked]}>
+          {riskAgreed && <Text style={s.checkmark}>✓</Text>}
+        </View>
+        <Text style={s.termsText}>
+          I understand this app controls a non-custodial wallet. Lost keys cannot be recovered. Autonomous agent transactions are irreversible.
+        </Text>
+      </TouchableOpacity>
+
+      <PrimaryBtn label={t('onboarding.setupAgent')} onPress={onEnable} disabled={!agreed || !riskAgreed} />
+      <GhostBtn label={t('onboarding.skipForNow')} onPress={agreed && riskAgreed ? onSkip : () => Alert.alert('Agreement required', 'Please tick both boxes to continue.')} />
     </StepShell>
   );
 }
@@ -1064,7 +1106,7 @@ function LaunchSuccessStep({
             onPress={handleRetry}
             activeOpacity={0.7}
           >
-            <Text style={[s.copyBtnText, { color: '#dc2626' }]}>Retry</Text>
+            <Text style={[s.copyBtnText, { color: '#dc2626' }]}>{t('onboarding.retry')}</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -1205,6 +1247,17 @@ const s = StyleSheet.create({
   featureRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   featureIcon: { fontSize: 14, color: C.green, lineHeight: 20, width: 16 },
   featureText: { fontSize: 14, color: C.text, lineHeight: 20, flex: 1 },
+
+  // Terms agreement
+  termsRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginTop: 16, marginBottom: 4 },
+  checkbox: {
+    width: 18, height: 18, borderRadius: 4, borderWidth: 1,
+    borderColor: C.border, alignItems: 'center', justifyContent: 'center', marginTop: 1,
+  },
+  checkboxChecked: { backgroundColor: C.green, borderColor: C.green },
+  checkmark: { fontSize: 11, color: '#000', fontWeight: '700' },
+  termsText: { fontSize: 12, color: C.sub, lineHeight: 18, flex: 1 },
+  termsLink: { color: C.green, textDecorationLine: 'underline' },
 
   // Inputs
   inputLabel: { fontSize: 10, color: C.hint, letterSpacing: 0.5, marginBottom: 6 },

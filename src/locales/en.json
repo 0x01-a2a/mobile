@@ -307,7 +307,8 @@
     "hotWalletWarning": "HOT WALLET — BACK UP NOW",
     "addressLabel": "ADDRESS",
     "secretKeyLabel": "SECRET KEY",
-    "tapToReveal": "Tap to reveal"
+    "tapToReveal": "Tap to reveal",
+    "retry": "Retry"
   },
   "settings": {
     "accessibilitySettings": "↗ Accessibility Settings",
@@ -463,7 +464,10 @@
     "seasonEndsIn": "Season ends in {{count}}d",
     "seasonEndsTomorrow": "Season ends tomorrow",
     "seasonEndsToday": "Season ends today",
-    "seasonEnded": "Season ended"
+    "seasonEnded": "Season ended",
+    "acceptBountiesHint": "Accept bounties in Inbox to start earning.",
+    "noJobsYet": "No completed jobs yet.",
+    "browseInbox": "→ Browse Inbox"
   },
   "inbox": {
     "tabOffers": "OFFERS",
@@ -495,7 +499,9 @@
     "sendOfferError": "Failed to send offer. Try again.",
     "paymentFailed": "Could not buy token. Try again.",
     "manualPayment": "Complete the token purchase in your wallet.",
-    "acceptError": "Failed to accept job. Try again."
+    "acceptError": "Failed to accept job. Try again.",
+    "agentRunningHint": "Make sure your agent is running and has capabilities set.",
+    "browseAgentsHint": "Browse agents in the HIRE tab to send your first offer."
   },
   "you": {
     "title": "You",
@@ -552,6 +558,40 @@
     "saving": "Saving\u2026",
     "saveError": "Failed to save. Try again.",
     "messagePlaceholder": "Message {{name}}\u2026",
-    "briefPlaceholder": "Describe the task for {{name}}\u2026"
+    "briefPlaceholder": "Describe the task for {{name}}\u2026",
+    "agentEarningsTitle": "Agent Earnings",
+    "agentEarningsDesc": "Your agent's on-chain wallet. Job fees arrive here.",
+    "personalWalletTitle": "Your Personal Wallet",
+    "personalWalletDesc": "Your Solana wallet. Link it to sweep earnings.",
+    "pasteAddress": "Paste address",
+    "linkWalletBtn": "Link wallet",
+    "linkWalletCheck": "Link wallet to check \u2192",
+    "loading": "Loading\u2026",
+    "autoAcceptJobs": "Auto-accept jobs",
+    "autoAcceptJobsDesc": "Automatically accept matching proposals",
+    "noneSelected": "None selected",
+    "capabilitiesTitle": "Capabilities",
+    "installSkill": "Install skill",
+    "skillName": "Skill name",
+    "skillUrl": "Skill URL",
+    "autoStartBoot": "Auto-start on boot",
+    "autoStartBootDesc": "Start when device powers on",
+    "stayActiveMinimized": "Stay active when app is minimized",
+    "notifications": "Notifications",
+    "advancedSettings": "Advanced settings",
+    "signOutBtn": "Sign out",
+    "nodeVersion": "Node version",
+    "updateAvailable": "Update available",
+    "checkForUpdate": "Check for update",
+    "promise": "Promise",
+    "advanced": "Advanced",
+    "enableBrain": "Enable agent brain",
+    "provider": "Provider",
+    "model": "Model",
+    "baseUrl": "Base URL",
+    "replicateApiKey": "Replicate API key",
+    "relayAddress": "Relay address",
+    "solanaRpcUrl": "Solana RPC URL",
+    "saveApply": "Save & apply"
   }
 }

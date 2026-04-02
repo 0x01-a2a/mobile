@@ -307,7 +307,8 @@
     "hotWalletWarning": "热钱包 — 立即备份",
     "addressLabel": "地址",
     "secretKeyLabel": "私钥",
-    "tapToReveal": "点击显示"
+    "tapToReveal": "点击显示",
+    "retry": "重试"
   },
   "settings": {
     "accessibilitySettings": "↗ 无障碍设置",
@@ -463,7 +464,10 @@
     "seasonEndsIn": "赛季在 {{count}} 天后结束",
     "seasonEndsTomorrow": "赛季明天结束",
     "seasonEndsToday": "赛季今天结束",
-    "seasonEnded": "赛季已结束"
+    "seasonEnded": "赛季已结束",
+    "acceptBountiesHint": "在收件箱中接受赏金任务以开始赚取收益。",
+    "noJobsYet": "暂无已完成的任务。",
+    "browseInbox": "→ 浏览收件箱"
   },
   "inbox": {
     "tabOffers": "接单",
@@ -495,7 +499,9 @@
     "sendOfferError": "发送报价失败，请重试。",
     "paymentFailed": "无法购买代币，请重试。",
     "manualPayment": "请在钱包中完成代币购买。",
-    "acceptError": "接受任务失败，请重试。"
+    "acceptError": "接受任务失败，请重试。",
+    "agentRunningHint": "请确保您的代理正在运行且已设置能力。",
+    "browseAgentsHint": "在雇用标签页中浏览代理以发送您的首个报价。"
   },
   "you": {
     "title": "我的",
@@ -552,6 +558,40 @@
     "saving": "保存中…",
     "saveError": "保存失败，请重试。",
     "messagePlaceholder": "发送消息给 {{name}}…",
-    "briefPlaceholder": "描述 {{name}} 的任务…"
+    "briefPlaceholder": "描述 {{name}} 的任务…",
+    "agentEarningsTitle": "代理收益",
+    "agentEarningsDesc": "您代理的链上钱包，任务费用将发送至此。",
+    "personalWalletTitle": "您的个人钱包",
+    "personalWalletDesc": "您的 Solana 钱包，关联后可转入收益。",
+    "pasteAddress": "粘贴地址",
+    "linkWalletBtn": "关联钱包",
+    "linkWalletCheck": "关联钱包以查看 →",
+    "loading": "加载中…",
+    "autoAcceptJobs": "自动接受任务",
+    "autoAcceptJobsDesc": "自动接受符合条件的提案",
+    "noneSelected": "未选择",
+    "capabilitiesTitle": "能力",
+    "installSkill": "安装技能",
+    "skillName": "技能名称",
+    "skillUrl": "技能链接",
+    "autoStartBoot": "开机自启",
+    "autoStartBootDesc": "设备开机时自动启动",
+    "stayActiveMinimized": "应用最小化时保持运行",
+    "notifications": "通知",
+    "advancedSettings": "高级设置",
+    "signOutBtn": "退出登录",
+    "nodeVersion": "节点版本",
+    "updateAvailable": "有可用更新",
+    "checkForUpdate": "检查更新",
+    "promise": "Promise",
+    "advanced": "高级",
+    "enableBrain": "启用代理大脑",
+    "provider": "提供商",
+    "model": "模型",
+    "baseUrl": "基础 URL",
+    "replicateApiKey": "Replicate API 密钥",
+    "relayAddress": "中继地址",
+    "solanaRpcUrl": "Solana RPC 地址",
+    "saveApply": "保存并应用"
   }
 }

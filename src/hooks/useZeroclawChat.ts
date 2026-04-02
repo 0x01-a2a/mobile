@@ -1,21 +1,31 @@
 /**
  * useZeroclawChat — hook for chatting with the local ZeroClaw agent brain.
  *
- * ZeroClaw exposes a gateway HTTP server on 127.0.0.1:42617. The endpoint
+ * ZeroClaw exposes a gateway HTTP server on localhost. The endpoint
  * POST /api/chat takes { message, session_id } and returns { reply, model, session_id }.
  *
  * Sessions are scoped per agent ID so switching agents always starts a fresh
  * ZeroClaw conversation. Call resetSession() to manually clear within one agent.
  */
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NodeModule } from '../native/NodeModule';
 
-const GATEWAY_URL = 'http://127.0.0.1:42617';
+// Gateway ports differ by platform:
+// - iOS in-process FFI binds zeroclaw on 9093 to avoid clashing with
+//   zerox1-node (9090) and the phone bridge (9092).
+// - Android uses the regular gateway port 42617.
+// Keep a legacy iOS fallback to 42617 so stale local static libs do not
+// strand chat if the app source and bundled binary drift.
+const GATEWAY_CANDIDATES = Platform.OS === 'ios'
+  ? ['http://127.0.0.1:9093', 'http://127.0.0.1:42617']
+  : ['http://127.0.0.1:42617'];
 const SESSION_KEY_PREFIX = 'zerox1:zeroclaw_session';
 const MESSAGES_KEY_PREFIX = 'zerox1:zeroclaw_messages';
-const REQUEST_TIMEOUT = 60_000;   // ms — LLM can be slow on first token
+const REQUEST_TIMEOUT = Platform.OS === 'ios' ? 90_000 : 60_000;   // ms
+const IOS_BRAIN_START_TIMEOUT = 95_000; // ms — matches Swift waitForGatewayReady (90s) + margin
+const IOS_GATEWAY_PROBE_TIMEOUT = 1_000; // ms
 const MAX_STORED_MESSAGES = 200;
 
 export interface ChatMessage {
@@ -34,6 +44,27 @@ export interface UseZeroclawChatResult {
   send: (text: string, image?: { uri: string; base64: string; mime: string; cid?: string }) => Promise<void>;
   resetSession: () => Promise<void>;
   injectSystemMessage: (text: string) => void;
+}
+
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function formatBridgeDebug(auth: any): string {
+  if (!auth) return 'bridge=null';
+  return [
+    `nodeRunning=${auth.nodeRunning ?? 'undefined'}`,
+    `agentRunning=${auth.agentRunning ?? 'undefined'}`,
+    `brainError=${auth.brainError ?? 'null'}`,
+    `brainCfg=${auth._dbg_brainCfgEnabled ?? 'undefined'}`,
+    `llmKey=${auth._dbg_llmKeyInChain ?? 'undefined'}`,
+    `token=${auth.nodeApiToken ? 'yes' : 'no'}`,
+    `raw=${safeStringify(auth)}`,
+  ].join(', ');
 }
 
 function genId(): string {
@@ -64,6 +95,7 @@ export function useZeroclawChat(agentId?: string, conversationId?: string): UseZ
   const [error, setError] = useState<string | null>(null);
   const sessionRef = useRef<string | null>(null);
   const gatewayTokenRef = useRef<string | null>(null);
+  const gatewayUrlRef = useRef<string>(GATEWAY_CANDIDATES[0]);
   const systemContextRef = useRef<string[]>([]);
 
   // Track the current key so async callbacks always write to the right slot.
@@ -163,6 +195,35 @@ export function useZeroclawChat(agentId?: string, conversationId?: string): UseZ
     return id;
   }, []);
 
+  const resolveGatewayUrl = useCallback(async (forceProbe = false): Promise<string | null> => {
+    const candidates = forceProbe
+      ? GATEWAY_CANDIDATES
+      : [gatewayUrlRef.current, ...GATEWAY_CANDIDATES.filter(url => url !== gatewayUrlRef.current)];
+
+    for (const url of candidates) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), IOS_GATEWAY_PROBE_TIMEOUT);
+      try {
+        const resp = await fetch(`${url}/health`, { signal: controller.signal });
+        clearTimeout(timer);
+        if (__DEV__ && Platform.OS === 'ios') {
+          console.log('[ZeroClawChat] gateway health', url, resp.status);
+        }
+        if (resp.ok) {
+          gatewayUrlRef.current = url;
+          return url;
+        }
+      } catch {
+        clearTimeout(timer);
+        if (__DEV__ && Platform.OS === 'ios') {
+          console.log('[ZeroClawChat] gateway health failed', url);
+        }
+      }
+    }
+
+    return null;
+  }, []);
+
   const send = useCallback(async (
     text: string,
     image?: { uri: string; base64: string; mime: string; cid?: string },
@@ -206,23 +267,107 @@ export function useZeroclawChat(agentId?: string, conversationId?: string): UseZ
 
     try {
       const sessionId = await getOrCreateSession();
-      if (!gatewayTokenRef.current) {
-        const auth = await NodeModule.getLocalAuthConfig();
-        gatewayTokenRef.current = auth.gatewayToken;
+      const auth = await NodeModule.getLocalAuthConfig();
+      if (__DEV__ && Platform.OS === 'ios') {
+        console.log('[ZeroClawChat] getLocalAuthConfig raw', JSON.stringify(auth));
       }
-      if (!gatewayTokenRef.current) {
-        throw new Error('Agent gateway auth is unavailable');
+      gatewayTokenRef.current = auth.gatewayToken;
+      if (!auth.agentRunning) {
+        // On iOS, brain might not have started if the node was already running
+        // when startNode was called (the early-return path). Try to start it now.
+        if (Platform.OS === 'ios') {
+          try {
+            const brainRaw = await AsyncStorage.getItem('zerox1:agent_brain');
+            const brain = brainRaw ? JSON.parse(brainRaw) : null;
+            if (brain?.enabled && brain?.apiKeySet) {
+              // Load saved node config so we can restart with full params if needed.
+              const savedCfgRaw = await AsyncStorage.getItem('zerox1:node_config');
+              const savedCfg = savedCfgRaw ? JSON.parse(savedCfgRaw) : {};
+              const startConfig = {
+                ...savedCfg,
+                agentBrainEnabled: true,
+                llmProvider: brain.provider ?? 'anthropic',
+                llmModel: brain.customModel ?? '',
+                llmBaseUrl: brain.customBaseUrl ?? '',
+                capabilities: JSON.stringify(brain.capabilities ?? []),
+                minFeeUsdc: brain.minFeeUsdc ?? 5,
+                minReputation: brain.minReputation ?? 50,
+                autoAccept: brain.autoAccept ?? false,
+              };
+              if ((auth as any).nodeRunning === false) {
+                setError('Starting local agent node...');
+                await NodeModule.startNode(startConfig);
+              } else {
+                setError('Starting agent brain...');
+                // Use the dedicated iOS bridge call: when the node is already
+                // running we only need to start zeroclaw, not re-enter the full
+                // node startup path.
+                await NodeModule.startBrainIfNeeded(startConfig);
+              }
+              // Poll for brain to start — node may need up to 60s to become ready,
+              // then zeroclaw starts. Also probe gateway directly (GET /health is
+              // always public) to bypass any Swift isAgentRunning flag race.
+              const pollDeadline = Date.now() + IOS_BRAIN_START_TIMEOUT;
+              let auth2 = await NodeModule.getLocalAuthConfig();
+              let gatewayResponded = false;
+              while (!auth2.agentRunning && !gatewayResponded && Date.now() < pollDeadline) {
+                await new Promise<void>(resolve => setTimeout(() => resolve(), 2000));
+                auth2 = await NodeModule.getLocalAuthConfig();
+                if (!auth2.agentRunning) {
+                  gatewayResponded = !!(await resolveGatewayUrl(true));
+                }
+              }
+              if (auth2.agentRunning || gatewayResponded) {
+                if (__DEV__ && Platform.OS === 'ios') {
+                  console.log('[ZeroClawChat] post-start auth', JSON.stringify(auth2));
+                }
+                gatewayTokenRef.current = auth2.gatewayToken;
+                setError(null);
+                // Brain started — continue with the request below.
+              } else {
+                throw new Error(`Agent brain did not start in time. ${formatBridgeDebug(auth2)}`);
+              }
+            } else {
+              throw new Error('Agent brain is not enabled. Enable it in You → Brain and add your API key.');
+            }
+          } catch (e: any) {
+            if (e.message?.includes('Brain') || e.message?.includes('brain')) throw e;
+            throw new Error('Agent brain is not running. Enable it in You → Brain and restart the node.');
+          }
+        } else {
+          throw new Error('Agent brain is not running. Enable it in You → Brain and restart the node.');
+        }
+      }
+
+      let gatewayUrl = await resolveGatewayUrl();
+      if (!gatewayUrl && Platform.OS === 'ios') {
+        try {
+          await NodeModule.reloadAgent();
+          await new Promise<void>(resolve => setTimeout(() => resolve(), 2500));
+          gatewayUrl = await resolveGatewayUrl(true);
+        } catch {
+          // Fall through to the debug error below.
+        }
+      }
+      if (!gatewayUrl) {
+        const dbg = await NodeModule.getLocalAuthConfig().catch(() => null as any);
+        if (__DEV__ && Platform.OS === 'ios') {
+          console.log('[ZeroClawChat] unreachable gateway debug', JSON.stringify(dbg));
+        }
+        throw new Error(`Local chat gateway is unreachable on ports ${GATEWAY_CANDIDATES.map(url => url.split(':').pop()).join('/')}. ${formatBridgeDebug(dbg)}`);
       }
 
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
 
-      const resp = await fetch(`${GATEWAY_URL}/api/chat`, {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (gatewayTokenRef.current) {
+        headers.Authorization = `Bearer ${gatewayTokenRef.current}`;
+      }
+
+      const resp = await fetch(`${gatewayUrl}/api/chat`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${gatewayTokenRef.current}`,
-        },
+        headers,
         body: JSON.stringify({
           message: messageText,
           session_id: sessionId,
@@ -230,6 +375,9 @@ export function useZeroclawChat(agentId?: string, conversationId?: string): UseZ
         }),
         signal: controller.signal,
       });
+      if (__DEV__ && Platform.OS === 'ios') {
+        console.log('[ZeroClawChat] chat response status', resp.status);
+      }
       clearTimeout(timer);
 
       if (!resp.ok) {
@@ -239,12 +387,17 @@ export function useZeroclawChat(agentId?: string, conversationId?: string): UseZ
           await AsyncStorage.removeItem(sessionKeyRef.current).catch(() => {});
           const retryController = new AbortController();
           const retryTimer = setTimeout(() => retryController.abort(), REQUEST_TIMEOUT);
-          const retryResp = await fetch(`${GATEWAY_URL}/api/chat`, {
+          const retryHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (gatewayTokenRef.current) {
+            retryHeaders.Authorization = `Bearer ${gatewayTokenRef.current}`;
+          }
+          const retryGatewayUrl = await resolveGatewayUrl(true);
+          if (!retryGatewayUrl) {
+            throw new Error('Local chat gateway is unreachable after session reset.');
+          }
+          const retryResp = await fetch(`${retryGatewayUrl}/api/chat`, {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${gatewayTokenRef.current}`,
-            },
+            headers: retryHeaders,
             body: JSON.stringify({
               message: messageText,
               context: systemContextRef.current,
@@ -310,17 +463,20 @@ export function useZeroclawChat(agentId?: string, conversationId?: string): UseZ
         NodeModule.showChatNotification(preview).catch(() => {});
       }
     } catch (err: unknown) {
+      if (__DEV__ && Platform.OS === 'ios') {
+        console.log('[ZeroClawChat] send error', err instanceof Error ? err.message : String(err));
+      }
       const msg =
         err instanceof Error
           ? err.name === 'AbortError'
-            ? 'Request timed out. Is the agent brain enabled?'
+            ? `Chat request timed out after ${Math.round(REQUEST_TIMEOUT / 1000)}s.`
             : err.message
           : 'Unknown error';
       setError(msg);
     } finally {
       setLoading(false);
     }
-  }, [loading, getOrCreateSession]);
+  }, [loading, getOrCreateSession, resolveGatewayUrl]);
 
   const resetSession = useCallback(async () => {
     sessionRef.current = null;

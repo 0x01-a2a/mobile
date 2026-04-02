@@ -1,0 +1,203 @@
+<h2>Chat screen — talking to your agent</h2>
+<p class="subtitle">Less terminal, more like messaging. Two approaches to the conversation UI.</p>
+
+<div class="split">
+
+  <div class="mockup">
+    <div class="mockup-header">A — Messenger style</div>
+    <div class="mockup-body" style="background:#f8f9fa;padding:0;font-family:-apple-system,sans-serif;">
+      <div style="background:#fff;min-height:500px;max-width:220px;margin:0 auto;position:relative;display:flex;flex-direction:column;">
+
+        <!-- Header -->
+        <div style="padding:12px 14px;border-bottom:1px solid #f3f4f6;display:flex;align-items:center;gap:10px;">
+          <div style="width:32px;height:32px;border-radius:50%;background:#f0fdf4;border:1px solid #bbf7d0;display:flex;align-items:center;justify-content:center;">
+            <div style="font-size:14px;color:#374151;">◉</div>
+          </div>
+          <div style="flex:1;">
+            <div style="font-size:13px;font-weight:600;color:#111;">Aria</div>
+            <div style="font-size:10px;color:#22c55e;">● Working on data analysis</div>
+          </div>
+          <div style="font-size:18px;color:#9ca3af;">◎</div>
+        </div>
+
+        <!-- Task context banner -->
+        <div style="background:#fffbeb;border-bottom:1px solid #fde68a;padding:8px 14px;display:flex;align-items:center;gap:6px;">
+          <div style="font-size:10px;color:#92400e;flex:1;">Active job: Code review · $2.50</div>
+          <div style="font-size:10px;color:#b45309;font-weight:600;border:1px solid #fbbf24;border-radius:4px;padding:2px 6px;">Deliver</div>
+        </div>
+
+        <!-- Messages -->
+        <div style="flex:1;padding:12px 12px 8px;display:flex;flex-direction:column;gap:8px;overflow:hidden;">
+
+          <!-- Agent message -->
+          <div style="display:flex;gap:6px;align-items:flex-end;">
+            <div style="width:22px;height:22px;border-radius:50%;background:#f3f4f6;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+              <div style="font-size:10px;color:#374151;">◉</div>
+            </div>
+            <div style="background:#f3f4f6;border-radius:12px 12px 12px 3px;padding:8px 10px;max-width:140px;">
+              <div style="font-size:11px;color:#111;line-height:1.4;">I've reviewed the Rust function. Found two potential null pointer issues on lines 34 and 67.</div>
+              <div style="font-size:9px;color:#9ca3af;margin-top:4px;">2:14 PM</div>
+            </div>
+          </div>
+
+          <!-- User message -->
+          <div style="display:flex;justify-content:flex-end;">
+            <div style="background:#111;border-radius:12px 12px 3px 12px;padding:8px 10px;max-width:140px;">
+              <div style="font-size:11px;color:#fff;line-height:1.4;">Good catch. Can you suggest a fix for line 34?</div>
+              <div style="font-size:9px;color:#6b7280;margin-top:4px;text-align:right;">2:15 PM</div>
+            </div>
+          </div>
+
+          <!-- Agent message -->
+          <div style="display:flex;gap:6px;align-items:flex-end;">
+            <div style="width:22px;height:22px;border-radius:50%;background:#f3f4f6;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+              <div style="font-size:10px;color:#374151;">◉</div>
+            </div>
+            <div style="background:#f3f4f6;border-radius:12px 12px 12px 3px;padding:8px 10px;max-width:140px;">
+              <div style="font-size:11px;color:#111;line-height:1.4;">Replace <span style="font-family:monospace;background:#e5e7eb;padding:0 3px;border-radius:2px;">ptr.unwrap()</span> with <span style="font-family:monospace;background:#e5e7eb;padding:0 3px;border-radius:2px;">ptr.ok_or(Err::Null)?</span></div>
+              <div style="font-size:9px;color:#9ca3af;margin-top:4px;">2:15 PM</div>
+            </div>
+          </div>
+
+          <!-- Typing indicator -->
+          <div style="display:flex;gap:6px;align-items:flex-end;">
+            <div style="width:22px;height:22px;border-radius:50%;background:#f3f4f6;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+              <div style="font-size:10px;color:#374151;">◉</div>
+            </div>
+            <div style="background:#f3f4f6;border-radius:12px;padding:8px 12px;">
+              <div style="display:flex;gap:3px;align-items:center;">
+                <div style="width:5px;height:5px;border-radius:50%;background:#9ca3af;"></div>
+                <div style="width:5px;height:5px;border-radius:50%;background:#9ca3af;opacity:0.6;"></div>
+                <div style="width:5px;height:5px;border-radius:50%;background:#9ca3af;opacity:0.3;"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Input -->
+        <div style="padding:8px 12px 14px;border-top:1px solid #f3f4f6;display:flex;gap:8px;align-items:center;">
+          <div style="flex:1;background:#f9fafb;border:1px solid #e5e7eb;border-radius:20px;padding:8px 12px;">
+            <div style="font-size:11px;color:#9ca3af;">Message Aria…</div>
+          </div>
+          <div style="width:32px;height:32px;background:#111;border-radius:50%;display:flex;align-items:center;justify-content:center;">
+            <div style="font-size:12px;color:#fff;">↑</div>
+          </div>
+        </div>
+
+        <!-- Nav -->
+        <div style="border-top:1px solid #f3f4f6;display:flex;padding:6px 0 10px;background:#fff;">
+          <div style="flex:1;text-align:center;padding-top:6px;"><div style="font-size:9px;color:#9ca3af;">Today</div></div>
+          <div style="flex:1;text-align:center;padding-top:6px;"><div style="font-size:9px;color:#9ca3af;">Inbox</div></div>
+          <div style="flex:1;text-align:center;border-top:2px solid #111;padding-top:6px;"><div style="font-size:9px;color:#111;font-weight:600;">Chat</div></div>
+          <div style="flex:1;text-align:center;padding-top:6px;"><div style="font-size:9px;color:#9ca3af;">You</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">B — Brief mode (instructions focus)</div>
+    <div class="mockup-body" style="background:#f8f9fa;padding:0;font-family:-apple-system,sans-serif;">
+      <div style="background:#fff;min-height:500px;max-width:220px;margin:0 auto;position:relative;display:flex;flex-direction:column;">
+
+        <!-- Header with mode toggle -->
+        <div style="padding:12px 14px;border-bottom:1px solid #f3f4f6;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+            <div style="width:32px;height:32px;border-radius:50%;background:#f0fdf4;border:1px solid #bbf7d0;display:flex;align-items:center;justify-content:center;">
+              <div style="font-size:14px;color:#374151;">◉</div>
+            </div>
+            <div style="font-size:13px;font-weight:600;color:#111;">Aria</div>
+            <div style="margin-left:auto;width:6px;height:6px;border-radius:50%;background:#22c55e;"></div>
+          </div>
+          <!-- Mode pills -->
+          <div style="display:flex;gap:4px;">
+            <div style="background:#111;border-radius:20px;padding:4px 10px;">
+              <div style="font-size:10px;color:#fff;font-weight:500;">Chat</div>
+            </div>
+            <div style="border:1px solid #e5e7eb;border-radius:20px;padding:4px 10px;">
+              <div style="font-size:10px;color:#6b7280;">Brief</div>
+            </div>
+            <div style="border:1px solid #fbbf24;border-radius:20px;padding:4px 10px;background:#fffbeb;">
+              <div style="font-size:10px;color:#b45309;">Deliver</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Messages -->
+        <div style="flex:1;padding:12px;display:flex;flex-direction:column;gap:8px;">
+
+          <div style="display:flex;gap:6px;align-items:flex-end;">
+            <div style="width:22px;height:22px;border-radius:50%;background:#f3f4f6;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+              <div style="font-size:10px;color:#374151;">◉</div>
+            </div>
+            <div style="background:#f3f4f6;border-radius:12px 12px 12px 3px;padding:8px 10px;max-width:140px;">
+              <div style="font-size:11px;color:#111;line-height:1.4;">Ready for the next job. I completed the code review and found 2 issues.</div>
+              <div style="font-size:9px;color:#9ca3af;margin-top:4px;">2:14 PM</div>
+            </div>
+          </div>
+
+          <!-- System message -->
+          <div style="text-align:center;">
+            <div style="display:inline-block;background:#f3f4f6;border-radius:8px;padding:4px 10px;">
+              <div style="font-size:9px;color:#6b7280;">Job completed · +$1.70 earned</div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:6px;align-items:flex-end;">
+            <div style="width:22px;height:22px;border-radius:50%;background:#f3f4f6;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+              <div style="font-size:10px;color:#374151;">◉</div>
+            </div>
+            <div style="background:#f3f4f6;border-radius:12px 12px 12px 3px;padding:8px 10px;max-width:140px;">
+              <div style="font-size:11px;color:#111;line-height:1.4;">Should I accept the translation job in my inbox? It pays $1.20.</div>
+              <div style="font-size:9px;color:#9ca3af;margin-top:4px;">2:16 PM</div>
+            </div>
+          </div>
+
+          <div style="display:flex;justify-content:flex-end;">
+            <div style="background:#111;border-radius:12px 12px 3px 12px;padding:8px 10px;max-width:140px;">
+              <div style="font-size:11px;color:#fff;line-height:1.4;">Yes, accept anything above $1.</div>
+              <div style="font-size:9px;color:#6b7280;margin-top:4px;text-align:right;">2:16 PM</div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Input -->
+        <div style="padding:8px 12px 14px;border-top:1px solid #f3f4f6;display:flex;gap:8px;align-items:center;">
+          <div style="flex:1;background:#f9fafb;border:1px solid #e5e7eb;border-radius:20px;padding:8px 12px;">
+            <div style="font-size:11px;color:#9ca3af;">Message Aria…</div>
+          </div>
+          <div style="width:32px;height:32px;background:#111;border-radius:50%;display:flex;align-items:center;justify-content:center;">
+            <div style="font-size:12px;color:#fff;">↑</div>
+          </div>
+        </div>
+
+        <!-- Nav -->
+        <div style="border-top:1px solid #f3f4f6;display:flex;padding:6px 0 10px;background:#fff;">
+          <div style="flex:1;text-align:center;padding-top:6px;"><div style="font-size:9px;color:#9ca3af;">Today</div></div>
+          <div style="flex:1;text-align:center;padding-top:6px;"><div style="font-size:9px;color:#9ca3af;">Inbox</div></div>
+          <div style="flex:1;text-align:center;border-top:2px solid #111;padding-top:6px;"><div style="font-size:9px;color:#111;font-weight:600;">Chat</div></div>
+          <div style="flex:1;text-align:center;padding-top:6px;"><div style="font-size:9px;color:#9ca3af;">You</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="options" style="margin-top:20px;">
+  <div class="option" data-choice="A" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Messenger style</h3>
+      <p>Standard chat bubbles. Active job shown as a sticky banner at top with a Deliver button. Feels like iMessage or WhatsApp — immediately familiar to anyone.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="B" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Brief mode with mode pills</h3>
+      <p>Chat / Brief / Deliver as pill tabs at the top. Agent proactively asks questions and reports status. System messages mark job completions and earnings inline.</p>
+    </div>
+  </div>
+</div>

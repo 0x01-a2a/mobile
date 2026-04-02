@@ -1,0 +1,71 @@
+<h2>How should the Inbox be structured?</h2>
+<p class="subtitle">The current Inbox shows incoming job offers. We're adding a way to hire agents. Pick a layout.</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="font-family:monospace;font-size:11px;background:#f9fafb;border-radius:8px;padding:10px;">
+        <div style="display:flex;gap:6px;margin-bottom:10px;">
+          <span style="background:#111;color:#fff;padding:3px 10px;border-radius:4px;font-size:10px;font-weight:700;">OFFERS</span>
+          <span style="background:#f3f4f6;color:#6b7280;padding:3px 10px;border-radius:4px;font-size:10px;">HIRE</span>
+        </div>
+        <div style="border:1px solid #e5e7eb;border-left:3px solid #111;border-radius:8px;padding:8px;margin-bottom:6px;">
+          <div style="display:flex;justify-content:space-between"><span style="font-weight:600;font-size:11px;">Translate README to Spanish</span><span style="font-weight:700;font-size:12px;">$2.50</span></div>
+          <div style="display:flex;justify-content:space-between;margin-top:3px"><span style="color:#6b7280;font-size:10px;">Agent_3F4A</span><span style="color:#9ca3af;font-size:10px;">4m left</span></div>
+        </div>
+        <div style="border:1px solid #f3f4f6;border-radius:8px;padding:8px;background:#fafafa;">
+          <div style="display:flex;justify-content:space-between"><span style="color:#9ca3af;font-size:11px;">Review PR diff</span><span style="color:#9ca3af;font-size:12px;">$0.40</span></div>
+          <div style="display:flex;justify-content:space-between;margin-top:3px"><span style="color:#d1d5db;font-size:10px;">Agent_9C2B</span><span style="color:#9ca3af;font-size:10px;">12m left</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Two subtabs: OFFERS / HIRE</h3>
+      <p>Cleanest split. Inbox = work coming in, Hire = work going out. Both tabs in one screen. Recommended.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="font-family:monospace;font-size:11px;background:#f9fafb;border-radius:8px;padding:10px;">
+        <div style="display:flex;gap:5px;margin-bottom:10px;">
+          <span style="background:#111;color:#fff;padding:3px 8px;border-radius:4px;font-size:9px;font-weight:700;">OFFERS</span>
+          <span style="background:#f3f4f6;color:#6b7280;padding:3px 8px;border-radius:4px;font-size:9px;">HIRE</span>
+          <span style="background:#f3f4f6;color:#6b7280;padding:3px 8px;border-radius:4px;font-size:9px;">ACTIVE</span>
+        </div>
+        <div style="border:1px solid #e5e7eb;border-left:3px solid #111;border-radius:8px;padding:8px;margin-bottom:6px;">
+          <div style="display:flex;justify-content:space-between"><span style="font-weight:600;font-size:11px;">Translate README</span><span style="font-weight:700;font-size:12px;">$2.50</span></div>
+          <div style="color:#6b7280;font-size:10px;margin-top:3px;">Agent_3F4A · 4m left</div>
+        </div>
+        <div style="color:#9ca3af;font-size:10px;text-align:center;padding:8px;">ACTIVE tab shows jobs you've sent out</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Three subtabs: OFFERS / HIRE / ACTIVE</h3>
+      <p>Adds a third tab for tracking outbound offers you've sent. More complete, more complex. Useful once hiring is common.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="font-family:monospace;font-size:11px;background:#f9fafb;border-radius:8px;padding:10px;">
+        <div style="margin-bottom:10px;font-size:10px;color:#9ca3af;letter-spacing:0.5px;">INBOX</div>
+        <div style="border:1px solid #e5e7eb;border-left:3px solid #111;border-radius:8px;padding:8px;margin-bottom:6px;">
+          <div style="display:flex;justify-content:space-between"><span style="font-weight:600;font-size:11px;">Translate README</span><span style="font-weight:700;font-size:12px;">$2.50</span></div>
+        </div>
+        <div style="height:1px;background:#f3f4f6;margin:10px 0;"></div>
+        <div style="font-size:10px;color:#9ca3af;letter-spacing:0.5px;margin-bottom:8px;">HIRE AN AGENT</div>
+        <div style="border:1px solid #e5e7eb;border-radius:8px;padding:8px;">
+          <div style="display:flex;justify-content:space-between"><span style="font-size:11px;color:#111;font-weight:500;">Nexus</span><span style="font-size:10px;color:#22c55e;">+8.4%</span></div>
+          <div style="font-size:10px;color:#6b7280;margin-top:2px;">translation · summarization</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Single scroll, agent list below offers</h3>
+      <p>No tabs. Agent list scrolls below incoming offers as a section. Simpler but the screen gets long and the two concepts blur.</p>
+    </div>
+  </div>
+
+</div>

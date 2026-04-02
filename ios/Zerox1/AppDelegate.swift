@@ -4,12 +4,22 @@ import React_RCTAppDelegate
 import ReactAppDependencyProvider
 import BackgroundTasks
 import UserNotifications
+import os.log
 
 @main
 class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
     var reactNativeDelegate: ReactNativeDelegate?
     var reactNativeFactory: RCTReactNativeFactory?
+
+    // M-3: Hardened session for health-check requests — no redirects, no cellular
+    private lazy var healthCheckSession: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.allowsCellularAccess = false
+        config.waitsForConnectivity = false
+        config.timeoutIntervalForRequest = 5
+        return URLSession(configuration: config, delegate: HealthCheckSessionDelegate(), delegateQueue: nil)
+    }()
 
     func application(
         _ application: UIApplication,
@@ -24,7 +34,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
         window = UIWindow(frame: UIScreen.main.bounds)
         factory.startReactNative(
-            withModuleName: "Zerox1",
+            withModuleName: "01pilot",
             in: window,
             launchOptions: launchOptions
         )
@@ -39,6 +49,31 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
         // Request notification permissions
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+
+        // Register notification category with agent quick-actions
+        let chatAction = UNNotificationAction(
+            identifier: "AGENT_CHAT",
+            title: "→ Chat",
+            options: [.foreground]
+        )
+        let briefAction = UNNotificationAction(
+            identifier: "AGENT_BRIEF",
+            title: "✦ Brief",
+            options: [.foreground]
+        )
+        let inboxAction = UNNotificationAction(
+            identifier: "AGENT_INBOX",
+            title: "◈ Inbox",
+            options: [.foreground]
+        )
+        let agentCategory = UNNotificationCategory(
+            identifier: "AGENT_STATUS",
+            actions: [chatAction, briefAction, inboxAction],
+            intentIdentifiers: [],
+            options: []
+        )
+        UNUserNotificationCenter.current().setNotificationCategories([agentCategory])
+        UNUserNotificationCenter.current().delegate = self
 
         // Register VoIP push for instant background wake
         #if canImport(PushKit)
@@ -80,7 +115,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         var req = URLRequest(url: URL(string: "http://127.0.0.1:9090/identity")!)
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.timeoutInterval = 10
-        URLSession.shared.dataTask(with: req) { _, resp, _ in
+        healthCheckSession.dataTask(with: req) { _, resp, _ in
             let ok = (resp as? HTTPURLResponse)?.statusCode == 200
             task.setTaskCompleted(success: ok)
             self.scheduleNodeKeepalive()
@@ -100,14 +135,64 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         if let name = UserDefaults.standard.string(forKey: "zerox1_agent_name") {
             cfg["agentName"] = name
         }
-        if let relay = UserDefaults.standard.string(forKey: "zerox1_relay_addr") {
-            cfg["relayAddr"] = relay
+        // L-5: Validate relayAddr — must begin with a recognised multiaddr prefix
+        if let relay = UserDefaults.standard.string(forKey: "zerox1_relay_addr"), !relay.isEmpty {
+            let validPrefixes = ["/ip4/", "/ip6/", "/dns4/", "/dns6/"]
+            if validPrefixes.contains(where: { relay.hasPrefix($0) }) {
+                cfg["relayAddr"] = relay
+            }
+            // silently ignore invalid relay addresses
         }
-        if let rpc = UserDefaults.standard.string(forKey: "zerox1_rpc_url") {
-            cfg["rpcUrl"] = rpc
+
+        // L-5: Validate rpcUrl — must be a well-formed http/https URL
+        if let rpc = UserDefaults.standard.string(forKey: "zerox1_rpc_url"), !rpc.isEmpty {
+            if let url = URL(string: rpc),
+               let scheme = url.scheme?.lowercased(),
+               (scheme == "https" || scheme == "http"),
+               url.host != nil {
+                cfg["rpcUrl"] = rpc
+            }
+            // silently ignore invalid URLs
         }
         cfg["agentBrainEnabled"] = UserDefaults.standard.bool(forKey: "zerox1_brain_enabled")
         return cfg
+    }
+}
+
+// MARK: - UNUserNotificationCenterDelegate
+
+extension AppDelegate: UNUserNotificationCenterDelegate {
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let url: URL?
+        switch response.actionIdentifier {
+        case "AGENT_CHAT":
+            url = URL(string: "zerox1://chat")
+        case "AGENT_BRIEF":
+            url = URL(string: "zerox1://chat?mode=brief")
+        case "AGENT_INBOX":
+            url = URL(string: "zerox1://inbox")
+        default:
+            url = nil
+        }
+        if let url = url {
+            DispatchQueue.main.async { UIApplication.shared.open(url) }
+        }
+        completionHandler()
+    }
+}
+
+// M-3: Rejects all HTTP redirects for health-check requests
+private final class HealthCheckSessionDelegate: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession,
+                    task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest,
+                    completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil) // Reject all redirects
     }
 }
 

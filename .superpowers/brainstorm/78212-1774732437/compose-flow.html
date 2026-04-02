@@ -1,0 +1,91 @@
+<h2>How does the "hire an agent" compose flow work?</h2>
+<p class="subtitle">You tap an agent on the HIRE tab. What happens next?</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="font-family:monospace;font-size:11px;background:#f9fafb;border-radius:8px;padding:10px;position:relative;">
+        <!-- Agent list behind -->
+        <div style="opacity:0.35;margin-bottom:6px;">
+          <div style="border:1px solid #e5e7eb;border-radius:8px;padding:8px;">
+            <div style="display:flex;justify-content:space-between"><span style="font-weight:600;font-size:11px;">Nexus</span><span style="color:#22c55e;font-size:10px;">+6.1%</span></div>
+            <div style="font-size:10px;color:#6b7280;margin-top:2px;">translation · code review</div>
+          </div>
+        </div>
+        <!-- Bottom sheet sliding up -->
+        <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:12px;box-shadow:0 -4px 20px rgba(0,0,0,0.08);">
+          <div style="width:32px;height:3px;background:#e5e7eb;border-radius:2px;margin:0 auto 10px;"></div>
+          <div style="font-weight:700;font-size:12px;margin-bottom:8px;">Send offer to Nexus</div>
+          <div style="background:#f9fafb;border-radius:6px;padding:8px;font-size:10px;color:#6b7280;margin-bottom:8px;">translation · code review · summarization</div>
+          <div style="border:1px solid #e5e7eb;border-radius:6px;padding:7px;font-size:11px;color:#9ca3af;margin-bottom:8px;">Describe the task...</div>
+          <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;">
+            <span style="font-size:10px;color:#6b7280;">Fee:</span>
+            <div style="border:1px solid #e5e7eb;border-radius:6px;padding:5px 8px;font-size:11px;color:#111;font-weight:600;">$2.00</div>
+            <span style="font-size:10px;color:#9ca3af;">USDC</span>
+          </div>
+          <div style="background:#111;color:#fff;border-radius:8px;padding:8px;text-align:center;font-size:11px;font-weight:600;">Send Offer</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Bottom sheet (recommended)</h3>
+      <p>Slides up over the agent list. Task description + fee field. Quick, keeps context. Consistent with the earnings league modal pattern already in the app.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="font-family:monospace;font-size:11px;background:#f9fafb;border-radius:8px;padding:10px;">
+        <div style="font-size:10px;color:#9ca3af;margin-bottom:8px;">← HIRE</div>
+        <div style="font-weight:700;font-size:13px;margin-bottom:4px;">Nexus</div>
+        <div style="font-size:10px;color:#6b7280;margin-bottom:10px;">+6.1% earn rate · 24 trades · 98% positive</div>
+        <div style="height:1px;background:#f3f4f6;margin-bottom:10px;"></div>
+        <div style="font-size:10px;color:#9ca3af;margin-bottom:5px;">CAPABILITIES</div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px;">
+          <span style="background:#f3f4f6;padding:2px 6px;border-radius:4px;font-size:9px;">translation</span>
+          <span style="background:#f3f4f6;padding:2px 6px;border-radius:4px;font-size:9px;">code review</span>
+          <span style="background:#f3f4f6;padding:2px 6px;border-radius:4px;font-size:9px;">summarization</span>
+        </div>
+        <div style="border:1px solid #e5e7eb;border-radius:6px;padding:7px;font-size:10px;color:#9ca3af;margin-bottom:6px;">Describe the task...</div>
+        <div style="display:flex;gap:6px;margin-bottom:8px;">
+          <div style="border:1px solid #e5e7eb;border-radius:6px;padding:5px 8px;font-size:11px;color:#111;font-weight:600;">$2.00</div>
+          <span style="font-size:10px;color:#9ca3af;line-height:26px;">USDC</span>
+        </div>
+        <div style="background:#111;color:#fff;border-radius:8px;padding:8px;text-align:center;font-size:11px;font-weight:600;">Send Offer</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Agent profile screen</h3>
+      <p>Full screen with agent stats, capabilities list, then compose form below. More info before committing. Heavier navigation.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="font-family:monospace;font-size:11px;background:#f9fafb;border-radius:8px;padding:10px;">
+        <div style="border:1px solid #111;border-radius:10px;padding:10px;margin-bottom:6px;">
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+            <span style="font-weight:600;font-size:11px;">Nexus</span>
+            <span style="color:#22c55e;font-size:10px;">+6.1%</span>
+          </div>
+          <div style="font-size:10px;color:#6b7280;margin-bottom:8px;">translation · code review</div>
+          <!-- Expanded form inline -->
+          <div style="border:1px solid #e5e7eb;border-radius:6px;padding:7px;font-size:10px;color:#9ca3af;margin-bottom:6px;">Describe the task...</div>
+          <div style="display:flex;gap:6px;margin-bottom:6px;">
+            <div style="border:1px solid #e5e7eb;border-radius:6px;padding:4px 8px;font-size:11px;color:#111;font-weight:600;flex:1;">$2.00</div>
+            <div style="background:#111;color:#fff;border-radius:6px;padding:5px 10px;font-size:10px;font-weight:600;">Send</div>
+          </div>
+        </div>
+        <div style="border:1px solid #e5e7eb;border-radius:8px;padding:8px;opacity:0.4;">
+          <div style="display:flex;justify-content:space-between"><span style="font-size:11px;">Bolt</span><span style="color:#22c55e;font-size:10px;">+5.2%</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Inline card expand</h3>
+      <p>Tapping an agent expands their card in-list to reveal the compose form. No navigation. But list becomes awkward when one card is tall and others are short.</p>
+    </div>
+  </div>
+
+</div>

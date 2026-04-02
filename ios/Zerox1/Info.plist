@@ -2,12 +2,16 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>world.zerox1.pilot.node-keepalive</string>
+	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>Zerox1</string>
+	<string>01 Pilot</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -22,63 +26,80 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>world.zerox1.01pilot.deeplink</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>zerox1</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>phantom</string>
+		<string>solflare</string>
+	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSAppTransportSecurity</key>
 	<dict>
-	  <!-- Do not change NSAllowsArbitraryLoads to true, or you will risk app rejection! -->
 		<key>NSAllowsArbitraryLoads</key>
 		<false/>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
-
-	<!-- ── Usage descriptions ───────────────────────────────────────────── -->
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>Required for mesh node communication on the local network.</string>
-
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>ZeroClaw can access your location for location-aware tasks.</string>
-
-	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>ZeroClaw can access your location in the background for ongoing tasks.</string>
-
-	<key>NSContactsUsageDescription</key>
-	<string>ZeroClaw can read your contacts to help with messaging and lookup tasks.</string>
-
-	<key>NSCalendarsUsageDescription</key>
-	<string>ZeroClaw can read and create calendar events for scheduling tasks.</string>
-
-	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>ZeroClaw needs full calendar access to manage your schedule.</string>
-
-	<key>NSCameraUsageDescription</key>
-	<string>ZeroClaw can take photos for image processing and analysis tasks.</string>
-
-	<key>NSMicrophoneUsageDescription</key>
-	<string>ZeroClaw can record audio for transcription and voice tasks.</string>
-
-	<key>NSHealthShareUsageDescription</key>
-	<string>ZeroClaw can read your health data (steps, heart rate) for health-aware tasks.</string>
-
-	<key>NSHealthUpdateUsageDescription</key>
-	<string>ZeroClaw can log health data on your behalf.</string>
-
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>ZeroClaw can discover nearby wearable devices.</string>
-
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>ZeroClaw can access your photo library for media tasks.</string>
-
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_zerox1._tcp</string>
+	</array>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>ZeroClaw needs full calendar access to manage your schedule.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>ZeroClaw can read and create calendar events for scheduling tasks.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>ZeroClaw can take photos for image processing and analysis tasks.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>ZeroClaw can read your contacts to help with messaging and lookup tasks.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>ZeroClaw can read your health data (steps, heart rate) for health-aware tasks.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>ZeroClaw can log health data on your behalf.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Required for mesh node communication on the local network.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>ZeroClaw can access your location in the background for ongoing tasks.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>ZeroClaw can access your location for location-aware tasks.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>ZeroClaw can record audio for transcription and voice tasks.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>ZeroClaw can save photos to your library.</string>
-
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>ZeroClaw can access your photo library for media tasks.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>ZeroClaw can read and create reminders for task management.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>ZeroClaw can transcribe speech for voice-based tasks.</string>
-
-	<!-- ── Background execution ─────────────────────────────────────────── -->
+	<key>NSSupportsLiveActivities</key>
+	<true/>
+	<key>NSSupportsLiveActivitiesFrequentUpdates</key>
+	<true/>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>StartAgentIntent</string>
+		<string>StopAgentIntent</string>
+		<string>AgentStatusIntent</string>
+		<string>CheckPortfolioIntent</string>
+	</array>
+	<key>RCTNewArchEnabled</key>
+	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
@@ -87,26 +108,6 @@
 		<string>location</string>
 		<string>voip</string>
 	</array>
-
-	<!-- ── BGTask identifiers ────────────────────────────────────────────── -->
-	<key>BGTaskSchedulerPermittedIdentifiers</key>
-	<array>
-		<string>world.zerox1.pilot.node-keepalive</string>
-	</array>
-
-	<!-- ── Bonjour / local network ──────────────────────────────────────── -->
-	<key>NSBonjourServices</key>
-	<array>
-		<string>_zerox1._tcp</string>
-	</array>
-
-	<!-- ── Queried URL schemes (for wallet deeplinks) ───────────────────── -->
-	<key>LSApplicationQueriesSchemes</key>
-	<array>
-		<string>phantom</string>
-		<string>solflare</string>
-	</array>
-
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIRequiredDeviceCapabilities</key>
@@ -126,14 +127,5 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
-
-	<!-- ── App Intents / Siri Shortcuts ──────────────────────────────────── -->
-	<key>NSUserActivityTypes</key>
-	<array>
-		<string>StartAgentIntent</string>
-		<string>StopAgentIntent</string>
-		<string>AgentStatusIntent</string>
-		<string>CheckPortfolioIntent</string>
-	</array>
 </dict>
 </plist>

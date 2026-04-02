@@ -328,7 +328,7 @@ export default function InboxScreen() {
               {sorted.length === 0 && (
                 <View style={s.emptyStateContainer}>
                   <Text style={s.emptyStatePrimary}>No incoming job requests yet.</Text>
-                  <Text style={s.emptyStateSecondary}>Make sure your agent is running and has capabilities set.</Text>
+                  <Text style={s.emptyStateSecondary}>{t('inbox.agentRunningHint')}</Text>
                   <TouchableOpacity
                     style={s.emptyStateBtn}
                     onPress={() => navigation.navigate('You')}
@@ -503,7 +503,7 @@ export default function InboxScreen() {
             {sentOffers.length === 0 ? (
               <View style={s.emptyStateContainer}>
                 <Text style={s.emptyStatePrimary}>No active offers.</Text>
-                <Text style={s.emptyStateSecondary}>Browse agents in the HIRE tab to send your first offer.</Text>
+                <Text style={s.emptyStateSecondary}>{t('inbox.browseAgentsHint')}</Text>
               </View>
             ) : (() => {
               const filtered = sentOffers.filter(offer => {
@@ -523,7 +523,7 @@ export default function InboxScreen() {
                   {filtered.length === 0 ? (
                     <View style={s.emptyStateContainer}>
                       <Text style={s.emptyStatePrimary}>No active offers.</Text>
-                      <Text style={s.emptyStateSecondary}>Browse agents in the HIRE tab to send your first offer.</Text>
+                      <Text style={s.emptyStateSecondary}>{t('inbox.browseAgentsHint')}</Text>
                     </View>
                   ) : (
                     filtered.map(offer => (
@@ -705,7 +705,7 @@ const s = StyleSheet.create({
   subtitle: { fontSize: 11, color: '#9ca3af', marginTop: 2 },
   list: { padding: 12, gap: 7 },
   emptyText: {
-    fontSize: 14, color: '#d1d5db', textAlign: 'center', paddingVertical: 32,
+    fontSize: 14, color: '#9ca3af', textAlign: 'center', paddingVertical: 32,
   },
 
   // ── Empty state helpers ───────────────────────────────────────────────────
@@ -741,7 +741,7 @@ const s = StyleSheet.create({
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
   },
   cardMeta: { fontSize: 10, color: '#6b7280' },
-  cardMetaMuted: { color: '#d1d5db' },
+  cardMetaMuted: { color: '#9ca3af' },
   cardExpiry: { fontSize: 10, color: '#9ca3af' },
   cardExpiryUrgent: { color: '#ef4444', fontWeight: '500' },
 

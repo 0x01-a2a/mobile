@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, TextInput,
   Switch, Alert, Modal, FlatList, Image, Linking, ActivityIndicator,
-  AppState, AppStateStatus, Platform,
+  AppState, AppStateStatus, Platform, Share,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { launchImageLibrary } from 'react-native-image-picker';
@@ -231,15 +231,30 @@ function WalletTab() {
       {/* Address card */}
       <View style={s.addressCard}>
         {/* Agent Earnings */}
-        <View style={s.addressRow}>
+        <TouchableOpacity
+          style={s.addressRow}
+          disabled={!solanaAddress}
+          onPress={() => {
+            if (!solanaAddress) return;
+            Alert.alert(
+              'Hot Wallet',
+              `${solanaAddress.slice(0, 6)}…${solanaAddress.slice(-6)}`,
+              [
+                { text: 'Copy Address', onPress: () => Share.share({ message: solanaAddress }) },
+                { text: 'View on Solscan', onPress: () => Linking.openURL(`https://solscan.io/account/${solanaAddress}`) },
+                { text: 'Cancel', style: 'cancel' },
+              ],
+            );
+          }}
+        >
           <View>
-            <Text style={s.addressLabel}>Agent Earnings</Text>
-            <Text style={s.walletDescText}>Your agent's on-chain wallet. Job fees arrive here.</Text>
+            <Text style={s.addressLabel}>{t('you.agentEarningsTitle')}</Text>
+            <Text style={s.walletDescText}>{t('you.agentEarningsDesc')}</Text>
           </View>
           <Text style={s.addressValue} numberOfLines={1}>
             {solanaAddress ? `${solanaAddress.slice(0, 4)}…${solanaAddress.slice(-4)}` : '—'}
           </Text>
-        </View>
+        </TouchableOpacity>
         <View style={s.addressDivider} />
         {/* Your Personal Wallet */}
         <TouchableOpacity
@@ -247,8 +262,8 @@ function WalletTab() {
           onPress={coldWallet ? handleUnlinkWallet : () => setLinkWalletVisible(true)}
         >
           <View>
-            <Text style={s.addressLabel}>Your Personal Wallet</Text>
-            <Text style={s.walletDescText}>Your Solana wallet. Link it to sweep earnings.</Text>
+            <Text style={s.addressLabel}>{t('you.personalWalletTitle')}</Text>
+            <Text style={s.walletDescText}>{t('you.personalWalletDesc')}</Text>
           </View>
           {coldWallet ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
@@ -297,8 +312,10 @@ function WalletTab() {
         </View>
       ))}
 
-      {/* Agent Presence — 01PL holder feature */}
-      <PresenceCard hotWallet={solanaAddress ?? null} coldWallet={coldWallet} onLinkWallet={() => setLinkWalletVisible(true)} />
+      {/* Agent Presence — 01PL holder feature (Android only; iOS uses Live Activities) */}
+      {Platform.OS === 'android' && (
+        <PresenceCard hotWallet={solanaAddress ?? null} coldWallet={coldWallet} onLinkWallet={() => setLinkWalletVisible(true)} />
+      )}
 
       {/* Link wallet modal */}
       <Modal visible={linkWalletVisible} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setLinkWalletVisible(false)}>
@@ -312,31 +329,35 @@ function WalletTab() {
           <View style={{ padding: 16, gap: 14 }}>
             <Text style={s.settingsHint}>{t('you.coldWalletHint')}</Text>
 
-            {/* Wallet app option */}
-            <TouchableOpacity
-              style={[s.walletOptionBtn, phantomConnecting && s.btnDisabled]}
-              onPress={handleOpenPhantom}
-              disabled={phantomConnecting}
-            >
-              <View>
-                <Text style={s.walletOptionLabel}>
-                  {phantomConnecting ? t('you.connecting') : t('you.openPhantom')}
-                </Text>
-                <Text style={s.settingsHint}>{t('you.connectHint')}</Text>
-              </View>
-              <Text style={s.settingsValue}>{phantomConnecting ? '…' : '↗'}</Text>
-            </TouchableOpacity>
+            {/* Wallet app option — MWA is Android-only */}
+            {Platform.OS === 'android' && (
+              <>
+                <TouchableOpacity
+                  style={[s.walletOptionBtn, phantomConnecting && s.btnDisabled]}
+                  onPress={handleOpenPhantom}
+                  disabled={phantomConnecting}
+                >
+                  <View>
+                    <Text style={s.walletOptionLabel}>
+                      {phantomConnecting ? t('you.connecting') : t('you.openPhantom')}
+                    </Text>
+                    <Text style={s.settingsHint}>{t('you.connectHint')}</Text>
+                  </View>
+                  <Text style={s.settingsValue}>{phantomConnecting ? '…' : '↗'}</Text>
+                </TouchableOpacity>
 
-            {/* Divider */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <View style={{ flex: 1, height: 1, backgroundColor: '#f3f4f6' }} />
-              <Text style={{ fontSize: 9, color: '#d1d5db' }}>OR</Text>
-              <View style={{ flex: 1, height: 1, backgroundColor: '#f3f4f6' }} />
-            </View>
+                {/* Divider */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <View style={{ flex: 1, height: 1, backgroundColor: '#f3f4f6' }} />
+                  <Text style={{ fontSize: 9, color: '#9ca3af' }}>OR</Text>
+                  <View style={{ flex: 1, height: 1, backgroundColor: '#f3f4f6' }} />
+                </View>
+              </>
+            )}
 
             {/* Manual entry */}
             <View style={{ gap: 8 }}>
-              <Text style={s.settingsLabel}>Paste address</Text>
+              <Text style={s.settingsLabel}>{t('you.pasteAddress')}</Text>
               <TextInput
                 style={s.advancedInput}
                 value={walletInput}
@@ -353,7 +374,7 @@ function WalletTab() {
               onPress={handleLinkWallet}
               disabled={!walletInput.trim()}
             >
-              <Text style={s.saveBtnText}>Link wallet</Text>
+              <Text style={s.saveBtnText}>{t('you.linkWalletBtn')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -404,6 +425,7 @@ function PresenceCard({
   coldWallet: string | null;
   onLinkWallet: () => void;
 }) {
+  const { t } = useTranslation();
   const { eligible, balance, loading, error } = use01PLGate([hotWallet, coldWallet]);
   const [presenceEnabled, setPresenceEnabled] = useState(false);
   const [hasOverlay, setHasOverlay] = useState(false);
@@ -541,7 +563,7 @@ function PresenceCard({
         )}
 
         {/* Permission hint */}
-        {eligible && presenceEnabled && !hasOverlay && (
+        {eligible && presenceEnabled && !hasOverlay && Platform.OS === 'android' && (
           <TouchableOpacity
             style={s.presencePermHint}
             onPress={() => NodeModule.requestOverlayPermission()}
@@ -557,7 +579,7 @@ function PresenceCard({
           <View style={s.presenceActionRow}>
             {!coldWallet ? (
               <TouchableOpacity style={s.presenceLinkBtn} onPress={onLinkWallet}>
-                <Text style={s.presenceLinkBtnText}>Link wallet to check →</Text>
+                <Text style={s.presenceLinkBtnText}>{t('you.linkWalletCheck')}</Text>
               </TouchableOpacity>
             ) : (
               <TouchableOpacity
@@ -622,7 +644,7 @@ function BrainTab() {
     autoAccept !== (config?.autoAccept ?? false);
 
   if (loading) {
-    return <View style={s.tabContent}><Text style={s.emptyText}>Loading…</Text></View>;
+    return <View style={s.tabContent}><Text style={s.emptyText}>{t('you.loading')}</Text></View>;
   }
 
   const handleOpenCapModal = () => {
@@ -694,8 +716,8 @@ function BrainTab() {
         </View>
         <View style={[s.ruleRow, s.ruleRowBorder]}>
           <View>
-            <Text style={s.ruleLabel}>Auto-accept jobs</Text>
-            <Text style={s.ruleHint}>Automatically accept matching proposals</Text>
+            <Text style={s.ruleLabel}>{t('you.autoAcceptJobs')}</Text>
+            <Text style={s.ruleHint}>{t('you.autoAcceptJobsDesc')}</Text>
           </View>
           <Switch
             value={autoAccept}
@@ -713,7 +735,7 @@ function BrainTab() {
           </View>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
             {caps.length === 0 && (
-              <Text style={s.capPillAddText}>None selected</Text>
+              <Text style={s.capPillAddText}>{t('you.noneSelected')}</Text>
             )}
             {caps.map(cap => (
               <View key={cap} style={s.capPill}>
@@ -746,7 +768,7 @@ function BrainTab() {
           {/* Handle bar */}
           <View style={s.modalHandleBar} />
           <View style={s.modalHeader}>
-            <Text style={s.modalTitle}>Capabilities</Text>
+            <Text style={s.modalTitle}>{t('you.capabilitiesTitle')}</Text>
             <TouchableOpacity onPress={() => setCapModalVisible(false)}>
               <Text style={s.modalClose}>✕</Text>
             </TouchableOpacity>
@@ -842,7 +864,7 @@ function SkillsSection() {
       </View>
 
       <View style={s.settingsCard}>
-        {loading && <Text style={[s.settingsHint, { padding: 12 }]}>Loading…</Text>}
+        {loading && <Text style={[s.settingsHint, { padding: 12 }]}>{t('you.loading')}</Text>}
         {!loading && skills.length === 0 && (
           <View style={s.settingsRow}>
             <Text style={s.settingsLabelMuted}>No skills installed</Text>
@@ -879,7 +901,7 @@ function SkillsSection() {
       <Modal visible={installVisible} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setInstallVisible(false)}>
         <View style={s.modalRoot}>
           <View style={s.modalHeader}>
-            <Text style={s.modalTitle}>Install skill</Text>
+            <Text style={s.modalTitle}>{t('you.installSkill')}</Text>
             <TouchableOpacity onPress={() => setInstallVisible(false)}>
               <Text style={s.modalClose}>✕</Text>
             </TouchableOpacity>
@@ -889,7 +911,7 @@ function SkillsSection() {
               Install a custom skill from a URL. The node downloads and sandboxes it — your agent gains the new capability immediately.
             </Text>
             <View style={{ gap: 6 }}>
-              <Text style={s.settingsLabel}>Skill name</Text>
+              <Text style={s.settingsLabel}>{t('you.skillName')}</Text>
               <TextInput
                 style={s.advancedInput}
                 value={skillName}
@@ -901,7 +923,7 @@ function SkillsSection() {
               />
             </View>
             <View style={{ gap: 6 }}>
-              <Text style={s.settingsLabel}>Skill URL</Text>
+              <Text style={s.settingsLabel}>{t('you.skillUrl')}</Text>
               <TextInput
                 style={s.advancedInput}
                 value={skillUrl}
@@ -918,7 +940,7 @@ function SkillsSection() {
               onPress={handleInstall}
               disabled={!skillName.trim() || !skillUrl.trim() || installing}
             >
-              <Text style={s.saveBtnText}>{installing ? 'Installing…' : 'Install skill'}</Text>
+              <Text style={s.saveBtnText}>{installing ? 'Installing…' : t('you.installSkill')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1106,8 +1128,8 @@ function AdvancedTab() {
       <View style={s.settingsCard}>
         <View style={s.settingsRow}>
           <View>
-            <Text style={s.settingsLabel}>Auto-start on boot</Text>
-            <Text style={s.settingsHint}>Start when device powers on</Text>
+            <Text style={s.settingsLabel}>{t('you.autoStartBoot')}</Text>
+            <Text style={s.settingsHint}>{t('you.autoStartBootDesc')}</Text>
           </View>
           <Switch
             value={autoStart}
@@ -1120,7 +1142,7 @@ function AdvancedTab() {
         <View style={s.settingsRow}>
           <View>
             <Text style={s.settingsLabel}>Run in background</Text>
-            <Text style={s.settingsHint}>Stay active when app is minimized</Text>
+            <Text style={s.settingsHint}>{t('you.stayActiveMinimized')}</Text>
           </View>
           <Switch
             value={backgroundNode}
@@ -1131,7 +1153,7 @@ function AdvancedTab() {
         </View>
         <View style={s.settingsCardDivider} />
         <View style={[s.settingsRow, s.settingsRowMuted]}>
-          <Text style={s.settingsLabelMuted}>Notifications</Text>
+          <Text style={s.settingsLabelMuted}>{t('you.notifications')}</Text>
           <Text style={s.settingsValueMuted}>coming soon</Text>
         </View>
       </View>
@@ -1143,12 +1165,12 @@ function AdvancedTab() {
       <Text style={s.settingsSectionLabel}>MORE</Text>
       <View style={s.settingsCard}>
         <TouchableOpacity style={s.settingsRow} onPress={() => setAdvancedVisible(true)}>
-          <Text style={s.settingsLabel}>Advanced settings</Text>
+          <Text style={s.settingsLabel}>{t('you.advancedSettings')}</Text>
           <Text style={s.settingsValue}>›</Text>
         </TouchableOpacity>
         <View style={s.settingsCardDivider} />
         <TouchableOpacity style={s.settingsRow} onPress={handleSignOut}>
-          <Text style={s.signOutText}>Sign out</Text>
+          <Text style={s.signOutText}>{t('you.signOutBtn')}</Text>
         </TouchableOpacity>
       </View>
 
@@ -1176,7 +1198,7 @@ interface CapDef {
   special?: 'accessibility' | 'media_projection';
 }
 
-const CAP_GROUPS: CapDef[] = [
+const CAP_GROUPS_ANDROID: CapDef[] = [
   { label: 'Notifications',     hint: 'Read, reply to & dismiss notifications',       caps: ['notifications_read','notifications_reply','notifications_dismiss'], permKeys: ['POST_NOTIFICATIONS'] },
   { label: 'SMS',               hint: 'Read & send text messages',                    caps: ['sms_read','sms_send'],                    permKeys: ['READ_SMS','SEND_SMS'] },
   { label: 'Contacts',          hint: 'Read & write address book',                    caps: ['contacts'],                               permKeys: ['READ_CONTACTS','WRITE_CONTACTS'] },
@@ -1194,9 +1216,29 @@ const CAP_GROUPS: CapDef[] = [
   { label: 'Screen capture',    hint: 'Record screen for highlight reels',            caps: ['screen_capture'],                         permKeys: [], special: 'media_projection' },
 ];
 
+const CAP_GROUPS_IOS: CapDef[] = [
+  { label: 'Notifications',     hint: 'Deliver & categorise notifications',           caps: ['notifications_read'],                     permKeys: ['notifications_read'] },
+  { label: 'Contacts',          hint: 'Read & write address book',                    caps: ['contacts'],                               permKeys: ['contacts'] },
+  { label: 'Location',          hint: 'GPS coordinates for context',                  caps: ['location'],                               permKeys: ['location'] },
+  { label: 'Calendar',          hint: 'Read & create calendar events',                caps: ['calendar'],                               permKeys: ['calendar'] },
+  { label: 'Camera',            hint: 'Take photos on your behalf',                   caps: ['camera'],                                 permKeys: ['camera'] },
+  { label: 'Microphone',        hint: 'Record audio for tasks',                       caps: ['microphone'],                             permKeys: ['microphone'] },
+  { label: 'Photos',            hint: 'Access photo library',                         caps: ['media'],                                  permKeys: ['photos'] },
+  { label: 'Motion & activity', hint: 'Accelerometer, gyro, step detection',          caps: ['motion'],                                 permKeys: ['motion'] },
+  { label: 'Health data',       hint: 'Steps, heart rate, sleep, workouts via HealthKit', caps: ['health'],                             permKeys: ['health'] },
+  { label: 'Clinical records',  hint: 'Read medical records from Health app',         caps: ['health','clinical_records'],              permKeys: ['health'] },
+  { label: 'Barometer',         hint: 'Atmospheric pressure for environment context', caps: ['motion'],                                 permKeys: [] },
+  { label: 'Wearables (BLE)',   hint: 'Connect to Bluetooth health devices',          caps: ['wearables'],                              permKeys: ['bluetooth'] },
+  { label: 'Speech synthesis',  hint: 'Speak responses aloud via TTS',               caps: ['tts'],                                    permKeys: [] },
+  { label: 'Live Activities',   hint: 'Show agent status on Lock Screen & Dynamic Island', caps: ['live_activity'],                     permKeys: [] },
+];
+
+const CAP_GROUPS: CapDef[] = Platform.OS === 'ios' ? CAP_GROUPS_IOS : CAP_GROUPS_ANDROID;
+
 // ── About Section (used inside AdvancedModal) ──────────────────────────────────
 
 function AboutSection() {
+  const { t } = useTranslation();
   const [checking, setChecking] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -1240,7 +1282,7 @@ function AboutSection() {
       </View>
       <View style={s.settingsCardDivider} />
       <View style={[s.settingsRow, { opacity: 0.6 }]}>
-        <Text style={s.settingsLabelMuted}>Node version</Text>
+        <Text style={s.settingsLabelMuted}>{t('you.nodeVersion')}</Text>
         <Text style={s.settingsValueMuted}>v0.4.0</Text>
       </View>
       <View style={s.settingsCardDivider} />
@@ -1250,7 +1292,7 @@ function AboutSection() {
         <View style={{ paddingVertical: 12, gap: 6 }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
             <View>
-              <Text style={s.settingsLabel}>Update available</Text>
+              <Text style={s.settingsLabel}>{t('you.updateAvailable')}</Text>
               <Text style={s.settingsHint}>v{updateInfo.latestVersion} · {new Date(updateInfo.publishedAt).toLocaleDateString()}</Text>
             </View>
             <TouchableOpacity
@@ -1272,7 +1314,7 @@ function AboutSection() {
         </View>
       ) : (
         <TouchableOpacity style={s.settingsRow} onPress={handleCheckUpdate} disabled={checking}>
-          <Text style={s.settingsLabel}>Check for update</Text>
+          <Text style={s.settingsLabel}>{t('you.checkForUpdate')}</Text>
           <Text style={[s.settingsValue, checking && { color: '#9ca3af' }]}>{checking ? 'Checking…' : '↻'}</Text>
         </TouchableOpacity>
       )}
@@ -1286,6 +1328,7 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
   config: any;
   applyAndRestart: (cfg: any) => Promise<void>;
 }) {
+  const { t } = useTranslation();
   const { config: brain, save: saveBrain } = useAgentBrain();
   const [relayAddr, setRelayAddr] = useState(config?.relayAddr ?? '');
   const [rpcUrl, setRpcUrl] = useState(config?.rpcUrl ?? '');
@@ -1432,7 +1475,7 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <View style={s.modalRoot}>
         <View style={s.modalHeader}>
-          <Text style={s.modalTitle}>Advanced</Text>
+          <Text style={s.modalTitle}>{t('you.advanced')}</Text>
           <TouchableOpacity onPress={onClose}>
             <Text style={s.modalClose}>✕</Text>
           </TouchableOpacity>
@@ -1444,7 +1487,7 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
           <View style={s.settingsCard}>
             <View style={s.settingsRow}>
               <View style={{ flex: 1, marginRight: 12 }}>
-                <Text style={s.settingsLabel}>Enable agent brain</Text>
+                <Text style={s.settingsLabel}>{t('you.enableBrain')}</Text>
                 <Text style={s.settingsHint}>AI autonomously takes and completes jobs</Text>
               </View>
               <Switch value={brainEnabled} onValueChange={handleBrainToggle}
@@ -1457,7 +1500,7 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
           <View style={s.settingsCard}>
             {/* Provider pills */}
             <View style={[s.settingsRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 8, paddingBottom: 14 }]}>
-              <Text style={s.settingsLabel}>Provider</Text>
+              <Text style={s.settingsLabel}>{t('you.provider')}</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                 {PROVIDERS.map(p => {
                   const active = llmProvider === p;
@@ -1495,7 +1538,7 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
             <View style={s.settingsCardDivider} />
             <View style={[s.settingsRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 6, paddingBottom: 14 }]}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%' }}>
-                <Text style={s.settingsLabel}>Model</Text>
+                <Text style={s.settingsLabel}>{t('you.model')}</Text>
                 <Text style={s.settingsHint}>
                   default: {PROVIDER_INFOS.find(p => p.key === llmProvider)?.model ?? '—'}
                 </Text>
@@ -1516,7 +1559,7 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
               <>
                 <View style={s.settingsCardDivider} />
                 <View style={[s.settingsRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 6, paddingBottom: 14 }]}>
-                  <Text style={s.settingsLabel}>Base URL</Text>
+                  <Text style={s.settingsLabel}>{t('you.baseUrl')}</Text>
                   <TextInput
                     style={s.advancedInput}
                     value={llmBaseUrl}
@@ -1562,7 +1605,7 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
             {/* Replicate */}
             <View style={[s.settingsRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 6, paddingBottom: 14 }]}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%' }}>
-                <Text style={s.settingsLabel}>Replicate API key</Text>
+                <Text style={s.settingsLabel}>{t('you.replicateApiKey')}</Text>
                 <Text style={s.settingsHint}>{brain?.replicateApiKeySet ? 'key stored ●●●●' : 'not set'}</Text>
               </View>
               <TextInput
@@ -1641,14 +1684,14 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
           <Text style={s.settingsSectionLabel}>NETWORK</Text>
           <View style={s.settingsCard}>
             <View style={[s.settingsRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 6 }]}>
-              <Text style={s.settingsLabel}>Relay address</Text>
+              <Text style={s.settingsLabel}>{t('you.relayAddress')}</Text>
               <TextInput style={s.advancedInput} value={relayAddr} onChangeText={setRelayAddr}
                 placeholder="/ip4/…/p2p/…" placeholderTextColor="#d1d5db"
                 autoCapitalize="none" autoCorrect={false} />
             </View>
             <View style={s.settingsCardDivider} />
             <View style={[s.settingsRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 6 }]}>
-              <Text style={s.settingsLabel}>Solana RPC URL</Text>
+              <Text style={s.settingsLabel}>{t('you.solanaRpcUrl')}</Text>
               <TextInput style={s.advancedInput} value={rpcUrl} onChangeText={setRpcUrl}
                 placeholder="https://api.mainnet-beta.solana.com" placeholderTextColor="#d1d5db"
                 autoCapitalize="none" autoCorrect={false} />
@@ -1680,8 +1723,15 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
             ))}
           </View>
 
+          <TouchableOpacity
+            style={[s.saveBtn, { backgroundColor: '#374151', marginBottom: 0 }]}
+            onPress={() => applyAndRestart(config!)}
+          >
+            <Text style={s.saveBtnText}>↺  Restart Node</Text>
+          </TouchableOpacity>
+
           <TouchableOpacity style={s.saveBtn} onPress={handleSaveNetwork}>
-            <Text style={s.saveBtnText}>Save &amp; apply</Text>
+            <Text style={s.saveBtnText}>{t('you.saveApply')}</Text>
           </TouchableOpacity>
         </ScrollView>
       </View>
@@ -1754,7 +1804,7 @@ const s = StyleSheet.create({
   btnDisabled: { opacity: 0.4 },
 
   sectionLabel: { fontSize: 10, color: '#9ca3af', letterSpacing: 0.5, marginBottom: 8 },
-  emptyText: { fontSize: 14, color: '#d1d5db', textAlign: 'center', paddingVertical: 24, paddingHorizontal: 16 },
+  emptyText: { fontSize: 14, color: '#9ca3af', textAlign: 'center', paddingVertical: 24, paddingHorizontal: 16 },
 
   txRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 16 },
   txRowBorder: { borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
@@ -1811,7 +1861,7 @@ const s = StyleSheet.create({
   settingsHint: { fontSize: 9, color: '#9ca3af', marginTop: 1 },
   settingsLabelMuted: { fontSize: 11, color: '#9ca3af' },
   settingsValue: { fontSize: 11, color: '#9ca3af' },
-  settingsValueMuted: { fontSize: 11, color: '#d1d5db' },
+  settingsValueMuted: { fontSize: 11, color: '#9ca3af' },
   signOutText: { fontSize: 11, color: '#ef4444', fontWeight: '500' },
 
   avatarPickerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 },

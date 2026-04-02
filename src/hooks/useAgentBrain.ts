@@ -118,11 +118,9 @@ export async function saveLlmApiKey(key: string): Promise<void> {
     accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
   });
 
-  // 2. On Android, also push to native EncryptedSharedPreferences (CRIT-4)
-  // so the NodeService background process can access it directly.
-  if (Platform.OS === 'android') {
-    await NodeModule.saveLlmApiKey(key);
-  }
+  // 2. Push to native keychain so NodeService can read it directly at agent launch.
+  // Android: EncryptedSharedPreferences (CRIT-4); iOS: native Keychain via KeychainHelper.
+  await NodeModule.saveLlmApiKey(key);
 }
 
 export async function loadLlmApiKey(): Promise<string | null> {

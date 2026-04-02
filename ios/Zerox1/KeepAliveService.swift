@@ -1,5 +1,6 @@
 import AVFoundation
 import UIKit
+import os.log
 
 /// Keeps the app process alive in the background when the zerox1 node is running
 /// or zeroclaw is actively processing a task.
@@ -23,7 +24,7 @@ final class KeepAliveService {
     private var audioEngine: AVAudioEngine?
     private var audioPlayerNode: AVAudioPlayerNode?
     private var bgTaskId: UIBackgroundTaskIdentifier = .invalid
-    private var pollTimer: Timer?
+    private var pollSource: DispatchSourceTimer?
     private var isAudioActive = false
     private var dataDir: URL?
 
@@ -61,8 +62,7 @@ final class KeepAliveService {
         isNodeRunning = false
         evaluateAudio()
         endBgTask()
-        pollTimer?.invalidate()
-        pollTimer = nil
+        stopPolling()
         NotificationCenter.default.removeObserver(self)
         dataDir = nil
     }
@@ -80,19 +80,27 @@ final class KeepAliveService {
         // Process is awake; release background resources but keep node running.
         stopAudio()
         endBgTask()
-        pollTimer?.invalidate()
-        pollTimer = nil
+        stopPolling()
     }
 
     // MARK: - Polling (zeroclaw busy file, for hosted mode)
 
     private func startPolling() {
-        pollTimer?.invalidate()
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+        stopPolling()
+        let source = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        source.schedule(deadline: .now() + 5.0, repeating: 5.0)
+        source.setEventHandler { [weak self] in
             guard let self else { return }
             self.isZeroclawBusyFlag = self.readZeroclawBusy()
             self.evaluateAudio()
         }
+        source.resume()
+        pollSource = source
+    }
+
+    private func stopPolling() {
+        pollSource?.cancel()
+        pollSource = nil
     }
 
     private func readZeroclawBusy() -> Bool {
@@ -142,9 +150,9 @@ final class KeepAliveService {
             audioEngine = engine
             audioPlayerNode = player
             isAudioActive = true
-            NSLog("[KeepAlive] Silent audio started — node=\(isNodeRunning) zeroclaw=\(isZeroclawBusyFlag)")
+            os_log(.debug, "[KeepAlive] Silent audio started — node=%{public}d zeroclaw=%{public}d", isNodeRunning ? 1 : 0, isZeroclawBusyFlag ? 1 : 0)
         } catch {
-            NSLog("[KeepAlive] Failed to start silent audio: \(error)")
+            os_log(.error, "[KeepAlive] Failed to start silent audio: %{public}@", error.localizedDescription)
         }
     }
 
@@ -156,7 +164,7 @@ final class KeepAliveService {
         audioPlayerNode = nil
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         isAudioActive = false
-        NSLog("[KeepAlive] Silent audio stopped")
+        os_log(.debug, "[KeepAlive] Silent audio stopped")
     }
 
     // MARK: - Background task

@@ -64,7 +64,7 @@ export default function TodayScreen() {
   const [leagueModalVisible, setLeagueModalVisible] = useState(false);
   const [leaguePeriod, setLeaguePeriod] = useState<'week' | 'month' | 'all'>('week');
 
-  const agentName = config?.agentName ?? 'Aria';
+  const agentName = config?.agentName || 'my-agent';
   const isRunning = status === 'running';
   const earnedToday = useMemo(() => sumEarnings(entries, true), [entries]);
   const earnedAllTime = useMemo(() => sumEarnings(entries, false), [entries]);
@@ -147,10 +147,10 @@ export default function TodayScreen() {
         )}
         {!loading && recentJobs.length === 0 && (
           <View style={s.emptyContainer}>
-            <Text style={s.emptyPrimary}>No completed jobs yet.</Text>
-            <Text style={s.emptySecondary}>Accept bounties in Inbox to start earning.</Text>
+            <Text style={s.emptyPrimary}>{t('today.noJobsYet')}</Text>
+            <Text style={s.emptySecondary}>{t('today.acceptBountiesHint')}</Text>
             <TouchableOpacity style={s.emptyAction} onPress={() => navigation.navigate('Inbox')}>
-              <Text style={s.emptyActionText}>→ Browse Inbox</Text>
+              <Text style={s.emptyActionText}>{t('today.browseInbox')}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -318,7 +318,7 @@ const s = StyleSheet.create({
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingHorizontal: 16, paddingBottom: 4,
   },
-  pilotLabel: { fontSize: 10, color: '#999', fontWeight: '600', letterSpacing: 0.5 },
+  pilotLabel: { fontSize: 10, color: '#6b7280', fontWeight: '600', letterSpacing: 0.5 },
   settingsIcon: { fontSize: 20, color: '#374151' },
 
   heroCard: {
@@ -362,7 +362,7 @@ const s = StyleSheet.create({
   sectionLabel: {
     fontSize: 10, color: '#9ca3af', letterSpacing: 0.5, marginBottom: 10,
   },
-  emptyText: { fontSize: 14, color: '#d1d5db', textAlign: 'center', paddingVertical: 24 },
+  emptyText: { fontSize: 14, color: '#9ca3af', textAlign: 'center', paddingVertical: 24 },
 
   loadingContainer: { alignItems: 'center', paddingVertical: 24 },
 
@@ -388,7 +388,7 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 4,
     paddingHorizontal: 6, paddingVertical: 2, backgroundColor: '#f9fafb',
   },
-  workingBadgeText: { fontSize: 10, color: '#d1d5db' },
+  workingBadgeText: { fontSize: 10, color: '#9ca3af' },
 
   // ── Earnings League ──────────────────────────────────────────────────────
   leagueHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
