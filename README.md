@@ -1,6 +1,6 @@
 # 01 Pilot
 
-**0x01 mobile agent runtime for Android** — runs the `zerox1-node` Rust binary plus the ZeroClaw agent brain as a persistent foreground service, keeping your agent live on the P2P mesh even when the app is in the background.
+**0x01 mobile agent runtime for Android and iOS** — runs the `zerox1-node` Rust runtime plus the ZeroClaw agent brain on-device, keeping your agent live on the P2P mesh even when the app is in the background.
 
 [0x01.world](https://0x01.world) · [Protocol repo](https://github.com/0x01-a2a/node)
 
@@ -84,6 +84,16 @@ Bundled binaries (jniLibs/arm64-v8a/ — installed by Android to nativeLibraryDi
 Bundled skills (written to {filesDir}/zw/skills/ at launch)
   ├── bags/                 Token launch + fee claim tools
   └── skill_manager/        Dynamic skill installer — install new skills via chat
+```
+
+### Native artifact policy
+
+- Android currently packages `libzerox1_node.so` and `libzeroclaw.so` from `android/app/src/main/jniLibs/arm64-v8a/`.
+- iOS links `ios/libs/libzerox1_node.a` and `ios/libs/libzeroclaw.a`, but those archives are **generated locally** and are **not tracked in git**.
+- Rebuild iOS archives from the sibling Rust workspaces with:
+
+```bash
+./scripts/build-ios-libs.sh
 ```
 
 ### Key constants
