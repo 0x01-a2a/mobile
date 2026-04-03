@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useColorScheme, ColorSchemeName } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -77,19 +77,24 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const setMode = (newMode: ThemeMode) => {
+  const setMode = useCallback((newMode: ThemeMode) => {
     setModeState(newMode);
     AsyncStorage.setItem('zerox1:theme_mode', newMode).catch(() => {});
-  };
+  }, []);
 
   const isDark = mode === 'system' ? deviceTheme === 'dark' : mode === 'dark';
   const colors = isDark ? DarkTheme : LightTheme;
+
+  const value = useMemo(
+    () => ({ colors, isDark, mode, setMode }),
+    [colors, isDark, mode, setMode],
+  );
 
   // Wait until we load from storage so we don't flash the wrong theme
   if (!isReady) return null;
 
   return (
-    <ThemeContext.Provider value={{ colors, isDark, mode, setMode }}>
+    <ThemeContext.Provider value={value}>
       {children}
     </ThemeContext.Provider>
   );

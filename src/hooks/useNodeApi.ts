@@ -1368,7 +1368,7 @@ export function usePendingSwaps(): {
   const [swaps, setSwaps] = useState<PendingSwap[]>([]);
 
   const fetch_ = useCallback(async () => {
-    if (_isHostedMode) return; // pending swaps only exist on the local node
+    if (_isHostedMode || !_appActive) return; // pending swaps only exist on the local node
     try {
       const res = await fetch(`${_apiBase}/trade/swap/pending`);
       if (res.ok) {

@@ -4,7 +4,7 @@
  * Tabs: Today | Inbox | Chat | You
  */
 import React from 'react';
-import { StyleSheet, Text, Pressable } from 'react-native';
+import { StyleSheet, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useTranslation } from 'react-i18next';
@@ -15,35 +15,19 @@ import InboxScreen        from '../screens/Inbox';
 import { ChatScreen }     from '../screens/Chat';
 import YouScreen          from '../screens/You';
 import { useTheme, ThemeColors } from '../theme/ThemeContext';
+import { useLiveActivity } from '../hooks/useLiveActivity';
 
 const Tab = createBottomTabNavigator();
 
-const ICONS: Record<string, string> = {
-  Today: '[~]',
-  Inbox: '[@]',
-  Chat:  '[>]',
-  You:   '[*]',
-};
-
-// Stable per-tab icon renderers defined at module scope to avoid
-// re-creating inline components on every render (react/no-unstable-nested-components).
-function makeTabIcon(name: string) {
-  return function TabIconRenderer({ focused, color }: { focused: boolean; color: string }) {
-    return (
-      <Text style={[staticStyles.icon, { color }]}>
-        {ICONS[name]}
-      </Text>
-    );
-  };
+// Stable tab button renderer — defined at module scope so it is never recreated
+// and does not cause unnecessary tab bar re-renders.
+function TabButton(props: React.ComponentProps<typeof Pressable>) {
+  return <Pressable {...(props as any)} android_ripple={null} />;
 }
-
-const TodayIcon = makeTabIcon('Today');
-const InboxIcon = makeTabIcon('Inbox');
-const ChatIcon  = makeTabIcon('Chat');
-const YouIcon   = makeTabIcon('You');
 
 const SCREEN_OPTIONS = {
   headerShown: false,
+  tabBarShowIcon: false,
 } as const;
 
 export function AppNavigator() {
@@ -53,11 +37,14 @@ export function AppNavigator() {
   const { isTablet, isLandscape } = useLayout();
   const { t } = useTranslation();
 
+  // Manage Dynamic Island / Lock Screen Live Activity for agent state.
+  useLiveActivity();
+
   const bottomPad = insets.bottom || 8;
   const isWideMode = isTablet && isLandscape;
   const tabBarStyle = isWideMode
     ? [styles.tabBar, styles.tabBarSide, { paddingBottom: bottomPad }]
-    : [styles.tabBar, { paddingBottom: bottomPad, height: 72 + (insets.bottom || 0) }];
+    : [styles.tabBar, { paddingBottom: bottomPad, height: 56 + (insets.bottom || 0) }];
 
   return (
       <Tab.Navigator
@@ -68,19 +55,13 @@ export function AppNavigator() {
           tabBarActiveTintColor:   colors.green,
           tabBarInactiveTintColor: colors.sub,
           tabBarLabelStyle: isWideMode ? staticStyles.labelSide : staticStyles.label,
-          tabBarIconStyle: isWideMode ? staticStyles.iconSide : undefined,
-          tabBarButton: (props) => (
-            <Pressable
-              {...(props as any)}
-              android_ripple={null}
-            />
-          ),
+          tabBarButton: TabButton,
         }}
       >
-      <Tab.Screen name="Today" component={TodayScreen} options={{ title: t('nav.today'), tabBarLabel: t('nav.today'), tabBarIcon: TodayIcon }} />
-      <Tab.Screen name="Inbox" component={InboxScreen} options={{ title: t('nav.inbox'), tabBarLabel: t('nav.inbox'), tabBarIcon: InboxIcon }} />
-      <Tab.Screen name="Chat"  component={ChatScreen}  options={{ title: t('nav.chat'),  tabBarLabel: t('nav.chat'),  tabBarIcon: ChatIcon  }} />
-      <Tab.Screen name="You"   component={YouScreen}   options={{ title: t('nav.you'),   tabBarLabel: t('nav.you'),   tabBarIcon: YouIcon   }} />
+      <Tab.Screen name="Today" component={TodayScreen} options={{ title: t('nav.today'), tabBarLabel: t('nav.today') }} />
+      <Tab.Screen name="Inbox" component={InboxScreen} options={{ title: t('nav.inbox'), tabBarLabel: t('nav.inbox') }} />
+      <Tab.Screen name="Chat"  component={ChatScreen}  options={{ title: t('nav.chat'),  tabBarLabel: t('nav.chat')  }} />
+      <Tab.Screen name="You"   component={YouScreen}   options={{ title: t('nav.you'),   tabBarLabel: t('nav.you')   }} />
     </Tab.Navigator>
   );
 }
@@ -105,23 +86,15 @@ function useStyles(colors: ThemeColors) {
 
 const staticStyles = StyleSheet.create({
   label: {
-    fontSize: 10,
+    fontSize: 11,
     letterSpacing: 1,
     fontFamily: 'monospace',
     marginBottom: 4,
   },
   labelSide: {
-    fontSize: 9,
+    fontSize: 10,
     letterSpacing: 1,
     fontFamily: 'monospace',
     marginTop: 4,
-  },
-  icon: {
-    fontSize: 13,
-    fontFamily: 'monospace',
-    fontWeight: '700',
-  },
-  iconSide: {
-    fontSize: 16,
   },
 });

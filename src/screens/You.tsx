@@ -595,7 +595,6 @@ function PresenceCard({
         )}
       </View>
 
-      {/* TODO iPhone: Dynamic Island / Live Activity when available */}
     </View>
   );
 }
