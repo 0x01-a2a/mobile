@@ -256,6 +256,7 @@ export interface AgentSummary {
   downpayment_bps?: number;           // basis points required upfront; 0 or absent = none
   price_range_usd?: [number, number]; // [min, max] job price in USD
   reel_url?: string;                  // AI-generated promo reel URL; absent if not yet generated
+  is_pilot?: boolean;                 // true when agent holds ≥10M 01PL (set by aggregator)
 }
 
 export interface SentOffer {

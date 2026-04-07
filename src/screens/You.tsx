@@ -20,6 +20,7 @@ import { useSignOut } from '../../App';
 import { DEFAULT_AGENT_ICON_URI } from '../assets/defaultAgentIcon';
 import { setLanguage } from '../i18n';
 import { use01PLGate, PRESENCE_THRESHOLD, PILOT_TOKEN_MINT } from '../hooks/use01PLGate';
+import { useTheme, PILOT_ACCENT } from '../theme/ThemeContext';
 
 const COLD_WALLET_KEY = 'zerox1:cold_wallet';
 const PRESENCE_ENABLED_KEY = 'zerox1:presence_enabled';
@@ -203,9 +204,14 @@ function WalletTab() {
       {/* Balance hero */}
       <View style={s.balanceHero}>
         <Text style={s.balanceLabel}>{t('you.holdings')}</Text>
-        <Text style={s.balanceAmount}>{loading ? '—' : fmt(totalUsd)}</Text>
+        {loading
+          ? <ActivityIndicator size="small" color="#111" style={{ marginVertical: 6 }} />
+          : <Text style={s.balanceAmount}>{fmt(totalUsd)}</Text>}
         {earnedToday > 0 && (
           <Text style={s.balanceDelta}>↑ {fmt(earnedToday)} {t('you.earnedToday')}</Text>
+        )}
+        {!loading && tokens.length === 0 && (
+          <Text style={s.balanceEmpty}>{t('you.noTokensYet')}</Text>
         )}
         {!loading && tokens.length > 0 && (
           <View style={s.holdingsRow}>
@@ -312,7 +318,10 @@ function WalletTab() {
         </View>
       ))}
 
-      {/* Agent Presence — 01PL holder feature (Android only; iOS uses Live Activities) */}
+      {/* Pilot Mode — 01PL exclusive: gold accent + Live Activity (iOS) or floating bubble (Android) */}
+      {Platform.OS === 'ios' && (
+        <PilotModeCard hotWallet={solanaAddress ?? null} coldWallet={coldWallet} onLinkWallet={() => setLinkWalletVisible(true)} />
+      )}
       {Platform.OS === 'android' && (
         <PresenceCard hotWallet={solanaAddress ?? null} coldWallet={coldWallet} onLinkWallet={() => setLinkWalletVisible(true)} />
       )}
@@ -414,6 +423,131 @@ function WalletTab() {
   );
 }
 
+// ── Pilot Mode Row (inside Android PresenceCard) ───────────────────────────────
+
+function PilotModeRow() {
+  const { pilotMode, setPilotMode } = useTheme();
+  return (
+    <View style={s.pilotModeRow}>
+      <View style={{ flex: 1 }}>
+        <Text style={s.pilotModeLabel}>◈ Pilot Mode</Text>
+        <Text style={s.pilotModeHint}>Gold accent · Dynamic Island</Text>
+      </View>
+      <Switch
+        value={pilotMode}
+        onValueChange={setPilotMode}
+        trackColor={{ true: PILOT_ACCENT, false: '#d1d5db' }}
+        thumbColor="#fff"
+      />
+    </View>
+  );
+}
+
+// ── Pilot Mode Card (iOS — replaces PresenceCard) ──────────────────────────────
+
+function PilotModeCard({
+  hotWallet,
+  coldWallet,
+  onLinkWallet,
+}: {
+  hotWallet: string | null;
+  coldWallet: string | null;
+  onLinkWallet: () => void;
+}) {
+  const { eligible, balance, loading, error, refresh } = use01PLGate([hotWallet, coldWallet]);
+  const { pilotMode, setPilotMode } = useTheme();
+
+  const fmtBalance = (n: number) =>
+    n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M`
+    : n >= 1_000 ? `${(n / 1_000).toFixed(1)}k`
+    : n.toFixed(0);
+
+  return (
+    <View style={s.presenceSection}>
+      <Text style={[s.sectionLabel, { paddingHorizontal: 0, marginBottom: 8 }]}>
+        PILOT MODE · 01PL
+      </Text>
+
+      <View style={[s.presenceCard, eligible && s.presenceCardEligible]}>
+        {/* Header row */}
+        <View style={s.presenceTopRow}>
+          {eligible ? (
+            <View style={s.presenceBadge}>
+              <Text style={s.presenceBadgeText}>★ HOLDER</Text>
+            </View>
+          ) : (
+            <View style={[s.presenceBadge, s.presenceBadgeLocked]}>
+              <Text style={s.presenceBadgeText}>🔒 01PL EXCLUSIVE</Text>
+            </View>
+          )}
+          {eligible ? (
+            <Switch
+              value={pilotMode}
+              onValueChange={setPilotMode}
+              trackColor={{ true: PILOT_ACCENT, false: '#d1d5db' }}
+              thumbColor="#fff"
+            />
+          ) : error ? (
+            <TouchableOpacity onPress={refresh} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Text style={[s.presenceLockText, { color: '#dc2626' }]}>RPC error · retry ↺</Text>
+            </TouchableOpacity>
+          ) : (
+            <Text style={s.presenceLockText}>
+              {loading ? '…' : `${fmtBalance(balance)} / ${fmtBalance(PRESENCE_THRESHOLD)}`}
+            </Text>
+          )}
+        </View>
+
+        {/* Description */}
+        <View style={s.presenceHeroRow}>
+          <View style={[s.presenceBubblePreview, { backgroundColor: pilotMode && eligible ? '#fef3c7' : '#f3f4f6' }]}>
+            <Text style={{ fontSize: 18 }}>◈</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={s.presenceTitle}>
+              {eligible ? (pilotMode ? 'Pilot Mode active' : 'Pilot Mode') : 'Pilot Mode'}
+            </Text>
+            <Text style={s.presenceDesc}>
+              {eligible
+                ? pilotMode
+                  ? 'Gold accent is live across the app. Dynamic Island shows your agent status.'
+                  : 'Enable to unlock gold accent and Live Activity on Dynamic Island.'
+                : `Hold ${fmtBalance(PRESENCE_THRESHOLD)} 01PL to unlock Pilot Mode.`}
+            </Text>
+          </View>
+        </View>
+
+        {/* Feature list — eligible */}
+        {eligible && (
+          <View style={s.presenceFeatureList}>
+            <Text style={s.presenceFeatureItem}>◈ Gold accent across app</Text>
+            <Text style={s.presenceFeatureItem}>⬡ Dynamic Island agent status</Text>
+            <Text style={s.presenceFeatureItem}>◈ PILOT badge on mesh</Text>
+          </View>
+        )}
+
+        {/* Action — not eligible */}
+        {!eligible && (
+          <View style={s.presenceActionRow}>
+            {!coldWallet ? (
+              <TouchableOpacity style={s.presenceLinkBtn} onPress={onLinkWallet}>
+                <Text style={s.presenceLinkBtnText}>Link wallet to check balance</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={s.presenceLinkBtn}
+                onPress={() => Linking.openURL(`https://jup.ag/swap/SOL-${PILOT_TOKEN_MINT}`)}
+              >
+                <Text style={s.presenceLinkBtnText}>Buy 01PL on Jupiter →</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+      </View>
+    </View>
+  );
+}
+
 // ── Agent Presence Card ────────────────────────────────────────────────────────
 
 function PresenceCard({
@@ -426,7 +560,7 @@ function PresenceCard({
   onLinkWallet: () => void;
 }) {
   const { t } = useTranslation();
-  const { eligible, balance, loading, error } = use01PLGate([hotWallet, coldWallet]);
+  const { eligible, balance, loading, error, refresh } = use01PLGate([hotWallet, coldWallet]);
   const [presenceEnabled, setPresenceEnabled] = useState(false);
   const [hasOverlay, setHasOverlay] = useState(false);
   const [toggling, setToggling] = useState(false);
@@ -525,9 +659,13 @@ function PresenceCard({
               trackColor={{ true: '#22c55e', false: '#d1d5db' }}
               thumbColor="#fff"
             />
+          ) : error ? (
+            <TouchableOpacity onPress={refresh} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Text style={[s.presenceLockText, { color: '#dc2626' }]}>RPC error · retry ↺</Text>
+            </TouchableOpacity>
           ) : (
             <Text style={s.presenceLockText}>
-              {loading ? '…' : error ? 'RPC error — retry in 5m' : `${fmtBalance(balance)} / ${fmtBalance(PRESENCE_THRESHOLD)}`}
+              {loading ? '…' : `${fmtBalance(balance)} / ${fmtBalance(PRESENCE_THRESHOLD)}`}
             </Text>
           )}
         </View>
@@ -561,6 +699,9 @@ function PresenceCard({
             <Text style={s.presenceFeatureItem}>✦ Notification actions</Text>
           </View>
         )}
+
+        {/* Pilot Mode row — eligible holders only */}
+        {eligible && <PilotModeRow />}
 
         {/* Permission hint */}
         {eligible && presenceEnabled && !hasOverlay && Platform.OS === 'android' && (
@@ -1782,6 +1923,7 @@ const s = StyleSheet.create({
   balanceLabel: { fontSize: 10, color: '#9ca3af', letterSpacing: 0.5, marginBottom: 6 },
   balanceAmount: { fontSize: 34, fontWeight: '700', color: '#111', letterSpacing: -1 },
   balanceDelta: { fontSize: 10, color: '#22c55e', marginTop: 4 },
+  balanceEmpty: { fontSize: 11, color: '#9ca3af', marginTop: 6 },
 
   addressCard: {
     marginHorizontal: 16, backgroundColor: '#f9fafb',
@@ -1947,6 +2089,12 @@ const s = StyleSheet.create({
     fontSize: 10, color: '#16a34a', fontWeight: '600',
     backgroundColor: '#dcfce7', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3,
   },
+  pilotModeRow: {
+    flexDirection: 'row', alignItems: 'center', marginTop: 14,
+    paddingTop: 12, borderTopWidth: 1, borderTopColor: '#e5e7eb',
+  },
+  pilotModeLabel: { fontSize: 12, fontWeight: '700', color: '#111827' },
+  pilotModeHint: { fontSize: 10, color: '#6b7280', marginTop: 1 },
   presencePermHint: {
     marginTop: 10, backgroundColor: '#fffbeb', borderRadius: 8,
     paddingHorizontal: 10, paddingVertical: 7, borderWidth: 1, borderColor: '#fde68a',

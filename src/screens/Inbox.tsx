@@ -91,6 +91,7 @@ export default function InboxScreen() {
   const [bounties, setBounties] = useState<BountyCard[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [completedToday, setCompletedToday] = useState<TaskEntry[]>([]);
+  const [expiredToast, setExpiredToast] = useState<string | null>(null);
 
   // Subtabs
   const [subtab, setSubtab] = useState<'offers' | 'hire' | 'active'>('offers');
@@ -132,10 +133,24 @@ export default function InboxScreen() {
 
   useEffect(() => {
     const id = setInterval(() => {
-      setBounties(prev => prev.filter(b => secsLeft(b.expiresAt) > 0));
+      setBounties(prev => {
+        const stillAlive = prev.filter(b => secsLeft(b.expiresAt) > 0);
+        const removedCount = prev.length - stillAlive.length;
+        if (removedCount > 0) {
+          const msg = removedCount === 1 ? '1 offer expired' : `${removedCount} offers expired`;
+          setExpiredToast(msg);
+        }
+        return stillAlive;
+      });
     }, 10_000);
     return () => clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    if (!expiredToast) return;
+    const id = setTimeout(() => setExpiredToast(null), 3_000);
+    return () => clearTimeout(id);
+  }, [expiredToast]);
 
   const onEnvelope = useCallback((env: InboundEnvelope) => {
     // Update status for outbound offers we've sent
@@ -293,6 +308,11 @@ export default function InboxScreen() {
 
   return (
     <>
+      {expiredToast && (
+        <View style={s.expiredToast} pointerEvents="none">
+          <Text style={s.expiredToastText}>{expiredToast}</Text>
+        </View>
+      )}
       <ScrollView style={s.root}>
         {/* ── Subtab selector ── */}
         <View style={[s.subtabRow, { paddingTop: insets.top + 12 }]}>
@@ -452,7 +472,12 @@ export default function InboxScreen() {
                     onPress={() => setSelectedAgent(agent)}
                   >
                     <View style={s.agentRowLeft}>
-                      <Text style={s.agentName}>{agent.name || agent.agent_id.slice(0, 8)}</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={s.agentName}>{agent.name || agent.agent_id.slice(0, 8)}</Text>
+                        {agent.is_pilot && (
+                          <Text style={s.pilotBadge}>◈ PILOT</Text>
+                        )}
+                      </View>
                       {repPct !== null && (
                         <Text style={s.agentRep}>★ {repPct}%</Text>
                       )}
@@ -600,7 +625,17 @@ export default function InboxScreen() {
         visible={selectedAgent !== null}
         animationType="slide"
         presentationStyle="pageSheet"
-        onRequestClose={() => setSelectedAgent(null)}
+        onRequestClose={() => {
+          if (hireSending) return;
+          if (hireDescription.trim()) {
+            Alert.alert('Discard changes?', 'Your message will be lost.', [
+              { text: 'Keep editing', style: 'cancel' },
+              { text: 'Discard', style: 'destructive', onPress: () => { setSelectedAgent(null); setHireDescription(''); } },
+            ]);
+          } else {
+            setSelectedAgent(null);
+          }
+        }}
       >
         {selectedAgent && (
           <View style={s.modalRoot}>
@@ -805,6 +840,13 @@ const s = StyleSheet.create({
   agentRowRight: { alignItems: 'flex-end' },
   agentName: { fontSize: 13, fontWeight: '600', color: '#111' },
   agentRep: { fontSize: 11, color: '#6b7280', marginTop: 2 },
+  pilotBadge: { fontSize: 9, fontWeight: '700', color: '#f59e0b', letterSpacing: 0.5 },
+  expiredToast: {
+    position: 'absolute', top: 60, alignSelf: 'center', zIndex: 999,
+    backgroundColor: 'rgba(17,17,17,0.85)', borderRadius: 20,
+    paddingHorizontal: 16, paddingVertical: 7,
+  },
+  expiredToastText: { fontSize: 11, color: '#fff', fontWeight: '600' },
   agentPrice: { fontSize: 12, fontWeight: '600', color: '#111' },
   agentPriceMuted: { fontSize: 12, color: '#9ca3af' },
   downpaymentBadge: { fontSize: 9, color: '#d97706', fontWeight: '600', marginTop: 2 },

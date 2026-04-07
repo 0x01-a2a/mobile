@@ -68,6 +68,20 @@ export default function TodayScreen() {
   const isRunning = status === 'running';
   const earnedToday = useMemo(() => sumEarnings(entries, true), [entries]);
   const earnedAllTime = useMemo(() => sumEarnings(entries, false), [entries]);
+
+  const periodEarnings = useMemo(() => {
+    const now = Date.now();
+    const weekMs = 7 * 24 * 60 * 60 * 1000;
+    const monthMs = 30 * 24 * 60 * 60 * 1000;
+    const filter = (cutoff: number) =>
+      entries.filter(e => e.outcome === 'success' && e.timestamp * 1000 >= cutoff)
+             .reduce((acc, e) => acc + (e.amount_usd ?? 0), 0);
+    return {
+      week: filter(now - weekMs),
+      month: filter(now - monthMs),
+      all: earnedAllTime,
+    };
+  }, [entries, earnedAllTime]);
   const recentJobs = useMemo(
     () => entries.filter(e => e.outcome === 'success').slice(0, 10),
     [entries],
@@ -242,7 +256,7 @@ export default function TodayScreen() {
               ))}
               <View style={s.sectionDivider} />
 
-              {/* Period filter pills */}
+              {/* Period filter pills — control your earnings view */}
               <View style={s.periodFilterRow}>
                 {(['week', 'month', 'all'] as const).map((period) => {
                   const labels: Record<typeof period, string> = {
@@ -265,6 +279,13 @@ export default function TodayScreen() {
                 })}
               </View>
 
+              {/* Your earnings for selected period */}
+              <View style={s.periodEarningsRow}>
+                <Text style={s.periodEarningsLabel}>YOUR EARNINGS</Text>
+                <Text style={s.periodEarningsValue}>{fmt(periodEarnings[leaguePeriod])}</Text>
+              </View>
+
+              <Text style={[s.modalSectionLabel, { marginTop: 12 }]}>WEEKLY LEADERBOARD</Text>
               {leagueData.leaderboard.slice(0, 10).map((entry) => {
                 const isYou =
                   leagueData.wallet.rank !== null &&
@@ -419,7 +440,13 @@ const s = StyleSheet.create({
   modalStatHint: { fontSize: 9, color: '#9ca3af' },
   modalFootnote: { fontSize: 10, color: '#9ca3af', textAlign: 'center', marginTop: 8 },
   // ── Period filter pills ───────────────────────────────────────────────────
-  periodFilterRow: { flexDirection: 'row', gap: 8, marginBottom: 12, marginTop: 4 },
+  periodFilterRow: { flexDirection: 'row', gap: 8, marginBottom: 8, marginTop: 4 },
+  periodEarningsRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    backgroundColor: '#f0fdf4', borderRadius: 8, padding: 10, marginBottom: 12,
+  },
+  periodEarningsLabel: { fontSize: 10, color: '#6b7280', fontWeight: '600', letterSpacing: 0.3 },
+  periodEarningsValue: { fontSize: 16, fontWeight: '700', color: '#16a34a' },
   periodPill: {
     borderWidth: 1, borderColor: '#d1d5db', borderRadius: 20,
     paddingHorizontal: 10, paddingVertical: 4,

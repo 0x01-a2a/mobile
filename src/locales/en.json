@@ -515,6 +515,7 @@
     "linkWallet": "Link \u203a",
     "recent": "RECENT",
     "noTransactions": "No transactions yet",
+    "noTokensYet": "No tokens in hot wallet yet",
     "sweepSol": "\u2192 Sweep SOL",
     "sweeping": "Sweeping\u2026",
     "history": "History",

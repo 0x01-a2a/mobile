@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { useColorScheme, ColorSchemeName } from 'react-native';
+import { useColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
@@ -49,11 +49,22 @@ export const LightTheme: ThemeColors = {
   inputBorder: '#d1d5db',
 };
 
+// Pilot accent: replaces green across the entire UI for 01PL holders.
+export const PILOT_ACCENT = '#f59e0b';
+
+function applyPilotAccent(base: ThemeColors): ThemeColors {
+  return { ...base, green: PILOT_ACCENT, amber: PILOT_ACCENT };
+}
+
 interface ThemeContextValue {
   colors: ThemeColors;
   isDark: boolean;
   mode: ThemeMode;
   setMode: (mode: ThemeMode) => void;
+  /** True when the 01PL Pilot Mode gold accent is active. */
+  pilotMode: boolean;
+  /** Enable or disable Pilot Mode gold accent. Only call when user is eligible. */
+  setPilotMode: (enabled: boolean) => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue>({
@@ -61,18 +72,25 @@ const ThemeContext = createContext<ThemeContextValue>({
   isDark: true,
   mode: 'system',
   setMode: () => {},
+  pilotMode: false,
+  setPilotMode: () => {},
 });
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const deviceTheme = useColorScheme();
   const [mode, setModeState] = useState<ThemeMode>('system');
+  const [pilotMode, setPilotModeState] = useState(false);
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
-    AsyncStorage.getItem('zerox1:theme_mode').then((saved) => {
-      if (saved === 'light' || saved === 'dark' || saved === 'system') {
-        setModeState(saved);
+    Promise.all([
+      AsyncStorage.getItem('zerox1:theme_mode'),
+      AsyncStorage.getItem('zerox1:pilot_mode'),
+    ]).then(([savedMode, savedPilot]) => {
+      if (savedMode === 'light' || savedMode === 'dark' || savedMode === 'system') {
+        setModeState(savedMode);
       }
+      if (savedPilot === 'true') setPilotModeState(true);
       setIsReady(true);
     });
   }, []);
@@ -82,15 +100,21 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     AsyncStorage.setItem('zerox1:theme_mode', newMode).catch(() => {});
   }, []);
 
+  const setPilotMode = useCallback((enabled: boolean) => {
+    setPilotModeState(enabled);
+    AsyncStorage.setItem('zerox1:pilot_mode', enabled ? 'true' : 'false').catch(() => {});
+  }, []);
+
   const isDark = mode === 'system' ? deviceTheme === 'dark' : mode === 'dark';
-  const colors = isDark ? DarkTheme : LightTheme;
+  const baseColors = isDark ? DarkTheme : LightTheme;
+  const colors = pilotMode ? applyPilotAccent(baseColors) : baseColors;
 
   const value = useMemo(
-    () => ({ colors, isDark, mode, setMode }),
-    [colors, isDark, mode, setMode],
+    () => ({ colors, isDark, mode, setMode, pilotMode, setPilotMode }),
+    [colors, isDark, mode, setMode, pilotMode, setPilotMode],
   );
 
-  // Wait until we load from storage so we don't flash the wrong theme
+  // Wait until we load from storage so we don't flash the wrong theme.
   if (!isReady) return null;
 
   return (

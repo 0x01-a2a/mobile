@@ -1,5 +1,6 @@
 #if canImport(PushKit)
 import PushKit
+import CallKit
 import Foundation
 
 /// Handles VoIP push registration and wake events.
@@ -18,6 +19,19 @@ final class VoIPPushHandler: NSObject, PKPushRegistryDelegate {
     static let shared = VoIPPushHandler()
 
     private var registry: PKPushRegistry?
+
+    // MARK: - CallKit provider
+    // iOS 13+ requires reportNewIncomingCall within seconds of didReceiveIncomingPushPayload.
+    // We report a silent system call then end it immediately — satisfying the OS requirement
+    // while the real work (starting the node) happens in the background.
+    private lazy var callProvider: CXProvider = {
+        let config = CXProviderConfiguration()
+        config.supportsVideo = false
+        config.maximumCallsPerCallGroup = 1
+        config.supportedHandleTypes = [.generic]
+        config.iconTemplateImageData = nil
+        return CXProvider(configuration: config)
+    }()
 
     func register() {
         #if targetEnvironment(simulator)
@@ -51,6 +65,15 @@ final class VoIPPushHandler: NSObject, PKPushRegistryDelegate {
 
         NSLog("[VoIPPushHandler] VoIP wake received — starting node")
 
+        // iOS 13+: report a call immediately, then end it once the node is up.
+        // Failure to call reportNewIncomingCall causes the OS to terminate the process.
+        let callUUID = UUID()
+        let handle = CXHandle(type: .generic, value: "01 Agent")
+        let callUpdate = CXCallUpdate()
+        callUpdate.remoteHandle = handle
+        callUpdate.hasVideo = false
+        callProvider.reportNewIncomingCall(with: callUUID, update: callUpdate) { _ in }
+
         // Load saved config from UserDefaults and start the node
         let config = AppDelegate.loadSavedConfigStatic()
 
@@ -61,9 +84,11 @@ final class VoIPPushHandler: NSObject, PKPushRegistryDelegate {
         if isHostedMode, let url = hostUrl, !url.isEmpty {
             // Hosted mode: don't start local node, just ensure zeroclaw is connected
             NodeService.shared.startHostedMode(hostUrl: url, config: config)
+            callProvider.reportCall(with: callUUID, endedAt: Date(), reason: .remoteEnded)
             completion()
         } else {
-            NodeService.shared.start(config: config) { _ in
+            NodeService.shared.start(config: config) { [weak self] _ in
+                self?.callProvider.reportCall(with: callUUID, endedAt: Date(), reason: .remoteEnded)
                 completion()
             }
         }

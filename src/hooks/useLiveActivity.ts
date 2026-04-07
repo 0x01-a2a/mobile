@@ -2,10 +2,14 @@
  * useLiveActivity — manages the iOS Dynamic Island / Lock Screen Live Activity
  * for the agent's running state.
  *
+ * Gating: Live Activity is a 01PL Pilot Mode exclusive. The activity only
+ * starts when the user has enabled Pilot Mode in You > Wallet. Non-holders
+ * see no island. Holders who disable Pilot Mode also see no island.
+ *
  * Lifecycle:
- *   - Starts a Live Activity when the node transitions to 'running'.
+ *   - Starts a Live Activity when node is 'running' AND pilotMode is on.
  *   - Pushes state updates every 30 seconds (earned today, status).
- *   - Ends the activity when the node stops.
+ *   - Ends the activity when the node stops or pilotMode is disabled.
  *
  * On Android this hook is a no-op (all NodeModule live activity calls resolve
  * immediately with null / void on non-iOS platforms).
@@ -15,6 +19,7 @@ import { useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
 import { useNode } from './useNode';
 import { useIdentity, fetchTaskLog } from './useNodeApi';
+import { useTheme } from '../theme/ThemeContext';
 import { NodeModule } from '../native/NodeModule';
 import type { TaskLogEntry } from './useNodeApi';
 
@@ -35,21 +40,21 @@ function formatEarnedToday(entries: TaskLogEntry[]): string {
 export function useLiveActivity(): void {
   const { status } = useNode();
   const identity = useIdentity();
+  const { pilotMode } = useTheme();
 
-  // Refs so async callbacks always see current values without stale closures.
   const activityIdRef = useRef<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const statusRef = useRef(status);
 
-  // Keep statusRef current so the interval callback sees the latest value.
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
 
   useEffect(() => {
-    // Live Activities are iOS-only. The native bridge is a no-op on Android,
-    // but skip all the fetches and timers to keep things clean.
+    // Live Activities are iOS-only.
     if (Platform.OS !== 'ios') return;
+
+    const shouldRun = status === 'running' && pilotMode && !!identity;
 
     async function pushUpdate(): Promise<void> {
       if (!activityIdRef.current) return;
@@ -65,16 +70,13 @@ export function useLiveActivity(): void {
       }
     }
 
-    if (status === 'running' && identity) {
-      // Start the activity the first time we see the node running with a
-      // resolved identity. Guard with the ref to prevent double-starts if
-      // the effect re-fires (e.g. identity object reference changes).
+    if (shouldRun) {
       if (!activityIdRef.current) {
         (async () => {
           try {
             const entries = await fetchTaskLog(50);
             const id = await NodeModule.startLiveActivity({
-              agentName: identity.name || 'Agent',
+              agentName: identity!.name || 'Agent',
               status: 'Running',
               earnedToday: formatEarnedToday(entries),
               isActive: true,
@@ -86,17 +88,15 @@ export function useLiveActivity(): void {
         })();
       }
 
-      // Set up the periodic update ticker if not already running.
       if (!intervalRef.current) {
         intervalRef.current = setInterval(pushUpdate, UPDATE_INTERVAL_MS);
       }
     } else {
-      // Node stopped — tear down.
+      // Node stopped or pilot mode disabled — tear down.
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
-
       if (activityIdRef.current) {
         const idToEnd = activityIdRef.current;
         activityIdRef.current = null;
@@ -105,12 +105,10 @@ export function useLiveActivity(): void {
     }
 
     return () => {
-      // Cleanup: clear the ticker so it doesn't fire after the next render
-      // has already set up a fresh one (or torn down on stop).
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
     };
-  }, [status, identity]);
+  }, [status, identity, pilotMode]);
 }

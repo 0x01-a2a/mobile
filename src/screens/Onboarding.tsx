@@ -16,6 +16,7 @@ import React, { useState, useEffect } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Clipboard,
   KeyboardAvoidingView,
   Linking,
   Platform,
@@ -1046,9 +1047,9 @@ function LaunchSuccessStep({
     runLaunchSequence(() => isCancelled);
   };
 
-  const handleCopyKey = async () => {
+  const handleCopyKey = () => {
     if (!secretKeyB58) return;
-    await Share.share({ message: secretKeyB58 });
+    Clipboard.setString(secretKeyB58);
     setKeyCopied(true);
   };
 
@@ -1138,7 +1139,7 @@ function LaunchSuccessStep({
             </Text>
             {tokenLaunchError && (
               <Text style={[s.infoCardHint, { color: '#dc2626', marginTop: 4 }]}>
-                {tokenLaunchError.slice(0, 100)}
+                {tokenLaunchError}
               </Text>
             )}
           </View>

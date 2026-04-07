@@ -28,6 +28,8 @@ export interface PLGateState {
   loading: boolean;
   /** True if the last RPC call failed for any wallet. */
   error: boolean;
+  /** Manually trigger a re-fetch (e.g. after an RPC error). */
+  refresh: () => void;
 }
 
 async function fetchWalletBalance(
@@ -121,5 +123,10 @@ export function use01PLGate(walletAddresses: (string | null | undefined)[]): PLG
     };
   }, [fetchBalance]);
 
-  return state;
+  const refresh = useCallback(() => {
+    const cancelled = { v: false };
+    fetchBalance(cancelled);
+  }, [fetchBalance]);
+
+  return { ...state, refresh };
 }

@@ -484,7 +484,12 @@ export function ChatScreen() {
       payload_b64: payload,
     });
     if (ok) {
-      if (selectedConvId) await markTaskDelivered(selectedConvId);
+      if (selectedConvId) {
+        await markTaskDelivered(selectedConvId);
+        setActiveTasks(prev => prev.map(t =>
+          t.conversationId === selectedConvId ? { ...t, status: 'delivered' } : t,
+        ));
+      }
       Alert.alert('Delivered', isHosted
         ? 'Photo sent inline. DELIVER sent — awaiting feedback.'
         : 'Photo uploaded. DELIVER sent — awaiting feedback.',
@@ -507,6 +512,9 @@ export function ChatScreen() {
     });
     if (ok) {
       await markTaskDelivered(selectedConvId);
+      setActiveTasks(prev => prev.map(t =>
+        t.conversationId === selectedConvId ? { ...t, status: 'delivered' } : t,
+      ));
       Alert.alert('Delivered', 'DELIVER sent — awaiting feedback.');
     } else {
       Alert.alert('Error', 'DELIVER failed. Check your connection and try again.');
@@ -561,7 +569,7 @@ export function ChatScreen() {
     <KeyboardAvoidingView
       style={s.root}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={isTablet ? 0 : 80}
+      keyboardVerticalOffset={isTablet ? 0 : insets.bottom + 49}
     >
       <View style={[s.chatContainer, { paddingHorizontal: contentHPad }]}>
       {/* Header */}
@@ -973,7 +981,7 @@ export function ChatScreen() {
         visible={imagePreviewVisible}
         transparent
         animationType="fade"
-        onRequestClose={discardPendingImage}
+        onRequestClose={() => { if (!uploading) discardPendingImage(); }}
       >
         <SafeAreaView style={{ flex: 1 }}>
           <View style={s.modalOverlay}>

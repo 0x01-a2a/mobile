@@ -515,6 +515,7 @@
     "linkWallet": "关联 ›",
     "recent": "近期记录",
     "noTransactions": "暂无交易记录",
+    "noTokensYet": "热钱包暂无代币",
     "sweepSol": "→ 归集 SOL",
     "sweeping": "归集中…",
     "history": "历史",
