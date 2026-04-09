@@ -103,6 +103,14 @@ jobs:
         run: chmod +x gradlew
         working-directory: android
 
+      # Strip debug symbols from the node binary — it ships unstripped from the
+      # Rust build. The other three .so files are already stripped at build time.
+      - name: Strip libzerox1_node.so
+        run: |
+          STRIP="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+          "$STRIP" --strip-unneeded android/app/src/main/jniLibs/arm64-v8a/libzerox1_node.so
+          ls -lh android/app/src/main/jniLibs/arm64-v8a/
+
       # ── Full APK ─────────────────────────────────────────────────────────────
       # All permissions + full phone bridge. Direct download, no store review.
       - name: Build Full APK

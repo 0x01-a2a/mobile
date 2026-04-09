@@ -93,17 +93,64 @@ function WalletTab() {
     AsyncStorage.getItem(COLD_WALLET_KEY).then(v => setColdWallet(v));
   }, []);
 
-  const handleLinkWallet = useCallback(async () => {
+
+
+  // Two-step wallet linking: 'address' → enter address, 'verify' → sign challenge
+  const [linkStep, setLinkStep] = useState<'address' | 'verify'>('address');
+  const [verifyChallenge, setVerifyChallenge] = useState('');
+  const [sigInput, setSigInput] = useState('');
+  const [verifying, setVerifying] = useState(false);
+  const [copiedChallenge, setCopiedChallenge] = useState(false);
+
+  const handleNextStep = useCallback(() => {
     const addr = walletInput.trim();
     if (!addr) return;
     const { PublicKey } = require('@solana/web3.js');
-    try { new PublicKey(addr); } catch { Alert.alert('Invalid address', 'Please enter a valid Solana wallet address.'); return; }
-    await AsyncStorage.setItem(COLD_WALLET_KEY, addr);
-    setColdWallet(addr);
-    setWalletInput('');
-    setLinkWalletVisible(false);
+    try { new PublicKey(addr); } catch {
+      Alert.alert('Invalid address', 'Please enter a valid Solana wallet address.');
+      return;
+    }
+    const nonce = Array.from({ length: 8 }, () =>
+      Math.floor(Math.random() * 256).toString(16).padStart(2, '0'),
+    ).join('');
+    setVerifyChallenge(`01pilot wallet verification: ${nonce}`);
+    setSigInput('');
+    setLinkStep('verify');
   }, [walletInput]);
 
+  const handleCopyChallenge = useCallback(() => {
+    require('react-native').Clipboard.setString(verifyChallenge);
+    setCopiedChallenge(true);
+    setTimeout(() => setCopiedChallenge(false), 2000);
+  }, [verifyChallenge]);
+
+  const handleVerifyAndLink = useCallback(async () => {
+    if (!walletInput.trim() || !sigInput.trim() || !verifyChallenge) return;
+    setVerifying(true);
+    try {
+      const { ed25519 } = require('@noble/curves/ed25519');
+      const bs58 = require('bs58');
+      const pubKeyBytes: Uint8Array = bs58.decode(walletInput.trim());
+      const sigBytes: Uint8Array = bs58.decode(sigInput.trim());
+      const msgBytes = new TextEncoder().encode(verifyChallenge);
+      const valid = ed25519.verify(sigBytes, msgBytes, pubKeyBytes);
+      if (!valid) {
+        Alert.alert(t('you.verifyFailed'), t('you.verifyFailedBody'));
+        return;
+      }
+      await AsyncStorage.setItem(COLD_WALLET_KEY, walletInput.trim());
+      setColdWallet(walletInput.trim());
+      setWalletInput('');
+      setSigInput('');
+      setVerifyChallenge('');
+      setLinkStep('address');
+      setLinkWalletVisible(false);
+    } catch (e: any) {
+      Alert.alert(t('you.verifyFailed'), e?.message ?? t('you.verifyFailedBody'));
+    } finally {
+      setVerifying(false);
+    }
+  }, [walletInput, sigInput, verifyChallenge, t]);
 
   const [phantomConnecting, setPhantomConnecting] = useState(false);
 
@@ -111,6 +158,8 @@ function WalletTab() {
     setPhantomConnecting(true);
     try {
       const { transact } = require('@solana-mobile/mobile-wallet-adapter-protocol-web3js');
+      // MWA authorize requires the user to physically unlock their wallet — that IS ownership proof.
+      // Save directly; no additional challenge-signing needed for MWA path.
       const address: string = await transact(async (wallet: any) => {
         const { accounts } = await wallet.authorize({
           cluster: 'mainnet-beta',
@@ -120,7 +169,9 @@ function WalletTab() {
         const addrBytes = new Uint8Array([...atob(accounts[0].address)].map(c => c.charCodeAt(0)));
         return new PublicKey(addrBytes).toBase58();
       });
-      setWalletInput(address);
+      await AsyncStorage.setItem(COLD_WALLET_KEY, address);
+      setColdWallet(address);
+      setLinkWalletVisible(false);
     } catch (e: any) {
       const msg: string = e?.message ?? '';
       if (msg.includes('No wallet') || msg.includes('not found') || msg.includes('SolanaMobileWalletAdapterWalletNotInstalledError')) {
@@ -129,7 +180,7 @@ function WalletTab() {
     } finally {
       setPhantomConnecting(false);
     }
-  }, []);
+  }, [t]);
 
   const handleUnlinkWallet = useCallback(() => {
     Alert.alert(t('you.unlinkColdWallet'), t('you.unlinkConfirm'), [
@@ -190,8 +241,8 @@ function WalletTab() {
   const handleSweep = useCallback(() => {
     if (!coldWallet) return;
     Alert.alert(
-      'Sweep Earnings',
-      'Keep ~0.01 SOL for transaction fees.\n\nSweep remaining USDC to your personal wallet?',
+      'Sweep to cold wallet',
+      'Keep ~0.01 SOL for transaction fees.\n\nSweep remaining SOL to your personal wallet?',
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Sweep', onPress: doSweep },
@@ -327,65 +378,115 @@ function WalletTab() {
       )}
 
       {/* Link wallet modal */}
-      <Modal visible={linkWalletVisible} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setLinkWalletVisible(false)}>
+      <Modal visible={linkWalletVisible} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => { setLinkWalletVisible(false); setLinkStep('address'); setWalletInput(''); setSigInput(''); }}>
         <View style={s.modalRoot}>
           <View style={s.modalHeader}>
-            <Text style={s.modalTitle}>{t('you.linkColdWallet')}</Text>
-            <TouchableOpacity onPress={() => setLinkWalletVisible(false)}>
+            <Text style={s.modalTitle}>
+              {linkStep === 'address' ? t('you.linkColdWallet') : t('you.verifyOwnershipTitle')}
+            </Text>
+            <TouchableOpacity onPress={() => { setLinkWalletVisible(false); setLinkStep('address'); setWalletInput(''); setSigInput(''); }}>
               <Text style={s.modalClose}>✕</Text>
             </TouchableOpacity>
           </View>
-          <View style={{ padding: 16, gap: 14 }}>
-            <Text style={s.settingsHint}>{t('you.coldWalletHint')}</Text>
 
-            {/* Wallet app option — MWA is Android-only */}
-            {Platform.OS === 'android' && (
-              <>
-                <TouchableOpacity
-                  style={[s.walletOptionBtn, phantomConnecting && s.btnDisabled]}
-                  onPress={handleOpenPhantom}
-                  disabled={phantomConnecting}
-                >
-                  <View>
-                    <Text style={s.walletOptionLabel}>
-                      {phantomConnecting ? t('you.connecting') : t('you.openPhantom')}
-                    </Text>
-                    <Text style={s.settingsHint}>{t('you.connectHint')}</Text>
+          {linkStep === 'address' ? (
+            <View style={{ padding: 16, gap: 14 }}>
+              <Text style={s.settingsHint}>{t('you.coldWalletHint')}</Text>
+
+              {/* Wallet app option — MWA authorize proves ownership; save directly */}
+              {Platform.OS === 'android' && (
+                <>
+                  <TouchableOpacity
+                    style={[s.walletOptionBtn, phantomConnecting && s.btnDisabled]}
+                    onPress={handleOpenPhantom}
+                    disabled={phantomConnecting}
+                  >
+                    <View>
+                      <Text style={s.walletOptionLabel}>
+                        {phantomConnecting ? t('you.connecting') : t('you.openPhantom')}
+                      </Text>
+                      <Text style={s.settingsHint}>{t('you.connectHint')}</Text>
+                    </View>
+                    <Text style={s.settingsValue}>{phantomConnecting ? '…' : '↗'}</Text>
+                  </TouchableOpacity>
+
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <View style={{ flex: 1, height: 1, backgroundColor: '#f3f4f6' }} />
+                    <Text style={{ fontSize: 9, color: '#9ca3af' }}>OR</Text>
+                    <View style={{ flex: 1, height: 1, backgroundColor: '#f3f4f6' }} />
                   </View>
-                  <Text style={s.settingsValue}>{phantomConnecting ? '…' : '↗'}</Text>
-                </TouchableOpacity>
+                </>
+              )}
 
-                {/* Divider */}
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <View style={{ flex: 1, height: 1, backgroundColor: '#f3f4f6' }} />
-                  <Text style={{ fontSize: 9, color: '#9ca3af' }}>OR</Text>
-                  <View style={{ flex: 1, height: 1, backgroundColor: '#f3f4f6' }} />
-                </View>
-              </>
-            )}
+              {/* Address input */}
+              <View style={{ gap: 8 }}>
+                <Text style={s.settingsLabel}>{t('you.pasteAddress')}</Text>
+                <TextInput
+                  style={s.advancedInput}
+                  value={walletInput}
+                  onChangeText={setWalletInput}
+                  placeholder={t('you.walletInputPlaceholder')}
+                  placeholderTextColor="#d1d5db"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+              </View>
 
-            {/* Manual entry */}
-            <View style={{ gap: 8 }}>
-              <Text style={s.settingsLabel}>{t('you.pasteAddress')}</Text>
-              <TextInput
-                style={s.advancedInput}
-                value={walletInput}
-                onChangeText={setWalletInput}
-                placeholder={t('you.walletInputPlaceholder')}
-                placeholderTextColor="#d1d5db"
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
+              <TouchableOpacity
+                style={[s.saveBtn, !walletInput.trim() && s.btnDisabled]}
+                onPress={handleNextStep}
+                disabled={!walletInput.trim()}
+              >
+                <Text style={s.saveBtnText}>{t('you.nextBtn')}</Text>
+              </TouchableOpacity>
             </View>
+          ) : (
+            <View style={{ padding: 16, gap: 14 }}>
+              <Text style={s.settingsHint}>{t('you.verifyOwnershipHint')}</Text>
 
-            <TouchableOpacity
-              style={[s.saveBtn, !walletInput.trim() && s.btnDisabled]}
-              onPress={handleLinkWallet}
-              disabled={!walletInput.trim()}
-            >
-              <Text style={s.saveBtnText}>{t('you.linkWalletBtn')}</Text>
-            </TouchableOpacity>
-          </View>
+              {/* Challenge box */}
+              <View style={{ backgroundColor: '#f9fafb', borderRadius: 8, padding: 12, gap: 8 }}>
+                <Text style={{ fontSize: 11, color: '#6b7280', fontFamily: 'monospace' }} selectable>
+                  {verifyChallenge}
+                </Text>
+                <TouchableOpacity onPress={handleCopyChallenge}>
+                  <Text style={{ fontSize: 12, color: copiedChallenge ? '#10b981' : '#6366f1' }}>
+                    {copiedChallenge ? t('you.copied') : t('you.copyChallenge')}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Signature input */}
+              <View style={{ gap: 8 }}>
+                <Text style={s.settingsLabel}>Signature</Text>
+                <TextInput
+                  style={s.advancedInput}
+                  value={sigInput}
+                  onChangeText={setSigInput}
+                  placeholder={t('you.signaturePlaceholder')}
+                  placeholderTextColor="#d1d5db"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+              </View>
+
+              <TouchableOpacity
+                style={[s.saveBtn, (!sigInput.trim() || verifying) && s.btnDisabled]}
+                onPress={handleVerifyAndLink}
+                disabled={!sigInput.trim() || verifying}
+              >
+                <Text style={s.saveBtnText}>
+                  {verifying ? t('you.verifying') : t('you.verifyAndLink')}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity onPress={() => { setLinkStep('address'); setSigInput(''); }}>
+                <Text style={{ fontSize: 12, color: '#9ca3af', textAlign: 'center' }}>
+                  {t('you.backToAddress')}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
       </Modal>
 

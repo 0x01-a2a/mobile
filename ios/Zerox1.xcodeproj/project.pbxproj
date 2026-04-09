@@ -13,22 +13,25 @@
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		14EBEEF99727D29A5DF88FBA /* AgentLiveActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3BF63FA157470ED68650961 /* AgentLiveActivityWidget.swift */; };
 		1CD7A0E06E178AE5CC90B21D /* NodeModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EA256395453117520E83C4E /* NodeModule.swift */; };
+		36B6D1602F851C080069A429 /* NodeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36B6D15F2F851C080069A429 /* NodeService.swift */; };
 		36B8E4A22F7BD7440027B81C /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36B8E4A12F7BD7440027B81C /* KeychainHelper.swift */; };
 		36B8E4A32F7BD7440027B81C /* KeepAliveService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36B8E4A02F7BD7440027B81C /* KeepAliveService.swift */; };
 		36B8E4A72F7BD75D0027B81C /* VoIPPushHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36B8E4A62F7BD75D0027B81C /* VoIPPushHandler.swift */; };
-		36B8E4AA2F7BE6EA0027B81C /* libzeroclaw.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 36B8E4A82F7BE6EA0027B81C /* libzeroclaw.a */; };
-		36B8E4AB2F7BE6EA0027B81C /* libzerox1_node.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 36B8E4A92F7BE6EA0027B81C /* libzerox1_node.a */; };
+		36B8E4AA2F7BE6EA0027B81C /* zeroclaw.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 36B8E4A82F7BE6EA0027B81C /* zeroclaw.xcframework */; };
+		36B8E4AB2F7BE6EA0027B81C /* zerox1_node.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 36B8E4A92F7BE6EA0027B81C /* zerox1_node.xcframework */; };
 		4F7EC391718FDF0151084100 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F07CD60D3899F110C3116EDD /* WidgetKit.framework */; };
 		5B9EDEB4D27FE7BFED04892F /* NodeModule.m in Sources */ = {isa = PBXBuildFile; fileRef = DAE439B5904AE2568F56B4A6 /* NodeModule.m */; };
 		5E6EC2BAA38A2CD971E93D57 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 02120E462774CA25D8332E11 /* Foundation.framework */; };
-		60DFD3EB19AF951E75214A50 /* AgentIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DD2853B2BB537176BB6DB0F /* AgentIntents.swift */; };
 		63C4A7F5242ACB52D66D39C7 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 161B96D7A68B673A14759537 /* SwiftUI.framework */; };
 		761780ED2CA45674006654EE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EC2CA45674006654EE /* AppDelegate.swift */; };
 		7FE5AD23CF15EF3626529497 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
 		9232C113DE327443394DD71D /* PhoneBridgeServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F298562DDC8460C3B204C25 /* PhoneBridgeServer.swift */; };
+		A3F2D8C14E7B0A512C8D9E3F /* SOUL.md in Resources */ = {isa = PBXBuildFile; fileRef = A3F2D8C04E7B0A512C8D9E3F /* SOUL.md */; };
+		B7E9D2A13F5C8B047E621D94 /* LiveActivityBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C3F8D02E4B7A910F563C82 /* LiveActivityBridge.swift */; };
+		D8A1B5C02F7E3D946C812E57 /* HealthWakeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4F2A6E31D8B0C759A347F15 /* HealthWakeService.swift */; };
 		DB8E1C601171948C35BE49EC /* AgentLiveActivityBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C056054B861C2DFEFF678EFF /* AgentLiveActivityBundle.swift */; };
-		F6B0C4C8F0D0AD0C71338F4D /* AgentLiveActivity/AgentActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C154321A26B7A16B0676438 /* AgentLiveActivity/AgentActivityAttributes.swift */; };
+		F6B0C4C8F0D0AD0C71338F4D /* AgentActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C154321A26B7A16B0676438 /* AgentActivityAttributes.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -57,31 +60,36 @@
 
 /* Begin PBXFileReference section */
 		02120E462774CA25D8332E11 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
-		0F298562DDC8460C3B204C25 /* PhoneBridgeServer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhoneBridgeServer.swift; sourceTree = "<group>"; };
+		0F298562DDC8460C3B204C25 /* PhoneBridgeServer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Zerox1/PhoneBridgeServer.swift; sourceTree = "<group>"; };
 		13B07F961A680F5B00A75B9A /* Zerox1.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Zerox1.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = Zerox1/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = Zerox1/Info.plist; sourceTree = "<group>"; };
 		13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = PrivacyInfo.xcprivacy; path = Zerox1/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		1573EC863AF82503E60AD0F4 /* AgentLiveActivity.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = AgentLiveActivity.entitlements; sourceTree = "<group>"; };
 		161B96D7A68B673A14759537 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
-		1C154321A26B7A16B0676438 /* AgentLiveActivity/AgentActivityAttributes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentLiveActivity/AgentActivityAttributes.swift; sourceTree = "<group>"; };
-		36B8E4A02F7BD7440027B81C /* KeepAliveService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeepAliveService.swift; sourceTree = "<group>"; };
-		36B8E4A12F7BD7440027B81C /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
-		36B8E4A62F7BD75D0027B81C /* VoIPPushHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoIPPushHandler.swift; sourceTree = "<group>"; };
-		36B8E4A82F7BE6EA0027B81C /* libzeroclaw.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libzeroclaw.a; path = libs/libzeroclaw.a; sourceTree = "<group>"; };
-		36B8E4A92F7BE6EA0027B81C /* libzerox1_node.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libzerox1_node.a; path = libs/libzerox1_node.a; sourceTree = "<group>"; };
+		1C154321A26B7A16B0676438 /* AgentActivityAttributes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentLiveActivity/AgentActivityAttributes.swift; sourceTree = "<group>"; };
+		36B6D15F2F851C080069A429 /* NodeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Zerox1/NodeService.swift; sourceTree = SOURCE_ROOT; };
+		36B8E4A02F7BD7440027B81C /* KeepAliveService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Zerox1/KeepAliveService.swift; sourceTree = "<group>"; };
+		36B8E4A12F7BD7440027B81C /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Zerox1/KeychainHelper.swift; sourceTree = "<group>"; };
+		36B8E4A62F7BD75D0027B81C /* VoIPPushHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Zerox1/VoIPPushHandler.swift; sourceTree = "<group>"; };
+		36B8E4A82F7BE6EA0027B81C /* zeroclaw.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = zeroclaw.xcframework; path = libs/zeroclaw.xcframework; sourceTree = "<group>"; };
+		36B8E4A92F7BE6EA0027B81C /* zerox1_node.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = zerox1_node.xcframework; path = libs/zerox1_node.xcframework; sourceTree = "<group>"; };
+		36CC116D2F8682F00060E784 /* Zerox1.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; name = Zerox1.entitlements; path = Zerox1/Zerox1.entitlements; sourceTree = "<group>"; };
 		3B4392A12AC88292D35C810B /* Pods-Zerox1.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Zerox1.debug.xcconfig"; path = "Target Support Files/Pods-Zerox1/Pods-Zerox1.debug.xcconfig"; sourceTree = "<group>"; };
-		3EA256395453117520E83C4E /* NodeModule.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NodeModule.swift; sourceTree = "<group>"; };
-		4DD2853B2BB537176BB6DB0F /* AgentIntents.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentIntents.swift; sourceTree = "<group>"; };
+		3EA256395453117520E83C4E /* NodeModule.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Zerox1/NodeModule.swift; sourceTree = "<group>"; };
+		4DD2853B2BB537176BB6DB0F /* AgentIntents.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Zerox1/AgentIntents.swift; sourceTree = "<group>"; };
 		5709B34CF0A7D63546082F79 /* Pods-Zerox1.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Zerox1.release.xcconfig"; path = "Target Support Files/Pods-Zerox1/Pods-Zerox1.release.xcconfig"; sourceTree = "<group>"; };
 		5DCACB8F33CDC322A6C60F78 /* libPods-Zerox1.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-Zerox1.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		761780EC2CA45674006654EE /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = Zerox1/AppDelegate.swift; sourceTree = "<group>"; };
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = Zerox1/LaunchScreen.storyboard; sourceTree = "<group>"; };
+		A1C3F8D02E4B7A910F563C82 /* LiveActivityBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Zerox1/LiveActivityBridge.swift; sourceTree = "<group>"; };
 		A3BF63FA157470ED68650961 /* AgentLiveActivityWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentLiveActivityWidget.swift; sourceTree = "<group>"; };
+		A3F2D8C04E7B0A512C8D9E3F /* SOUL.md */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = net.daringfireball.markdown; name = SOUL.md; path = Zerox1/SOUL.md; sourceTree = "<group>"; };
 		B2E43AB9E5565697BD14FB52 /* AgentLiveActivity.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AgentLiveActivity.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		C056054B861C2DFEFF678EFF /* AgentLiveActivityBundle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentLiveActivityBundle.swift; sourceTree = "<group>"; };
+		C4F2A6E31D8B0C759A347F15 /* HealthWakeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Zerox1/HealthWakeService.swift; sourceTree = "<group>"; };
 		C8D78145E5EAE976AB95CF75 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		DAE439B5904AE2568F56B4A6 /* NodeModule.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = NodeModule.m; sourceTree = "<group>"; };
+		DAE439B5904AE2568F56B4A6 /* NodeModule.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = Zerox1/NodeModule.m; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F07CD60D3899F110C3116EDD /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		F4CAFA556FD375B01ABED08C /* AgentActivityAttributes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentActivityAttributes.swift; sourceTree = "<group>"; };
@@ -92,8 +100,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				36B8E4AA2F7BE6EA0027B81C /* libzeroclaw.a in Frameworks */,
-				36B8E4AB2F7BE6EA0027B81C /* libzerox1_node.a in Frameworks */,
+				36B8E4AA2F7BE6EA0027B81C /* zeroclaw.xcframework in Frameworks */,
+				36B8E4AB2F7BE6EA0027B81C /* zerox1_node.xcframework in Frameworks */,
 				0C80B921A6F3F58F76C31292 /* libPods-Zerox1.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -114,19 +122,24 @@
 		13B07FAE1A68108700A75B9A /* Zerox1 */ = {
 			isa = PBXGroup;
 			children = (
+				36CC116D2F8682F00060E784 /* Zerox1.entitlements */,
+				36B6D15F2F851C080069A429 /* NodeService.swift */,
 				36B8E4A62F7BD75D0027B81C /* VoIPPushHandler.swift */,
 				36B8E4A02F7BD7440027B81C /* KeepAliveService.swift */,
+				A1C3F8D02E4B7A910F563C82 /* LiveActivityBridge.swift */,
+				C4F2A6E31D8B0C759A347F15 /* HealthWakeService.swift */,
 				36B8E4A12F7BD7440027B81C /* KeychainHelper.swift */,
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				761780EC2CA45674006654EE /* AppDelegate.swift */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */,
 				13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */,
+				A3F2D8C04E7B0A512C8D9E3F /* SOUL.md */,
 				0F298562DDC8460C3B204C25 /* PhoneBridgeServer.swift */,
 				3EA256395453117520E83C4E /* NodeModule.swift */,
 				DAE439B5904AE2568F56B4A6 /* NodeModule.m */,
 				4DD2853B2BB537176BB6DB0F /* AgentIntents.swift */,
-				1C154321A26B7A16B0676438 /* AgentLiveActivity/AgentActivityAttributes.swift */,
+				1C154321A26B7A16B0676438 /* AgentActivityAttributes.swift */,
 			);
 			name = Zerox1;
 			sourceTree = "<group>";
@@ -134,8 +147,8 @@
 		2D16E6871FA4F8E400B85C8A /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
-				36B8E4A82F7BE6EA0027B81C /* libzeroclaw.a */,
-				36B8E4A92F7BE6EA0027B81C /* libzerox1_node.a */,
+				36B8E4A82F7BE6EA0027B81C /* zeroclaw.xcframework */,
+				36B8E4A92F7BE6EA0027B81C /* zerox1_node.xcframework */,
 				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
 				5DCACB8F33CDC322A6C60F78 /* libPods-Zerox1.a */,
 				B4B3C81A3DAD701914988788 /* iOS */,
@@ -295,6 +308,7 @@
 				81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				7FE5AD23CF15EF3626529497 /* PrivacyInfo.xcprivacy in Resources */,
+				A3F2D8C14E7B0A512C8D9E3F /* SOUL.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -325,13 +339,9 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-Zerox1/Pods-Zerox1-frameworks-${CONFIGURATION}-input-files.xcfilelist",
 			);
-			inputPaths = (
-			);
 			name = "[CP] Embed Pods Frameworks";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-Zerox1/Pods-Zerox1-frameworks-${CONFIGURATION}-output-files.xcfilelist",
-			);
-			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -368,13 +378,9 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-Zerox1/Pods-Zerox1-resources-${CONFIGURATION}-input-files.xcfilelist",
 			);
-			inputPaths = (
-			);
 			name = "[CP] Copy Pods Resources";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-Zerox1/Pods-Zerox1-resources-${CONFIGURATION}-output-files.xcfilelist",
-			);
-			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -392,11 +398,13 @@
 				36B8E4A72F7BD75D0027B81C /* VoIPPushHandler.swift in Sources */,
 				36B8E4A22F7BD7440027B81C /* KeychainHelper.swift in Sources */,
 				36B8E4A32F7BD7440027B81C /* KeepAliveService.swift in Sources */,
+				B7E9D2A13F5C8B047E621D94 /* LiveActivityBridge.swift in Sources */,
+				D8A1B5C02F7E3D946C812E57 /* HealthWakeService.swift in Sources */,
 				9232C113DE327443394DD71D /* PhoneBridgeServer.swift in Sources */,
+				36B6D1602F851C080069A429 /* NodeService.swift in Sources */,
 				1CD7A0E06E178AE5CC90B21D /* NodeModule.swift in Sources */,
 				5B9EDEB4D27FE7BFED04892F /* NodeModule.m in Sources */,
-				60DFD3EB19AF951E75214A50 /* AgentIntents.swift in Sources */,
-				F6B0C4C8F0D0AD0C71338F4D /* AgentLiveActivity/AgentActivityAttributes.swift in Sources */,
+				F6B0C4C8F0D0AD0C71338F4D /* AgentActivityAttributes.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -428,6 +436,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = Zerox1/Zerox1.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 728D69ULX3;
 				ENABLE_BITCODE = NO;
@@ -438,6 +447,7 @@
 					"@executable_path/Frameworks",
 				);
 				LIBRARY_SEARCH_PATHS = (
+					"$(SDKROOT)/usr/lib/swift",
 					"$(inherited)",
 					"\"${PODS_CONFIGURATION_BUILD_DIR}/RCTSwiftUI\"",
 					"\"${PODS_CONFIGURATION_BUILD_DIR}/RCTSwiftUIWrapper\"",
@@ -456,14 +466,18 @@
 					"\"${PODS_CONFIGURATION_BUILD_DIR}/react-native-webview\"",
 					"\"${TOOLCHAIN_DIR}/usr/lib/swift/${PLATFORM_NAME}\"",
 					/usr/lib/swift,
-					"$(PROJECT_DIR)/libs/**",
-					"$(PROJECT_DIR)/libs",
 				);
 				MARKETING_VERSION = 1.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
 					"-lc++",
+					"-framework",
+					SystemConfiguration,
+					"-framework",
+					Network,
+					"-framework",
+					Security,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = world.zerox1.01pilot;
 				PRODUCT_NAME = Zerox1;
@@ -482,6 +496,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = Zerox1/Zerox1.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 728D69ULX3;
 				INFOPLIST_FILE = Zerox1/Info.plist;
@@ -491,6 +506,7 @@
 					"@executable_path/Frameworks",
 				);
 				LIBRARY_SEARCH_PATHS = (
+					"$(SDKROOT)/usr/lib/swift",
 					"$(inherited)",
 					"\"${PODS_CONFIGURATION_BUILD_DIR}/RCTSwiftUI\"",
 					"\"${PODS_CONFIGURATION_BUILD_DIR}/RCTSwiftUIWrapper\"",
@@ -509,14 +525,18 @@
 					"\"${PODS_CONFIGURATION_BUILD_DIR}/react-native-webview\"",
 					"\"${TOOLCHAIN_DIR}/usr/lib/swift/${PLATFORM_NAME}\"",
 					/usr/lib/swift,
-					"$(PROJECT_DIR)/libs/**",
-					"$(PROJECT_DIR)/libs",
 				);
 				MARKETING_VERSION = 1.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
 					"-lc++",
+					"-framework",
+					SystemConfiguration,
+					"-framework",
+					Network,
+					"-framework",
+					Security,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = world.zerox1.01pilot;
 				PRODUCT_NAME = Zerox1;

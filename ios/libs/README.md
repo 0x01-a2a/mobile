@@ -1,14 +1,25 @@
 # iOS native libraries
 
-These archives are generated locally from sibling Rust workspaces and are intentionally not tracked in git:
+These XCFrameworks are generated locally from sibling Rust workspaces and are intentionally not tracked in git.
 
-- `libzerox1_node.a` comes from `/Users/tobiasd/Desktop/zerox1/node`
-- `libzeroclaw.a` comes from `/Users/tobiasd/Desktop/zerox1/zeroclaw`
+| XCFramework | Source |
+|---|---|
+| `zerox1_node.xcframework` | `/node` — `zerox1-node` crate |
+| `zeroclaw.xcframework` | `/zeroclaw` — zeroclaw crate |
 
-Rebuild them with:
+Each XCFramework bundles both slices — Xcode picks the right one automatically:
+- **Device**: `aarch64-apple-ios`
+- **Simulator**: `aarch64-apple-ios-sim` + `x86_64-apple-ios` (lipo'd)
+
+## Rebuild
 
 ```bash
+# Both libs
 ./scripts/build-ios-libs.sh
+
+# One lib only
+./scripts/build-ios-libs.sh node
+./scripts/build-ios-libs.sh zeroclaw
 ```
 
-The Xcode project still links `ios/libs/libzerox1_node.a` and `ios/libs/libzeroclaw.a`, so the files must exist locally before building the iOS app.
+The XCFrameworks must exist locally before building the iOS app in Xcode.

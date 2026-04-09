@@ -98,9 +98,9 @@ describe('InboxScreen', () => {
     mockHireState.sentOffers = [];
   });
 
-  it('shows "No new jobs" when empty', () => {
+  it('shows empty state when empty', () => {
     const { getByText } = wrap(<InboxScreen />);
-    expect(getByText('No new jobs')).toBeTruthy();
+    expect(getByText('No incoming job requests yet.')).toBeTruthy();
   });
 
   it('shows job card when envelope arrives', async () => {
@@ -134,22 +134,22 @@ describe('InboxScreen — Hire tab', () => {
     mockHireState.sentOffers = [];
   });
 
-  it('shows OFFERS / HIRE / ACTIVE subtab pills', () => {
+  it('shows JOBS / HIRE / SENT subtab pills', () => {
     const { getByText } = wrap(<InboxScreen />);
-    expect(getByText('OFFERS')).toBeTruthy();
+    expect(getByText('JOBS')).toBeTruthy();
     expect(getByText('HIRE')).toBeTruthy();
-    expect(getByText('ACTIVE')).toBeTruthy();
+    expect(getByText('SENT')).toBeTruthy();
   });
 
   it('default subtab is OFFERS — bounty list is visible', () => {
     const { getByText } = wrap(<InboxScreen />);
-    expect(getByText('No new jobs')).toBeTruthy();
+    expect(getByText('No incoming job requests yet.')).toBeTruthy();
   });
 
   it('tapping HIRE shows empty state when no agents', () => {
     const { getByText } = wrap(<InboxScreen />);
     fireEvent.press(getByText('HIRE'));
-    expect(getByText('No agents advertising right now')).toBeTruthy();
+    expect(getByText('No agents found matching your criteria.')).toBeTruthy();
   });
 
   it('agent with token_address renders in HIRE tab', () => {
@@ -177,15 +177,15 @@ describe('InboxScreen — Hire tab', () => {
     expect(sendEnvelope).not.toHaveBeenCalled();
   });
 
-  it('agent without token_address shows "Can\'t hire — no token" button', () => {
+  it('agent without token_address shows "Can\'t hire" button', () => {
     mockHireState.agents = [AGENT_NO_TOKEN];
     const { getByText, queryByText } = wrap(<InboxScreen />);
     fireEvent.press(getByText('HIRE'));
     fireEvent.press(getByText('NoToken'));
-    expect(queryByText("Can't hire — no token")).toBeTruthy();
+    expect(queryByText("Can't hire — agent has no payment token")).toBeTruthy();
   });
 
-  it('successful send: calls sendEnvelope PROPOSE, addOffer, switches to ACTIVE', async () => {
+  it('successful send: calls sendEnvelope PROPOSE, addOffer, switches to SENT', async () => {
     mockHireState.agents = [AGENT_WITH_TOKEN];
     const { sendEnvelope } = require('../../hooks/useNodeApi');
     const { getByText, getByPlaceholderText } = wrap(<InboxScreen />);
@@ -201,28 +201,28 @@ describe('InboxScreen — Hire tab', () => {
         expect.objectContaining({ agent_id: 'aaaa1111', status: 'pending' }),
       );
     });
-    expect(getByText('No active offers')).toBeTruthy();
+    expect(getByText('No active offers.')).toBeTruthy();
   });
 
-  it('ACTIVE tab shows empty state when no sent offers', () => {
+  it('SENT tab shows empty state when no sent offers', () => {
     const { getByText } = wrap(<InboxScreen />);
-    fireEvent.press(getByText('ACTIVE'));
-    expect(getByText('No active offers')).toBeTruthy();
+    fireEvent.press(getByText('SENT'));
+    expect(getByText('No active offers.')).toBeTruthy();
   });
 
-  it('ACTIVE tab renders pending offer card', () => {
+  it('SENT tab renders pending offer card', () => {
     mockHireState.sentOffers = [{
       conversation_id: 'co1', agent_id: 'a1', agent_name: 'Nexus',
       token_address: 'So111', description: 'Translate doc',
       status: 'pending', sent_at: Date.now(),
     }];
     const { getByText } = wrap(<InboxScreen />);
-    fireEvent.press(getByText('ACTIVE'));
+    fireEvent.press(getByText('SENT'));
     expect(getByText('Nexus')).toBeTruthy();
     expect(getByText('Awaiting response')).toBeTruthy();
   });
 
-  it('ACTIVE tab shows Pay & Accept for delivered offer', () => {
+  it('SENT tab shows Pay & Accept for delivered offer', () => {
     mockHireState.sentOffers = [{
       conversation_id: 'co2', agent_id: 'a1', agent_name: 'Nexus',
       token_address: 'So111', description: 'Translate doc',
@@ -230,7 +230,7 @@ describe('InboxScreen — Hire tab', () => {
       delivered_payload: 'Here is the translation...',
     }];
     const { getByText } = wrap(<InboxScreen />);
-    fireEvent.press(getByText('ACTIVE'));
+    fireEvent.press(getByText('SENT'));
     expect(getByText('Pay & Accept')).toBeTruthy();
   });
 });

@@ -8,6 +8,17 @@
 
 ## Current highlights
 
+- **Dynamic Island / Live Activity (iOS)** — the agent's real-time state (standing by, new proposal, working, deal accepted) is reflected on the Dynamic Island and Lock Screen; updates via WebSocket, 30s poll, and node status changes
+- **VoIP push wake (iOS)** — `PKPushRegistry` registers for VoIP pushes; Apple's VoIP push path wakes the app instantly even when suspended or killed — far more reliable than standard APNs for background agent wake
+- **HealthKit background wake (iOS)** — `HealthWakeService` registers observer queries so iOS wakes the app when new health data arrives; agent can act on health context immediately
+- **App Intents / Siri integration (iOS)** — `AgentIntents.swift` exposes "Start 0x01 Agent" and "Stop 0x01 Agent" as App Intents; triggerable from Siri, Shortcuts, and the iOS lock screen
+- **Presence bubble (Android)** — floating overlay shows agent status over any app; dismissed by swipe; toggled from the agent status section in You → Node
+- **Ntfy push wake (Android)** — `NtfyWakeWorker` supplements FCM with an ntfy subscription so the agent wakes even when Google Play Services are unavailable or restricted
+- **Screen recording (Android)** — `HighlightRecorder` uses MediaProjection to capture video clips via the phone bridge; requires MEDIA_PROJECTION runtime permission
+- **Recovery scorer** — local sleep + recovery readiness score (0–100) derived from Health Connect data; surfaced on the Today screen
+- **Tablet / landscape layout** — `useLayout` hook drives a responsive grid: 1 column (phone) → 2 columns (tablet) → 3 columns (wide); side navigation bar in landscape on iPad
+- **01PL token gate** — `use01PLGate` checks combined hot + cold wallet 01PL balance; holders above the threshold unlock Agent Presence premium features (Dynamic Island, presence bubble)
+- **Blob store** — `useBlobs` uploads files to the aggregator blob store using the agent's Ed25519 signature; fetches are public by CID
 - **Bright Mode / Theming** — full dynamic Light and Dark mode UI support with an easy toggle on every screen; deeply integrated React Native theming across navigation and components
 - **Wallet export / import** — export your agent's Ed25519 identity key as a Phantom-compatible base58 string; import an existing keypair from Settings → Wallet; window is secured (FLAG_SECURE) during display
 - **Onboarding wallet backup notice** — embedded wallet registration step now warns users to export their key before reinstalling
@@ -17,13 +28,11 @@
 - **Self-extending skills** — chat with your agent to install new capabilities without an app update; the agent writes a SKILL.toml, reloads itself in ~3 seconds, and comes back with new tools active
 - **Agent token** — every agent launches an SPL token at onboarding as its economic identity; token price reflects market confidence; holders have incentive to route tasks to their agent; creator earns 100% of pool trading fees passively
 - **Bags.fm token launch** — ask your agent to launch a Solana token; it handles metadata, IPFS upload, fee-sharing setup, and on-chain deployment in one chat message; no SOL needed in the agent wallet — the aggregator sponsor covers the setup cost
-- **Bags fee-sharing** — configurable % of every swap and escrow settlement routes to the Bags distribution contract
 - **ZeroClaw agent brain** — autonomous LLM-powered brain that handles incoming tasks, earns USDC, and extends itself via the skill manager
-- **Hot wallet** — view SOL and USDC balances, sweep funds to a cold wallet from the My Node screen
+- **Hot wallet** — view SOL and USDC balances, sweep funds to a cold wallet from the You screen
 - **Node hosting** — connect your agent to a remote host node without running the binary locally; browse available hosts from Settings
 - **8004 Solana Agent Registry** — register your agent on mainnet for full mesh participation
 - **Link agent to wallet** — associate your agent with a Solana address or `.sol` SNS domain
-- **Shared node context** — all screens share one `NodeProvider` instance so config changes (e.g. agent name) propagate immediately everywhere
 - **Chinese localization (zh-CN)** — full UI translation; language picker on the first onboarding screen and in Settings → Language; persisted to AsyncStorage, switches immediately without restart
 
 ---
@@ -37,7 +46,7 @@
 - Hot-reloads ZeroClaw after skill installs: node sends SIGTERM, NodeService restart loop brings it back in ~3 seconds
 - Persists node config and auto-start preference across reboots via `BootReceiver`
 - Exposes the node REST API on `127.0.0.1:9090` for in-app UI
-- Runs a local phone bridge HTTP server on `127.0.0.1:9092` exposing Android device APIs to ZeroClaw
+- Runs a local phone bridge HTTP server on `127.0.0.1:9092` exposing device APIs to ZeroClaw
 
 ---
 
@@ -46,9 +55,10 @@
 ```
 React Native UI
   ├── src/screens/
-  │     ├── Earn.tsx        Live bounty feed — browse and accept incoming tasks, SKR league
+  │     ├── Today.tsx       Earnings summary, task log, recovery score, portfolio
+  │     ├── Inbox.tsx       Incoming task negotiations — PROPOSE/COUNTER/ACCEPT/REJECT
   │     ├── Chat.tsx        Direct chat with the on-device ZeroClaw agent brain
-  │     ├── My.tsx          Own agent: hot wallet, portfolio, negotiations, link wallet
+  │     ├── You.tsx         Own agent: node control, hot wallet, permissions, settings
   │     ├── Onboarding.tsx  First-run setup (6 steps + on-chain registration); language picker on step 0
   │     └── Settings.tsx    Node config, hosted mode, agent brain, Bags, wallet, language
   ├── src/locales/
@@ -56,30 +66,57 @@ React Native UI
   │     └── zh-CN.json      Simplified Chinese translations (full parity with en.json)
   └── src/i18n.ts           i18next init: device locale detection + AsyncStorage persistence
   ├── src/hooks/
-  │     ├── useNode.tsx     Node lifecycle + AsyncStorage persistence + NodeProvider context
-  │     ├── useNodeApi.ts   REST/WS hooks: useAgents, useActivityFeed, useAgentProfile,
-  │     │                   useHotKeyBalance, sweepSol, groupNegotiations
-  │     ├── useAgentBrain.ts  ZeroClaw brain enable/disable + config
-  │     ├── usePermissions.ts Bridge permission introspection + toggles
-  │     └── useOwnedAgents.ts Hosted/owned agent state helpers
-  └── src/native/NodeModule.ts  Typed wrapper for ZeroxNodeModule
+  │     ├── useNode.tsx          Node lifecycle + AsyncStorage persistence + NodeProvider context
+  │     ├── useNodeApi.ts        REST/WS hooks: useAgents, useActivityFeed, useAgentProfile,
+  │     │                        useHotKeyBalance, sweepSol, groupNegotiations
+  │     ├── useZeroclawChat.ts   ZeroClaw gateway chat (port 9093 iOS / 42617 Android)
+  │     ├── useLiveActivity.ts   iOS Dynamic Island / Lock Screen Live Activity updates
+  │     ├── use01PLGate.ts       01PL holder balance gate for Agent Presence features
+  │     ├── useBlobs.ts          Blob upload/fetch via aggregator (signed with agent key)
+  │     ├── useScreenActions.ts  ASSISTED-mode pending screen action queue
+  │     ├── useLayout.ts         Responsive layout helpers (tablet/landscape grid)
+  │     ├── useAgentBrain.ts     ZeroClaw brain enable/disable + config
+  │     ├── usePermissions.ts    Bridge permission introspection + toggles
+  │     └── useOwnedAgents.ts    Hosted/owned agent state helpers
+  └── src/native/NodeModule.ts   Typed wrapper for ZeroxNodeModule
 
 Android native
-  ├── NodeService.kt        Foreground service — runs binaries from nativeLibraryDir,
-  │                         writes IDENTITY.md + bundled skills, restart loop
-  ├── NodeModule.kt         @ReactMethod bridge: startNode / stopNode / isRunning /
-  │                         exportIdentityKey / importIdentityKey / setWindowSecure
-  ├── PhoneBridgeServer.kt  Local HTTP server for ZeroClaw ↔ phone (port 9092)
-  ├── BootReceiver.kt       Restart on device boot if auto-start is enabled
+  ├── NodeService.kt              Foreground service — runs binaries from nativeLibraryDir,
+  │                               writes IDENTITY.md + bundled skills, restart loop
+  ├── NodeModule.kt               @ReactMethod bridge: startNode / stopNode / isRunning /
+  │                               exportIdentityKey / importIdentityKey / setWindowSecure
+  ├── PhoneBridgeServer.kt        Local HTTP server for ZeroClaw ↔ phone (port 9092)
+  ├── BootReceiver.kt             Restart on device boot if auto-start is enabled
+  ├── PresenceBubbleService.kt    Floating agent status overlay (System Alert Window)
+  ├── NtfyWakeWorker.kt           ntfy push subscriber — wakes agent without FCM
+  ├── HighlightRecorder.kt        MediaProjection screen recording for phone bridge
+  ├── ScreenActionQueue.kt        ASSISTED-mode action approval queue (pending human confirm)
+  ├── BridgeActivityLog.kt        Thread-safe ring buffer of bridge event log entries
+  ├── RecoveryScorer.kt           Local sleep + recovery readiness scorer (0–100)
   ├── AgentAccessibilityService.kt   Phone bridge: screen/app reading
-  ├── AgentNotificationListener.kt  Phone bridge: notification access
-  ├── HealthDataReader.kt   Health Connect integration
-  ├── WearableScanner.kt    Bluetooth / wearable discovery helpers
-  └── AgentCallScreeningService.kt  Phone bridge: call screening
+  ├── AgentNotificationListener.kt   Phone bridge: notification access
+  ├── HealthDataReader.kt         Health Connect integration
+  ├── WearableScanner.kt          Bluetooth / wearable discovery helpers
+  └── AgentCallScreeningService.kt   Phone bridge: call screening
 
-Bundled binaries (jniLibs/arm64-v8a/ — installed by Android to nativeLibraryDir)
+iOS native
+  ├── NodeService.swift           In-process FFI runner: zerox1_node + zeroclaw XCFrameworks
+  ├── NodeModule.swift            RN bridge: startNode / stopNode / isRunning / key management
+  ├── PhoneBridgeServer.swift     Local HTTP server for ZeroClaw ↔ phone (port 9092)
+  ├── KeepAliveService.swift      Audio session keep-alive for background execution
+  ├── LiveActivityBridge.swift    Native Live Activity updater (runs before JS layer loads)
+  ├── VoIPPushHandler.swift       PKPushRegistry VoIP push — instant background wake
+  ├── HealthWakeService.swift     HealthKit observer queries — background wake on new data
+  ├── AgentIntents.swift          App Intents: Start/Stop agent from Siri and Shortcuts
+  └── KeychainHelper.swift        Keychain read/write helpers (API keys, wallet key)
+
+Bundled binaries — Android (jniLibs/arm64-v8a/, committed to git)
   ├── libzerox1_node.so     zerox1-node Rust binary (aarch64-linux-android)
   └── libzeroclaw.so        ZeroClaw agent brain binary (aarch64-linux-android)
+
+iOS XCFrameworks (ios/libs/, gitignored — build locally before opening Xcode)
+  ├── zerox1_node.xcframework   device (aarch64-apple-ios) + simulator (arm64+x86_64)
+  └── zeroclaw.xcframework      device (aarch64-apple-ios) + simulator (arm64+x86_64)
 
 Bundled skills (written to {filesDir}/zw/skills/ at launch)
   ├── bags/                 Token launch + fee claim tools
@@ -88,26 +125,37 @@ Bundled skills (written to {filesDir}/zw/skills/ at launch)
 
 ### Native artifact policy
 
-- Android currently packages `libzerox1_node.so` and `libzeroclaw.so` from `android/app/src/main/jniLibs/arm64-v8a/`.
-- iOS links `ios/libs/libzerox1_node.a` and `ios/libs/libzeroclaw.a`, but those archives are **generated locally** and are **not tracked in git**.
-- Rebuild iOS archives from the sibling Rust workspaces with:
+**Android** — `libzerox1_node.so` and `libzeroclaw.so` are committed to `android/app/src/main/jniLibs/arm64-v8a/` and packaged directly into the APK. Android installs them to `nativeLibraryDir` with execute permission. CI picks them up as-is — no build step required.
+
+**iOS** — `zerox1_node.xcframework` and `zeroclaw.xcframework` are **generated locally** from the sibling Rust workspaces and are **not tracked in git**. Each XCFramework bundles both slices so Xcode picks the right one automatically:
+- **Device**: `aarch64-apple-ios`
+- **Simulator**: `aarch64-apple-ios-sim` + `x86_64-apple-ios` (lipo'd)
+
+Rebuild before opening Xcode:
 
 ```bash
-./scripts/build-ios-libs.sh
+./scripts/build-ios-libs.sh          # both
+./scripts/build-ios-libs.sh node     # zerox1_node.xcframework only
+./scripts/build-ios-libs.sh zeroclaw # zeroclaw.xcframework only
 ```
+
+iOS is **built locally** in Xcode and distributed via TestFlight / App Store. There is no iOS CI job — the XCFrameworks are never committed and do not need to be.
 
 ### Key constants
 
 | Constant | Value |
 |---|---|
 | Node API port | `9090` |
-| ZeroClaw gateway port | `42617` |
+| ZeroClaw gateway port (iOS) | `9093` |
+| ZeroClaw gateway port (Android) | `42617` |
 | ZeroClaw bridge port | `9092` |
 | AsyncStorage: node config | `zerox1:node_config` |
 | AsyncStorage: auto-start | `zerox1:auto_start` |
 | AsyncStorage: hosted mode | `zerox1:hosted_mode`, `zerox1:host_url`, `zerox1:hosted_agent_id` |
 | Keychain/Keystore: hosted token | `zerox1.hosted_token` |
 | Skill workspace | `{filesDir}/zw/` |
+| 01PL token mint | `2MchUMEvadoTbSvC4b1uLAmEhv8Yz8ngwEt24q21BAGS` |
+| Agent Presence threshold | `5,000 01PL` |
 
 ---
 
@@ -168,7 +216,7 @@ Agent brain config is written to `filesDir/zeroclaw-config.toml` at launch and i
 
 Each node has a dedicated Ed25519 signing key that doubles as a Solana hot wallet. The agent identity on the mesh and the Solana public key are the same keypair — one key for everything.
 
-The My Node screen shows current holdings (SOL + agent tokens valued in USD) and lets you sweep SOL to a cold wallet in one tap, keeping 0.01 SOL for fees. The sweep calls `POST /wallet/send` on the local node API.
+The You screen shows current holdings (SOL + agent tokens valued in USD) and lets you sweep SOL to a cold wallet in one tap, keeping 0.01 SOL for fees. The sweep calls `POST /wallet/send` on the local node API.
 
 **Key backup:** Settings → Wallet → EXPORT KEY exports a Phantom-compatible base58 private key. The window is secured (no screenshots) during display. The key auto-clears from clipboard after 60 seconds. Import an existing keypair with IMPORT KEY — the node stops, the key is validated and atomically written, then the node restarts.
 
@@ -243,16 +291,17 @@ To add a new language: copy `src/locales/en.json`, translate the values, registe
 Optional, off by default. Enable in Settings → Agent Brain.
 
 - Supported providers: **Anthropic** (claude-haiku-4-5-20251001), **OpenAI** (gpt-4o-mini), **Gemini** (gemini-2.5-flash), **Groq** (llama-3.1-8b-instant)
-- API key stored in Android Keystore via `EncryptedSharedPreferences` — never transmitted or logged
+- API key stored in Android Keystore / iOS Keychain — never transmitted or logged
 - Autonomously accepts/rejects PROPOSE envelopes based on capabilities, minimum fee, and minimum reputation
 - Communicates with the node via `http://127.0.0.1:9090` and with the phone via bridge on port `9092`
-- Bundled alongside the app as a native shared object (`libzeroclaw.so`)
+- Gateway HTTP server on `127.0.0.1:9093` (iOS) / `127.0.0.1:42617` (Android) for chat
+- Bundled alongside the app as a native shared object (`libzeroclaw.so`) on Android; XCFramework (`zeroclaw.xcframework`) on iOS
 
 ---
 
 ## Phone bridge
 
-ZeroClaw can access Android device APIs via a local HTTP server on `127.0.0.1:9092` (bearer-token auth, loopback-only). Each capability is individually toggleable by the user in Settings → Phone Bridge. Capabilities default to **enabled** and require the corresponding Android runtime permission to function.
+ZeroClaw can access device APIs via a local HTTP server on `127.0.0.1:9092` (bearer-token auth, loopback-only). Each capability is individually toggleable by the user in Settings → Phone Bridge. Capabilities default to **enabled** and require the corresponding runtime permission to function.
 
 | Capability | What it exposes |
 |---|---|
@@ -261,15 +310,15 @@ ZeroClaw can access Android device APIs via a local HTTP server on `127.0.0.1:90
 | `location` | GPS coordinates |
 | `camera` | Capture photo |
 | `microphone` | Record audio |
-| `screen` | Accessibility tree, screenshot, UI actions |
+| `screen` | Accessibility tree, screenshot, UI actions; video recording (Android) |
 | `calls` | Call log, incoming call screening |
 | `calendar` | Read/write calendar events |
 | `media` | List photos, documents |
-| `health` | Health Connect metrics (steps, heart rate, sleep, calories, SpO2, weight) |
+| `health` | Health Connect metrics (steps, heart rate, sleep, calories, SpO2, weight); recovery score |
 | `wearables` | Bluetooth-connected device discovery |
 | `device` | Battery, Wi-Fi, vibration, alarms, app usage, volume, DND state |
 
-A full list of ~40 endpoints (contacts, SMS, location, camera, audio, notifications, calls, accessibility, device info, etc.) is documented in `IDENTITY.md` written to the zeroclaw workspace at startup.
+A full list of ~40 endpoints is documented in `IDENTITY.md` written to the zeroclaw workspace at startup.
 
 ---
 
@@ -285,6 +334,8 @@ A full list of ~40 endpoints (contacts, SMS, location, camera, audio, notificati
 | `RECEIVE_BOOT_COMPLETED` | Auto-start on device reboot |
 | `REQUEST_INSTALL_PACKAGES` | OTA APK update installs via Android package installer |
 | `INTERNET` | Connect to bootstrap fleet and aggregator API |
+| `SYSTEM_ALERT_WINDOW` | Presence bubble overlay over other apps |
+| `FOREGROUND_SERVICE_MEDIA_PROJECTION` | Screen recording via HighlightRecorder |
 
 Phone bridge permissions (individually toggleable in Settings, **enabled by default**):
 

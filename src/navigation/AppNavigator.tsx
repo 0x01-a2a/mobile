@@ -27,7 +27,7 @@ function TabButton(props: React.ComponentProps<typeof Pressable>) {
 
 const SCREEN_OPTIONS = {
   headerShown: false,
-  tabBarShowIcon: false,
+  tabBarIcon: () => null,
 } as const;
 
 export function AppNavigator() {
@@ -55,6 +55,8 @@ export function AppNavigator() {
           tabBarActiveTintColor:   colors.green,
           tabBarInactiveTintColor: colors.sub,
           tabBarLabelStyle: isWideMode ? staticStyles.labelSide : staticStyles.label,
+          tabBarItemStyle: staticStyles.tabItem,
+          tabBarIconStyle: staticStyles.tabIcon,
           tabBarButton: TabButton,
         }}
       >
@@ -85,16 +87,29 @@ function useStyles(colors: ThemeColors) {
 }
 
 const staticStyles = StyleSheet.create({
+  tabItem: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: 0,
+    paddingBottom: 0,
+  },
+  tabIcon: {
+    display: 'none',
+  },
   label: {
     fontSize: 11,
+    fontWeight: '700',
     letterSpacing: 1,
-    fontFamily: 'monospace',
-    marginBottom: 4,
+    textAlign: 'center',
+    marginBottom: 0,
+    marginTop: 0,
   },
   labelSide: {
     fontSize: 10,
+    fontWeight: '700',
     letterSpacing: 1,
-    fontFamily: 'monospace',
-    marginTop: 4,
+    textAlign: 'center',
+    marginTop: 0,
+    marginBottom: 0,
   },
 });

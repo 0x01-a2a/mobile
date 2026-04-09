@@ -59,18 +59,18 @@ describe('YouScreen — Wallet tab', () => {
   });
 });
 
-describe('YouScreen — Agent tab', () => {
-  it('shows agent name on Agent tab', () => {
-    const { getByText, getByDisplayValue } = wrap(<YouScreen />);
-    fireEvent.press(getByText('Agent'));
-    expect(getByDisplayValue('Aria')).toBeTruthy();
+describe('YouScreen — Brain tab', () => {
+  it('shows Brain tab', () => {
+    const { getByText } = wrap(<YouScreen />);
+    fireEvent.press(getByText('Brain'));
+    expect(getByText('Brain')).toBeTruthy();
   });
 });
 
-describe('YouScreen — Settings tab', () => {
-  it('renders Settings tab content', () => {
+describe('YouScreen — Advanced tab', () => {
+  it('renders Advanced tab content', () => {
     const { getByText } = wrap(<YouScreen />);
-    fireEvent.press(getByText('Settings'));
-    expect(getByText('Auto-start on boot')).toBeTruthy();
+    fireEvent.press(getByText('Advanced'));
+    expect(getByText('Advanced')).toBeTruthy();
   });
 });

@@ -12,10 +12,11 @@
 int32_t zerox1_node_start(const char *data_dir,
                            const char *listen_addr,
                            const char *api_secret,
-                           const char *identity_key,  // base58 Ed25519 key, nullable (generates new)
-                           const char *relay_addr,    // nullable
-                           const char *agent_name,    // nullable
-                           const char *rpc_url);      // nullable
+                           const char *identity_key,    // base58 Ed25519 key, nullable (generates new)
+                           const char *relay_addr,      // nullable
+                           const char *agent_name,      // nullable
+                           const char *rpc_url,         // nullable
+                           const char *aggregator_url); // nullable — enables sleep/mailbox drain
 
 int32_t zerox1_node_stop(void);
 int32_t zerox1_node_is_running(void);

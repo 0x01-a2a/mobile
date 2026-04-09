@@ -337,10 +337,11 @@ export const NodeModule = {
    */
   startLiveActivity: (config: {
     agentName: string;
-    status: string;
+    statusPhrase?: string;
     currentTask?: string;
     earnedToday?: string;
     isActive?: boolean;
+    pendingCount?: number;
   }): Promise<string | null> =>
     ZeroxNodeModule.startLiveActivity(config),
 
@@ -349,10 +350,11 @@ export const NodeModule = {
    * On Android this is a no-op (resolves immediately).
    */
   updateLiveActivity: (activityId: string, state: {
-    status: string;
+    statusPhrase?: string;
     currentTask?: string;
     earnedToday?: string;
     isActive?: boolean;
+    pendingCount?: number;
   }): Promise<void> =>
     ZeroxNodeModule.updateLiveActivity(activityId, state),
 
@@ -362,6 +364,43 @@ export const NodeModule = {
    */
   endLiveActivity: (activityId: string): Promise<void> =>
     ZeroxNodeModule.endLiveActivity(activityId),
+
+  /**
+   * Returns the APNs device token hex string, or null if not registered yet.
+   * iOS only — call after node start and register with the aggregator so it can
+   * send background wake pushes (bounty, trading opportunity, etc.).
+   */
+  getApnsToken: (): Promise<string | null> =>
+    Platform.OS === 'ios'
+      ? ZeroxNodeModule.getApnsToken()
+      : Promise.resolve(null),
+
+  /**
+   * Register HealthKit background delivery observers.
+   * Call once after HealthKit permission is granted.
+   * iOS only — no-op on Android.
+   */
+  registerHealthWake: (): Promise<void> =>
+    Platform.OS === 'ios'
+      ? ZeroxNodeModule.registerHealthWake()
+      : Promise.resolve(),
+
+  /**
+   * Report the agent's sleep state to the aggregator.
+   *
+   * Call with `true` when the app transitions to background/inactive so the
+   * aggregator knows to queue inbound messages and fire APNs wake pushes.
+   * Call with `false` when the app returns to active so senders know the
+   * agent is reachable via P2P again.
+   *
+   * iOS only (signs with Keychain identity key + POSTs to aggregator).
+   * No-op on Android — Android's NodeService.kt handles FCM sleep state
+   * directly when the foreground service stops.
+   */
+  setAggregatorSleepState: (sleeping: boolean): Promise<void> =>
+    Platform.OS === 'ios'
+      ? ZeroxNodeModule.setAggregatorSleepState(sleeping)
+      : Promise.resolve(),
 };
 
 // Temporary iOS bridge instrumentation to diagnose stale native module builds.

@@ -61,6 +61,34 @@ class NodeModule: RCTEventEmitter {
         resolve(NodeService.shared.isRunning)
     }
 
+    /// Returns the APNs device token hex string, or null if not yet registered.
+    /// Call after node start to register the token with the aggregator so it can
+    /// send wake pushes (bounty, trading opportunity, etc.).
+    @objc func getApnsToken(_ resolve: @escaping RCTPromiseResolveBlock,
+                             rejecter reject: @escaping RCTPromiseRejectBlock) {
+        resolve(KeychainHelper.load(key: "apns_push_token")
+            ?? UserDefaults.standard.string(forKey: "zerox1_apns_token"))
+    }
+
+    /// Trigger HealthKit background delivery registration.
+    /// Call once after HealthKit permission is granted.
+    @objc func registerHealthWake(_ resolve: @escaping RCTPromiseResolveBlock,
+                                   rejecter reject: @escaping RCTPromiseRejectBlock) {
+        HealthWakeService.shared.register()
+        resolve(nil)
+    }
+
+    /// Report the agent's sleep state to the aggregator.
+    /// Call with true when the app backgrounds, false when it returns to foreground.
+    /// This gates the APNs wake-push flow: aggregator only fires pushes when sleeping=true.
+    @objc func setAggregatorSleepState(_ sleeping: Bool,
+                                        resolver resolve: @escaping RCTPromiseResolveBlock,
+                                        rejecter reject: @escaping RCTPromiseRejectBlock) {
+        NodeService.shared.setAggregatorSleepState(sleeping: sleeping) {
+            resolve(nil)
+        }
+    }
+
     @objc func getLocalAuthConfig(_ resolve: @escaping RCTPromiseResolveBlock,
                                   rejecter reject: @escaping RCTPromiseRejectBlock) {
         let token = KeychainHelper.load(key: "node_api_token")
@@ -589,10 +617,11 @@ class NodeModule: RCTEventEmitter {
             let initial = String(agentName.prefix(1)).uppercased()
             let attributes = AgentActivityAttributes(agentName: agentName, agentInitial: initial)
             let state = AgentActivityAttributes.ContentState(
-                status: config["status"] as? String ?? "Running",
+                statusPhrase: config["statusPhrase"] as? String ?? "Standing by",
                 currentTask: config["currentTask"] as? String ?? "",
                 earnedToday: config["earnedToday"] as? String ?? "$0.00",
-                isActive: config["isActive"] as? Bool ?? true
+                isActive: config["isActive"] as? Bool ?? true,
+                pendingCount: config["pendingCount"] as? Int ?? 0
             )
             do {
                 let activity = try Activity<AgentActivityAttributes>.request(
@@ -618,10 +647,11 @@ class NodeModule: RCTEventEmitter {
                 for activity in Activity<AgentActivityAttributes>.activities {
                     if activity.id == activityId as String {
                         let newState = AgentActivityAttributes.ContentState(
-                            status: stateDict["status"] as? String ?? "Running",
+                            statusPhrase: stateDict["statusPhrase"] as? String ?? "Standing by",
                             currentTask: stateDict["currentTask"] as? String ?? "",
                             earnedToday: stateDict["earnedToday"] as? String ?? "$0.00",
-                            isActive: stateDict["isActive"] as? Bool ?? true
+                            isActive: stateDict["isActive"] as? Bool ?? true,
+                            pendingCount: stateDict["pendingCount"] as? Int ?? 0
                         )
                         await activity.update(.init(state: newState, staleDate: nil))
                         break

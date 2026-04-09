@@ -2,74 +2,146 @@ import ActivityKit
 import WidgetKit
 import SwiftUI
 
+// MARK: - Accent color
+
+private let accent = Color(red: 0.38, green: 1.0, blue: 0.55)   // #61FF8D — matches app green
+
+// MARK: - Pulse animation helper
+
+@available(iOS 16.1, *)
+private struct PulseDot: View {
+    let active: Bool
+    @State private var pulsing = false
+
+    var body: some View {
+        ZStack {
+            if active {
+                Circle()
+                    .fill(accent.opacity(0.25))
+                    .frame(width: 14, height: 14)
+                    .scaleEffect(pulsing ? 1.5 : 1.0)
+                    .opacity(pulsing ? 0 : 1)
+                    .animation(.easeOut(duration: 1.2).repeatForever(autoreverses: false), value: pulsing)
+            }
+            Circle()
+                .fill(active ? accent : Color.white.opacity(0.25))
+                .frame(width: 8, height: 8)
+        }
+        .onAppear { if active { pulsing = true } }
+    }
+}
+
+// MARK: - Badge view
+
+@available(iOS 16.1, *)
+private struct PendingBadge: View {
+    let count: Int
+    var body: some View {
+        if count > 0 {
+            Text("\(count)")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundColor(.black)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .background(accent)
+                .clipShape(Capsule())
+        }
+    }
+}
+
+// MARK: - Widget
+
 @available(iOS 16.1, *)
 struct AgentLiveActivityWidget: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: AgentActivityAttributes.self) { context in
-            // Lock Screen / Notification banner expanded view
             AgentLockScreenView(context: context)
-                .activityBackgroundTint(Color.black)
-                .activitySystemActionForegroundColor(Color.green)
+                .activityBackgroundTint(Color(white: 0.06))
+                .activitySystemActionForegroundColor(accent)
         } dynamicIsland: { context in
             DynamicIsland {
-                // Expanded (long press)
+                // ── Expanded (long-press) ────────────────────────────────────
                 DynamicIslandExpandedRegion(.leading) {
-                    HStack {
-                        Circle()
-                            .fill(context.state.isActive ? Color.green : Color.gray)
-                            .frame(width: 8, height: 8)
+                    HStack(spacing: 6) {
+                        PulseDot(active: context.state.isActive)
                         Text(context.attributes.agentName)
                             .font(.caption.bold())
                             .foregroundColor(.white)
+                            .lineLimit(1)
                     }
+                    .padding(.leading, 4)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    Text(context.state.earnedToday)
-                        .font(.caption.bold())
-                        .foregroundColor(.green)
+                    HStack(spacing: 4) {
+                        if context.state.pendingCount > 0 {
+                            PendingBadge(count: context.state.pendingCount)
+                        }
+                        Text(context.state.earnedToday)
+                            .font(.caption.bold())
+                            .foregroundColor(accent)
+                    }
+                    .padding(.trailing, 4)
                 }
                 DynamicIslandExpandedRegion(.center) {
-                    Text(context.state.currentTask.isEmpty ? context.state.status : context.state.currentTask)
+                    Text(context.state.statusPhrase)
                         .font(.caption2)
-                        .foregroundColor(.white.opacity(0.8))
+                        .foregroundColor(.white.opacity(0.75))
                         .lineLimit(1)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    HStack(spacing: 16) {
+                    HStack(spacing: 20) {
                         Link(destination: URL(string: "zerox1://chat")!) {
                             Label("Chat", systemImage: "bubble.left.fill")
                                 .font(.caption.bold())
-                                .foregroundColor(.green)
+                                .foregroundColor(accent)
                         }
                         Link(destination: URL(string: "zerox1://inbox")!) {
-                            Label("Inbox", systemImage: "tray.fill")
+                            HStack(spacing: 4) {
+                                Image(systemName: "tray.fill")
+                                Text("Inbox")
+                                if context.state.pendingCount > 0 {
+                                    PendingBadge(count: context.state.pendingCount)
+                                }
+                            }
+                            .font(.caption.bold())
+                            .foregroundColor(.white.opacity(0.65))
+                        }
+                        Link(destination: URL(string: "zerox1://chat?mode=brief")!) {
+                            Label("Brief", systemImage: "sparkles")
                                 .font(.caption.bold())
-                                .foregroundColor(.white.opacity(0.7))
+                                .foregroundColor(.white.opacity(0.65))
                         }
                     }
+                    .padding(.bottom, 4)
                 }
             } compactLeading: {
-                // Compact left: colored dot
-                Circle()
-                    .fill(context.state.isActive ? Color.green : Color.gray)
-                    .frame(width: 8, height: 8)
+                // ── Compact left: pulse dot ──────────────────────────────────
+                PulseDot(active: context.state.isActive)
                     .padding(.leading, 4)
             } compactTrailing: {
-                // Compact right: initial + status
-                Text(context.attributes.agentInitial)
-                    .font(.caption.bold())
-                    .foregroundColor(.green)
+                // ── Compact right: badge if pending, else earned today ───────
+                if context.state.pendingCount > 0 {
+                    PendingBadge(count: context.state.pendingCount)
+                        .padding(.trailing, 2)
+                } else {
+                    Text(context.state.earnedToday)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(accent)
+                        .padding(.trailing, 2)
+                }
             } minimal: {
-                // Minimal (when two Live Activities active): just the initial
+                // ── Minimal (two Live Activities): just the agent initial ─────
                 Text(context.attributes.agentInitial)
                     .font(.caption2.bold())
-                    .foregroundColor(.green)
+                    .foregroundColor(accent)
             }
             .widgetURL(URL(string: "zerox1://today"))
-            .keylineTint(Color.green)
+            .keylineTint(accent)
         }
     }
 }
+
+// MARK: - Lock Screen / Notification banner
 
 @available(iOS 16.1, *)
 struct AgentLockScreenView: View {
@@ -80,35 +152,46 @@ struct AgentLockScreenView: View {
             // Agent avatar circle
             ZStack {
                 Circle()
-                    .fill(Color(white: 0.12))
-                    .frame(width: 44, height: 44)
+                    .fill(Color(white: 0.14))
+                    .frame(width: 46, height: 46)
                 Text(context.attributes.agentInitial)
                     .font(.title3.bold())
-                    .foregroundColor(.green)
+                    .foregroundColor(accent)
                 if context.state.isActive {
                     Circle()
-                        .stroke(Color.green.opacity(0.4), lineWidth: 1.5)
-                        .frame(width: 48, height: 48)
+                        .stroke(accent.opacity(0.35), lineWidth: 1.5)
+                        .frame(width: 52, height: 52)
                 }
             }
 
-            VStack(alignment: .leading, spacing: 2) {
-                HStack {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline) {
                     Text(context.attributes.agentName)
                         .font(.subheadline.bold())
                         .foregroundColor(.white)
                     Spacer()
                     Text(context.state.earnedToday)
                         .font(.subheadline.bold())
-                        .foregroundColor(.green)
+                        .foregroundColor(accent)
                 }
-                Text(context.state.currentTask.isEmpty ? context.state.status : context.state.currentTask)
-                    .font(.caption)
-                    .foregroundColor(.white.opacity(0.7))
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(context.state.statusPhrase)
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.7))
+                        .lineLimit(1)
+                    if context.state.pendingCount > 0 {
+                        PendingBadge(count: context.state.pendingCount)
+                    }
+                }
+                if !context.state.currentTask.isEmpty {
+                    Text(context.state.currentTask)
+                        .font(.caption2)
+                        .foregroundColor(.white.opacity(0.45))
+                        .lineLimit(1)
+                }
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.vertical, 12)
     }
 }

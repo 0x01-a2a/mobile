@@ -27,6 +27,11 @@ let _hostedToken: string | null = null;
 let _isHostedMode = false;
 let _heliusRpcUrl: string | null = null;
 
+/** Returns current WebSocket base URL and auth context — used by useLiveActivity. */
+export function getInboxWsParams(): { wsBase: string; token: string | null; isHosted: boolean } {
+  return { wsBase: _wsBase, token: _hostedToken, isHosted: _isHostedMode };
+}
+
 // Skip HTTP polls while the screen is off — saves CPU and radio wakeups.
 let _appActive = AppState.currentState === 'active';
 // Note: module-level AppState listener. The subscription returned by addEventListener
@@ -799,6 +804,29 @@ export async function clearTokenFromKeychain(): Promise<void> {
  * - Persists non-sensitive metadata (host URL, agent_id) in AsyncStorage.
  * - Calls configureNodeApi() so all subsequent API calls go to the host.
  */
+/**
+ * Register an APNs device token with the aggregator so it can send background
+ * wake pushes (bounty, trading opportunity, health, etc.) to this iOS device.
+ *
+ * The aggregator stores (agent_id → apns_token) and sends `content-available: 1`
+ * pushes when a relevant event arrives while the agent is sleeping.
+ */
+export async function registerApnsToken(
+  agentId: string,
+  apnsToken: string,
+): Promise<void> {
+  const res = await fetch(`${AGGREGATOR_API}/apns/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ agent_id: agentId, apns_token: apnsToken }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  // Non-2xx is logged but not fatal — the app works without push wake.
+  if (!res.ok) {
+    console.warn('[useNodeApi] APNs token registration failed:', res.status);
+  }
+}
+
 export async function registerAsHosted(
   hostApiUrl: string,
 ): Promise<{ agent_id: string }> {

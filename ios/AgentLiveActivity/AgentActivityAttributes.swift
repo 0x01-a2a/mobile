@@ -6,14 +6,17 @@ import Foundation
 @available(iOS 16.1, *)
 public struct AgentActivityAttributes: ActivityAttributes {
     public struct ContentState: Codable, Hashable {
-        /// Current agent status shown in Dynamic Island compact view
-        public var status: String        // "Running" | "Idle" | "Working" | "Stopped"
-        /// Current task description (truncated for compact view)
-        public var currentTask: String   // "" if idle
-        /// USDC earned today (display string e.g. "$4.20")
+        /// Short human phrase shown as the primary status line.
+        /// e.g. "Standing by", "New proposal", "Work ready", "Working…"
+        public var statusPhrase: String
+        /// Longer task description for the expanded / lock-screen view (empty if idle).
+        public var currentTask: String
+        /// USDC earned today, display string e.g. "$4.20"
         public var earnedToday: String
-        /// Agent is actively processing (shows pulse animation)
+        /// Agent is actively processing (drives pulse animation)
         public var isActive: Bool
+        /// Number of unread messages / proposals waiting for user action (0 = none)
+        public var pendingCount: Int
     }
 
     /// Static — set at Activity.request() time

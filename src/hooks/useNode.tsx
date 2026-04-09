@@ -5,10 +5,10 @@
  * Exposes start/stop and the current running state.
  */
 import { useState, useEffect, useCallback, useRef, useContext, createContext, ReactNode } from 'react';
-import { AppState, AppStateStatus } from 'react-native';
+import { AppState, AppStateStatus, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NodeModule, NodeConfig, NodeStatus, onNodeStatus } from '../native/NodeModule';
-import { configureNodeApi, loadTokenFromKeychain, loadBagsApiKey } from './useNodeApi';
+import { configureNodeApi, loadTokenFromKeychain, loadBagsApiKey, registerApnsToken } from './useNodeApi';
 
 const STORAGE_KEYS = {
   CONFIG: 'zerox1:node_config',
@@ -202,6 +202,10 @@ function useNodeInternal() {
   useEffect(() => {
     const handleAppStateChange = (nextState: AppStateStatus) => {
       if (nextState === 'background' || nextState === 'inactive') {
+        // Tell the aggregator the agent is sleeping so it queues inbound
+        // messages and fires APNs wake pushes. Fire-and-forget.
+        NodeModule.setAggregatorSleepState(true).catch(() => {});
+
         if (!backgroundNodeRef.current && !idleTimerRef.current) {
           idleTimerRef.current = setTimeout(async () => {
             idleTimerRef.current = null;
@@ -242,6 +246,10 @@ function useNodeInternal() {
             })();
           }
         }
+        // Tell the aggregator the agent is awake. The Rust node also calls
+        // set_sleep_mode(false) on startup, but this covers the case where
+        // the node is still running (backgroundNode=true or short foreground).
+        NodeModule.setAggregatorSleepState(false).catch(() => {});
       }
     };
 
@@ -287,6 +295,24 @@ function useNodeInternal() {
       configRef.current = effective;
       await AsyncStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(effective));
       setStatus('running');
+
+      // Register APNs token + HealthKit wake observers after node is confirmed running.
+      // Fire-and-forget — failure doesn't affect node operation.
+      if (Platform.OS === 'ios') {
+        NodeModule.getApnsToken().then(async (token) => {
+          if (token) {
+            // Read agent_id from node identity to associate with the token.
+            try {
+              const identRes = await fetch('http://127.0.0.1:9090/identity');
+              if (identRes.ok) {
+                const { agent_id } = await identRes.json();
+                if (agent_id) registerApnsToken(agent_id, token).catch(() => {});
+              }
+            } catch { /* node may not yet be reachable */ }
+          }
+        }).catch(() => {});
+        NodeModule.registerHealthWake().catch(() => {});
+      }
     }
   }, [config]);
 

@@ -2,31 +2,17 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Keychain sharing so node token persists across reinstalls -->
-	<key>keychain-access-groups</key>
-	<array>
-		<string>$(AppIdentifierPrefix)world.zerox1.pilot</string>
-	</array>
-
-	<!-- App Groups for sharing data with extensions -->
+	<key>aps-environment</key>
+	<string>development</string>
+<key>com.apple.developer.healthkit</key>
+	<true/>
 	<key>com.apple.security.application-groups</key>
 	<array>
 		<string>group.world.zerox1.pilot</string>
 	</array>
-
-	<!-- Background processing -->
-	<key>com.apple.developer.background-task-scheduler-permitted-identifiers</key>
+	<key>keychain-access-groups</key>
 	<array>
-		<string>world.zerox1.pilot.node-keepalive</string>
+		<string>$(AppIdentifierPrefix)world.zerox1.pilot</string>
 	</array>
-
-	<!-- APNs environment for VoIP push -->
-	<key>aps-environment</key>
-	<string>development</string>
-
-	<!-- HealthKit -->
-	<key>com.apple.developer.healthkit</key>
-	<true/>
-
 </dict>
 </plist>

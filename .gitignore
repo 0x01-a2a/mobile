@@ -1,8 +1,3 @@
-# Tests
-__tests__/assertValidHostUrl.test.ts
-__tests__/groupNegotiations.test.ts
-__tests__/useNode.test.ts
-
 # OSX
 #
 .DS_Store
@@ -26,6 +21,9 @@ DerivedData
 *.ipa
 *.xcuserstate
 **/.xcode.env.local
+
+# Xcode auto-created file copies (e.g. "NodeService 2.swift", "NodeService 3.swift")
+ios/**/*\ [0-9].swift
 
 # Android/IntelliJ
 #
@@ -72,9 +70,11 @@ android/app/src/main/res/drawable-*/node_modules_*
 **/Pods/
 /vendor/bundle/
 
-# iOS native static libraries are generated from sibling Rust workspaces.
-# Keep the directory, but do not track the large compiled archives.
-ios/libs/*.a
+# iOS native XCFrameworks are generated locally from sibling Rust workspaces.
+# Each XCFramework bundles both device (aarch64-apple-ios) and simulator
+# (aarch64-apple-ios-sim + x86_64-apple-ios) slices — Xcode picks the right
+# one automatically. Rebuild with: ./scripts/build-ios-libs.sh
+ios/libs/*.xcframework
 
 # Temporary files created by Metro to check the health of the file watcher
 .metro-health-check*

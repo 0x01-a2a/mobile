@@ -1,6 +1,9 @@
 import Foundation
 import UIKit
+import CryptoKit
 import os.log
+
+private let AGGREGATOR_URL = "https://api.0x01.world"
 
 /// Manages the lifecycle of zerox1-node and zeroclaw running in-process via C FFI.
 ///
@@ -36,6 +39,12 @@ final class NodeService {
     private var _isAgentRunning = false
     private(set) var lastConfig: [String: Any] = [:]
     private(set) var lastBrainError: String? = nil
+    /// Hex agent_id of the running node — populated after /identity succeeds.
+    /// Persisted in UserDefaults so it is available across restarts.
+    private(set) var lastAgentId: String? {
+        get { UserDefaults.standard.string(forKey: "zerox1_agent_id") }
+        set { UserDefaults.standard.set(newValue, forKey: "zerox1_agent_id") }
+    }
     private let queue = DispatchQueue(label: "world.zerox1.nodeservice", qos: .userInitiated)
     private let stateLock = NSLock()
 
@@ -72,6 +81,7 @@ final class NodeService {
     private func setupDirectories() throws {
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: zeroclawConfigDir, withIntermediateDirectories: true)
+        try writeSoulMd()
     }
 
     // MARK: - Token generation
@@ -88,6 +98,25 @@ final class NodeService {
     private func tomlEscape(_ s: String) -> String {
         s.replacingOccurrences(of: "\\", with: "\\\\")
          .replacingOccurrences(of: "\"", with: "\\\"")
+    }
+
+    private var zeroclawWorkspaceDir: URL {
+        zeroclawConfigDir.appendingPathComponent("workspace")
+    }
+
+    private func writeSoulMd() throws {
+        let workspaceDir = zeroclawWorkspaceDir
+        try FileManager.default.createDirectory(at: workspaceDir, withIntermediateDirectories: true)
+        let soulPath = workspaceDir.appendingPathComponent("SOUL.md")
+        // Only write on first run; user or agent may have customised it.
+        guard !FileManager.default.fileExists(atPath: soulPath.path) else { return }
+        guard let bundleUrl = Bundle.main.url(forResource: "SOUL", withExtension: "md"),
+              let content = try? String(contentsOf: bundleUrl, encoding: .utf8) else {
+            os_log(.error, "[NodeService] SOUL.md not found in app bundle — skipping write")
+            return
+        }
+        try content.write(to: soulPath, atomically: true, encoding: .utf8)
+        os_log(.debug, "[NodeService] SOUL.md written to workspace")
     }
 
     private func writeZeroclawConfig(config: [String: Any]) throws -> URL {
@@ -219,8 +248,11 @@ paired_tokens = ["\(tomlEscape(gatewayToken))"]
                                 withOptionalCString(relayAddr) { relayPtr in
                                     withOptionalCString(agentName) { namePtr in
                                         withOptionalCString(rpcUrl) { rpcPtr in
-                                            zerox1_node_start(dataDirPtr, addrPtr, secretPtr,
-                                                              keyPtr, relayPtr, namePtr, rpcPtr)
+                                            AGGREGATOR_URL.withCString { aggPtr in
+                                                zerox1_node_start(dataDirPtr, addrPtr, secretPtr,
+                                                                  keyPtr, relayPtr, namePtr, rpcPtr,
+                                                                  aggPtr)
+                                            }
                                         }
                                     }
                                 }
@@ -267,14 +299,19 @@ paired_tokens = ["\(tomlEscape(gatewayToken))"]
                     // Persist identity key returned by node only if not already stored,
                     // to avoid overwriting a valid persistent key on every boot.
                     if let data,
-                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let key = json["signing_key"] as? String,
-                       KeychainHelper.load(key: "identity_key") == nil {
-                        KeychainHelper.save(key, key: "identity_key")
-                        os_log(.debug, "[NodeService] Identity key saved to Keychain")
+                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                        if let key = json["signing_key"] as? String,
+                           KeychainHelper.load(key: "identity_key") == nil {
+                            KeychainHelper.save(key, key: "identity_key")
+                            os_log(.debug, "[NodeService] Identity key saved to Keychain")
+                        }
+                        if let agentId = json["agent_id"] as? String {
+                            self.lastAgentId = agentId
+                        }
                     }
-                    // Start background keep-alive now that the node is ready.
+                    // Start background keep-alive and health wake observers.
                     KeepAliveService.shared.nodeDidStart(dataDir: self.dataDir)
+                    HealthWakeService.shared.register()
                     PhoneBridgeServer.shared.start(token: self.phoneBridgeToken)
                     os_log(.debug, "[NodeService] PhoneBridgeServer started on port 9092")
                     let brainEnabled = (config["agentBrainEnabled"] as? NSNumber)?.boolValue ?? false
@@ -474,6 +511,97 @@ paired_tokens = ["\(tomlEscape(gatewayToken))"]
         req.httpMethod = "POST"
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         URLSession.shared.dataTask(with: req).resume()
+    }
+}
+
+// MARK: - Aggregator sleep state
+
+extension NodeService {
+
+    /// Report sleep state to the aggregator so senders know whether to queue
+    /// messages and fire APNs wake pushes.
+    ///
+    /// Called by the JS layer (via NodeModule) on every AppState transition:
+    ///   background/inactive → setAggregatorSleepState(sleeping: true)
+    ///   active              → setAggregatorSleepState(sleeping: false)
+    ///
+    /// Signing uses the Ed25519 identity key stored in the iOS Keychain.
+    /// Fire-and-forget — completion always called regardless of outcome.
+    func setAggregatorSleepState(sleeping: Bool, completion: @escaping () -> Void = {}) {
+        guard let keyB58 = KeychainHelper.load(key: "identity_key"), !keyB58.isEmpty else {
+            completion(); return
+        }
+
+        // Prefer the agent_id we already know. If not yet populated (first-launch
+        // backgrounding before node has started), derive it from the identity key.
+        var agentId = lastAgentId
+        if agentId == nil || agentId!.isEmpty {
+            if let keyBytes = base58Decode(keyB58), keyBytes.count >= 32 {
+                let seed = Data(keyBytes.prefix(32))
+                if let privateKey = try? Curve25519.Signing.PrivateKey(rawRepresentation: seed) {
+                    let derived = privateKey.publicKey.rawRepresentation
+                        .map { String(format: "%02x", $0) }.joined()
+                    lastAgentId = derived   // persist for next time
+                    agentId = derived
+                }
+            }
+        }
+
+        guard let agentId, !agentId.isEmpty else {
+            completion(); return
+        }
+
+        let body: [String: Any] = ["agent_id": agentId, "sleeping": sleeping]
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else {
+            completion(); return
+        }
+
+        guard let sigHex = ed25519Sign(data: bodyData, base58Key: keyB58) else {
+            completion(); return
+        }
+
+        var req = URLRequest(url: URL(string: "\(AGGREGATOR_URL)/fcm/sleep")!)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue(sigHex, forHTTPHeaderField: "X-Signature")
+        req.httpBody = bodyData
+        req.timeoutInterval = 8
+
+        URLSession.shared.dataTask(with: req) { _, _, _ in
+            completion()
+        }.resume()
+    }
+
+    /// Sign `data` with an Ed25519 key stored as base58 (seed || pubkey, 64 bytes).
+    /// Returns the 64-byte signature as a lowercase hex string, or nil on error.
+    private func ed25519Sign(data: Data, base58Key: String) -> String? {
+        guard let keyBytes = base58Decode(base58Key), keyBytes.count >= 32 else { return nil }
+        let seed = Data(keyBytes.prefix(32))
+        guard let privateKey = try? Curve25519.Signing.PrivateKey(rawRepresentation: seed) else { return nil }
+        guard let sig = try? privateKey.signature(for: data) else { return nil }
+        return sig.map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Minimal base58 decoder (Bitcoin alphabet).
+    private func base58Decode(_ s: String) -> [UInt8]? {
+        let alphabet = Array("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
+        var result = [UInt8]()
+        for char in s {
+            guard let digitIdx = alphabet.firstIndex(of: char) else { return nil }
+            var carry = digitIdx
+            for i in stride(from: result.count - 1, through: 0, by: -1) {
+                carry += 58 * Int(result[i])
+                result[i] = UInt8(carry & 0xff)
+                carry >>= 8
+            }
+            while carry > 0 {
+                result.insert(UInt8(carry & 0xff), at: 0)
+                carry >>= 8
+            }
+        }
+        let leadingZeros = s.prefix(while: { $0 == "1" }).count
+        let stripped = result.drop(while: { $0 == 0 })
+        return Array(repeating: UInt8(0), count: leadingZeros) + stripped
     }
 }
 

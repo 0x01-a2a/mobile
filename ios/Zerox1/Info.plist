@@ -106,7 +106,7 @@
 		<string>fetch</string>
 		<string>processing</string>
 		<string>location</string>
-		<string>voip</string>
+		<string>remote-notification</string>
 	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>

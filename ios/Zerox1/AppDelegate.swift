@@ -47,8 +47,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             self.handleNodeKeepalive(task: task as! BGProcessingTask)
         }
 
-        // Request notification permissions
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+        // Request notification permissions + register for APNs (needed for background push wake)
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
+            if granted {
+                DispatchQueue.main.async {
+                    application.registerForRemoteNotifications()
+                }
+            }
+        }
 
         // Register notification category with agent quick-actions
         let chatAction = UNNotificationAction(
@@ -75,16 +81,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         UNUserNotificationCenter.current().setNotificationCategories([agentCategory])
         UNUserNotificationCenter.current().delegate = self
 
-        // Register VoIP push for instant background wake
-        #if canImport(PushKit)
-        VoIPPushHandler.shared.register()
-        #endif
-
         // Auto-start node if enabled
         let autoStart = UserDefaults.standard.bool(forKey: "zerox1_auto_start")
         if autoStart {
             let config = loadSavedConfig()
-            NodeService.shared.start(config: config) { _ in }
+            NodeService.shared.start(config: config) { _ in
+                // Register HealthKit background delivery once node is running.
+                HealthWakeService.shared.register()
+            }
         }
 
         return true
@@ -185,7 +189,65 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
     }
 }
 
-// M-3: Rejects all HTTP redirects for health-check requests
+// MARK: - APNs registration
+
+extension AppDelegate {
+
+    /// Store the APNs device token so the aggregator can send wake pushes.
+    func application(_ application: UIApplication,
+                     didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
+        KeychainHelper.save(hex, key: "apns_push_token")
+        UserDefaults.standard.set(hex, forKey: "zerox1_apns_token")
+        NSLog("[AppDelegate] APNs token registered: \(hex.prefix(8))…")
+    }
+
+    func application(_ application: UIApplication,
+                     didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        NSLog("[AppDelegate] APNs registration failed: \(error)")
+    }
+
+    /// Background push handler — called when a silent push (content-available: 1) arrives.
+    ///
+    /// Push payload contract (sent by aggregator / zeroclaw cloud watcher):
+    ///   {
+    ///     "wake_type": "bounty" | "propose" | "trading" | "health" | "generic",
+    ///     "from":      "<agent_name or service>",      // optional
+    ///     "detail":    "<short description>",          // optional
+    ///     "aps":       { "content-available": 1 }
+    ///   }
+    ///
+    /// iOS gives ~30s of background execution. The node is started (if not running)
+    /// and the Live Activity is updated to reflect the wake reason.
+    func application(_ application: UIApplication,
+                     didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+                     fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        let wakeType = userInfo["wake_type"] as? String ?? "generic"
+        let from     = userInfo["from"]      as? String
+        let detail   = userInfo["detail"]    as? String
+
+        NSLog("[AppDelegate] Background push — type=\(wakeType) from=\(from ?? "?")")
+
+        // Update Live Activity immediately so island reflects the wake reason.
+        LiveActivityBridge.updateForWake(wakeType: wakeType, from: from, detail: detail)
+
+        // Wake the node so it can process the incoming event.
+        let config = AppDelegate.loadSavedConfigStatic()
+        let isHosted = UserDefaults.standard.bool(forKey: "zerox1_hosted_mode")
+        let hostUrl  = UserDefaults.standard.string(forKey: "zerox1_host_url") ?? ""
+
+        if isHosted, !hostUrl.isEmpty {
+            NodeService.shared.startHostedMode(hostUrl: hostUrl, config: config)
+            completionHandler(.newData)
+        } else {
+            NodeService.shared.start(config: config) { _ in
+                completionHandler(.newData)
+            }
+        }
+    }
+}
+
+// MARK: - M-3: Rejects all HTTP redirects for health-check requests
 private final class HealthCheckSessionDelegate: NSObject, URLSessionTaskDelegate {
     func urlSession(_ session: URLSession,
                     task: URLSessionTask,

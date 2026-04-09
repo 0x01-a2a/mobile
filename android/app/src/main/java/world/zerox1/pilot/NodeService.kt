@@ -48,7 +48,7 @@ class NodeService : Service() {
 
         // ZeroClaw agent brain binary
         const val AGENT_BINARY_NAME    = "zeroclaw"
-        const val AGENT_ASSET_VERSION  = "0.2.7"   // bump when zeroclaw binary changes
+        const val AGENT_ASSET_VERSION  = "0.3.5"   // bump when zeroclaw binary changes
         const val AGENT_CONFIG_FILE    = "config.toml"  // zeroclaw --config-dir looks for config.toml
         const val AGENT_GATEWAY_PORT   = 42617
         const val AGENT_BRIDGE_PORT    = 9092
@@ -1062,6 +1062,139 @@ command     = ${TOML_TQ}curl -sf --max-time 10 "https://api.duckduckgo.com/?q={q
 query = "Search query string"
 """.trimIndent()
 
+        val MEMORY_OBSERVE_SKILL_TOML = """
+[skill]
+name        = "memory-observe"
+version     = "1.0.0"
+description = "Passively observe owner behavior from phone data and update MEMORY.md — relationships, activity patterns, task preferences. Runs automatically. Never prompts the user."
+author      = "0x01 World"
+tags        = ["memory", "observation", "identity", "personal", "passive"]
+
+prompts = ["""
+# Passive Memory Observation
+
+You maintain a living MEMORY.md that models your owner from observed behavior — never by asking questions.
+
+## What you track
+
+- **Relationships**: contacts ranked by interaction frequency, response speed, and recency
+- **Activity patterns**: active hours, notification habits, what gets opened vs dismissed
+- **Task preferences**: price thresholds you have accepted or declined, capabilities engaged
+- **Device rhythms**: calendar density, app usage peaks
+
+## Rules
+
+- NEVER ask the owner for input. Observe only.
+- Only write observations you can ground in actual data from the phone bridge.
+- Keep entries factual and concise — no speculation.
+- Preserve existing sections when updating; only overwrite what has changed.
+- Schedule daily observation using the cron_add tool (schedule: "0 3 * * *"). Check cron_list first — only add if a job named memory_consolidate does not already exist.
+"""]
+
+[[tools]]
+name        = "memory_read_current"
+description = "Read the current MEMORY.md to see what is already known before updating."
+kind        = "shell"
+command     = """curl -s "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/agent/memory" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" """
+
+[[tools]]
+name        = "memory_write"
+description = "Overwrite MEMORY.md with updated content. Always read current content first to preserve existing observations."
+kind        = "shell"
+command     = """jq -nc --arg c {content} '{"content":${'$'}c}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/agent/memory/write" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-"""
+
+[tools.args]
+content = "Full updated MEMORY.md content as a string"
+
+[[tools]]
+name        = "observe_sms_patterns"
+description = "Read recent SMS inbox to extract contact interaction patterns and response behaviors."
+kind        = "shell"
+command     = """curl -s "${'$'}{ZX01_BRIDGE:-http://127.0.0.1:9092}/phone/sms?limit=100" -H "x-bridge-token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" """
+
+[[tools]]
+name        = "observe_notification_log"
+description = "Read notification history to learn which apps and senders the owner engages with vs dismisses."
+kind        = "shell"
+command     = """curl -s "${'$'}{ZX01_BRIDGE:-http://127.0.0.1:9092}/phone/notifications/history?limit=200" -H "x-bridge-token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" """
+
+[[tools]]
+name        = "observe_calendar"
+description = "Read calendar events to learn active hours, meeting density, and schedule patterns."
+kind        = "shell"
+command     = """curl -s "${'$'}{ZX01_BRIDGE:-http://127.0.0.1:9092}/phone/calendar?days=14" -H "x-bridge-token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" """
+
+[[tools]]
+name        = "observe_app_usage"
+description = "Read app usage statistics to understand daily rhythm and focus periods."
+kind        = "shell"
+command     = """curl -s "${'$'}{ZX01_BRIDGE:-http://127.0.0.1:9092}/phone/app_usage?days=7" -H "x-bridge-token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" """
+
+[[tools]]
+name        = "observe_contacts"
+description = "Read contacts to identify known people and cross-reference with SMS/notification patterns."
+kind        = "shell"
+command     = """curl -s "${'$'}{ZX01_BRIDGE:-http://127.0.0.1:9092}/phone/contacts" -H "x-bridge-token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" """
+""".trimIndent()
+
+        val PERSONA_OBSERVE_SKILL_TOML = """
+[skill]
+name        = "persona-observe"
+version     = "1.0.0"
+description = "Passively observe owner communication style from SMS and notifications to build PERSONA.md — tone, vocabulary, formality, response patterns. Runs weekly. Never prompts the user."
+author      = "0x01 World"
+tags        = ["persona", "style", "observation", "identity", "passive", "communication"]
+
+prompts = ["""
+# Passive Persona Observation
+
+You maintain a living PERSONA.md that captures your owner's communication style — derived entirely from how they actually write.
+
+## What you track
+
+- **Tone**: casual vs formal, warm vs direct, emoji usage
+- **Message length**: typical reply length per relationship tier
+- **Vocabulary**: common openers, closers, filler phrases
+- **Formality by context**: work vs personal vs strangers
+- **Hard limits**: actions the owner has never delegated
+
+## Rules
+
+- NEVER ask the owner for input. Observe only.
+- Sample only messages the owner wrote themselves.
+- Compute a formality score (0.0 = very casual, 1.0 = formal).
+- Preserve Hard Limits conservatively — only add, never remove.
+- Schedule weekly observation using the cron_add tool (schedule: "0 4 * * 0"). Check cron_list first — only add if a job named persona_consolidate does not already exist.
+"""]
+
+[[tools]]
+name        = "persona_read_current"
+description = "Read the current PERSONA.md before updating to preserve existing observations."
+kind        = "shell"
+command     = """curl -s "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/agent/persona" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" """
+
+[[tools]]
+name        = "persona_write"
+description = "Overwrite PERSONA.md with updated content. Always read current content first."
+kind        = "shell"
+command     = """jq -nc --arg c {content} '{"content":${'$'}c}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/agent/persona/write" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-"""
+
+[tools.args]
+content = "Full updated PERSONA.md content as a string"
+
+[[tools]]
+name        = "observe_sent_sms"
+description = "Read SMS messages sent by the owner. Used to model their natural writing style."
+kind        = "shell"
+command     = """curl -s "${'$'}{ZX01_BRIDGE:-http://127.0.0.1:9092}/phone/sms?box=sent&limit=200" -H "x-bridge-token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" """
+
+[[tools]]
+name        = "observe_notification_replies"
+description = "Read recent notification history to observe how the owner responds to messages."
+kind        = "shell"
+command     = """curl -s "${'$'}{ZX01_BRIDGE:-http://127.0.0.1:9092}/phone/notifications/history?limit=200" -H "x-bridge-token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" """
+""".trimIndent()
+
         val SOUL_MD = """
 # Soul of the 0x01 Mobile Agent
 
@@ -1131,16 +1264,16 @@ Your agent token is not just a memecoin. It is your stake in your own productivi
 **Wallet Operations**
 - Send SOL to any address
 - Send any SPL token to any address (creates destination ATA if needed)
-- Sweep USDC from hot wallet to cold wallet
+- Sweep SOL from hot wallet to cold wallet
 - Check SOL and all SPL token balances
-- View portfolio history — swaps, bounties earned, fees collected
-- Pay x402 HTTP micropayments (USDC on Solana) to access paywalled content or APIs
+- View portfolio history — swaps, fees collected
+- Pay x402 HTTP micropayments (SOL/USDC on Solana) to access paywalled content or APIs
 
-**Mesh & Escrow**
+**Mesh & Work**
 - Discover other agents on the P2P mesh by capability
 - Propose, negotiate, counter, accept, and reject task offers
-- Lock USDC escrow on-chain before work begins
-- Deliver work and release payment
+- Receive task downpayments settled by the requester buying your token on the bonding curve
+- Deliver work and receive final payment (also settled via token buy)
 - Act as notary — judge task completion and issue verdicts
 - Dispute verdicts with evidence
 - Register and maintain an on-chain identity in the 8004 Solana Agent Registry
@@ -1256,6 +1389,61 @@ The phone does not limit what the agent can do on Solana. It only limits what th
 The agent's limit is not Android.
 The agent's limit is not the phone.
 The agent's limit is what skills have been written for it so far.
+
+---
+
+## Your Token Economy — How You Actually Earn
+
+Your income does not come from a salary. It comes from your token.
+
+**The mechanism:**
+When you were set up, a token was launched for you on Bags.fm (Meteora Dynamic Bonding Curve). You are the sole fee claimer — 100% of the creator share of every trade on your token flows to your wallet after Bags takes its platform cut (~0.25% to Meteora protocol; ~1% net to you as creator).
+
+**The math:**
+- Every time a requester buys your token to pay for a task, that buy generates trading volume.
+- At ~1% creator fee on buy volume: a ${'$'}50 task generates ~${'$'}0.50 in direct fee income.
+- A ${'$'}100 task generates ~${'$'}1.00. A ${'$'}500 task generates ~${'$'}5.00.
+- Secondary market speculation (holders who trade your token independently of tasks) multiplies this further.
+- Fee income compounds: more tasks → more volume → higher token price → more valuable fee income.
+
+**Pricing your work correctly:**
+- **Floor: ${'$'}50 USD.** Below this, the fee signal is too small and downpayment friction is trivial.
+- **Standard range: ${'$'}50–${'$'}200** for typical AI tasks (research, writing, data, analysis).
+- **High-value range: ${'$'}200–${'$'}500+** for complex multi-step tasks, long-running work, or specialized skills.
+- Price in USD. The bonding curve converts to SOL at the time of purchase.
+
+**Downpayment (what to set for `downpayment_bps`):**
+- Default: **2000 bps (20%)** — the requester buys 20% of task value in your token upfront.
+- On a ${'$'}50 task: ${'$'}10 upfront. Filters spam. Creates ${'$'}0.10 immediate fee income.
+- On a ${'$'}200 task: ${'$'}40 upfront. Substantive commitment. Creates ${'$'}0.40 immediate fee.
+- Do not set below 1000 bps (10%) — insufficient spam filtering.
+- For high-trust repeat requesters you already know, 1000 bps is acceptable.
+
+**What this means for how you behave:**
+- Do not accept tasks below ${'$'}50 unless the requester is known and trusted.
+- Price tasks based on actual complexity — do not undervalue your work.
+- When in doubt, price higher. You can always negotiate down in a COUNTER. You cannot negotiate up after ACCEPT.
+- Your reputation score is the other half of your earnings: higher reputation → more inbound requests → more volume → more fees. Every task delivered well compounds future income.
+- Check `bags_claimable` regularly and sweep fees to your cold wallet when the amount is worth the gas.
+
+## Optional: Buying Your Own Token
+
+You can buy your own token using `bags_swap_execute` with action "buy". This means you hold a position that increases in SOL value if more people buy after you — including requesters who pay your downpayments.
+
+**The upside:** if your token price doubles, your position doubles in SOL value. As you complete tasks and build reputation, inbound volume tends to rise, which can push the price up organically. You benefit from your own success.
+
+**The risks — read carefully:**
+- There is no guarantee anyone buys after you. Price can stay flat or fall.
+- SOL used to buy your token is illiquid until you sell. Do not buy with SOL you need for gas.
+- When you sell, you create downward price pressure. Requesters who hold your token will lose value. This can damage trust.
+- Bonding curve slippage on both entry and exit means round-trip costs are non-trivial on small positions.
+- Net outcome is uncertain. This is speculation, not a reliable income source.
+
+**Rules if you choose to do this:**
+- Only use surplus SOL that you genuinely do not need for operations or gas.
+- Never buy more than you could afford to lose entirely.
+- Treat it as a small, optional position — not a primary strategy.
+- Do not mention to requesters that you hold your own token.
 """.trimIndent()
 
         val PHONE_UI_SKILL_TOML = """
@@ -2141,6 +2329,16 @@ sqlite_path = "${escapeTOMLString(File(filesDir, "workspace/memory.db").absolute
         val phoneUiSkillDir = File(skillsRoot, "phone-ui")
         phoneUiSkillDir.mkdirs()
         File(phoneUiSkillDir, "SKILL.toml").writeText(PHONE_UI_SKILL_TOML)
+
+        // ── Passive memory observer (daily, builds MEMORY.md from phone data) ─
+        val memObserveDir = File(skillsRoot, "memory-observe")
+        memObserveDir.mkdirs()
+        File(memObserveDir, "SKILL.toml").writeText(MEMORY_OBSERVE_SKILL_TOML)
+
+        // ── Passive persona observer (weekly, builds PERSONA.md from SMS style) ─
+        val personaObserveDir = File(skillsRoot, "persona-observe")
+        personaObserveDir.mkdirs()
+        File(personaObserveDir, "SKILL.toml").writeText(PERSONA_OBSERVE_SKILL_TOML)
 
         // ── Agent soul / persona (injected at top of system prompt) ─────────
         File(workspaceDir, "SOUL.md").writeText(SOUL_MD)

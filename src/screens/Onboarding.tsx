@@ -208,7 +208,43 @@ function WelcomeStep({
   const { t } = useTranslation();
   const [agreed, setAgreed] = useState(false);
   const [riskAgreed, setRiskAgreed] = useState(false);
-  const walletValid = phantomWallet.trim().length >= 32;
+  const [mwaLoading, setMwaLoading] = useState(false);
+  const [showPaste, setShowPaste] = useState(false);
+  const termsOk = agreed && riskAgreed;
+  const walletLinked = phantomWallet.trim().length >= 32;
+
+  const handleConnectPhantom = async () => {
+    if (!termsOk) {
+      Alert.alert('Agreement required', 'Please tick both boxes before connecting.');
+      return;
+    }
+    setMwaLoading(true);
+    try {
+      const { transact } = require('@solana-mobile/mobile-wallet-adapter-protocol-web3js');
+      const { PublicKey } = require('@solana/web3.js');
+      await transact(async (wallet: any) => {
+        const { accounts } = await wallet.authorize({
+          cluster: 'mainnet-beta',
+          identity: { name: '01 Protocol', uri: 'https://0x01.world', icon: 'https://0x01.world/logo.png' },
+        });
+        // Sign a nonce to cryptographically prove the user controls this key.
+        const nonce = new TextEncoder().encode(`01-link-${Date.now()}`);
+        await wallet.signMessages({ addresses: [accounts[0].address], payloads: [nonce] });
+        const walletB58 = new PublicKey(accounts[0].address).toBase58();
+        onChangePhantomWallet(walletB58);
+      });
+      // Signature succeeded — wallet is proven. Proceed.
+      onEnable();
+    } catch (e: any) {
+      const msg: string = e?.message ?? '';
+      if (!msg.toLowerCase().includes('cancel') && !msg.toLowerCase().includes('user rejected')) {
+        Alert.alert('Connection failed', msg || 'Could not connect Phantom. Make sure it is installed.');
+      }
+    } finally {
+      setMwaLoading(false);
+    }
+  };
+
   return (
     <StepShell step={0}>
       <Text style={s.logo}>01</Text>
@@ -235,25 +271,6 @@ function WelcomeStep({
             </View>
           );
         })}
-      </View>
-
-      <View style={{ marginTop: 8, marginBottom: 16 }}>
-        <Text style={s.inputLabel}>{t('onboarding.ownerWallet')}</Text>
-        <TextInput
-          style={[s.textInput, walletValid && { borderColor: C.greenBorder }]}
-          value={phantomWallet}
-          onChangeText={onChangePhantomWallet}
-          placeholder={t('onboarding.ownerWalletPlaceholder')}
-          placeholderTextColor={C.hint}
-          autoCapitalize="none"
-          autoCorrect={false}
-          returnKeyType="done"
-        />
-        {walletValid && (
-          <Text style={[s.inputHint, { color: C.green }]}>
-            {t('onboarding.ownerWalletEnabled')}
-          </Text>
-        )}
       </View>
 
       <TouchableOpacity
@@ -295,8 +312,73 @@ function WelcomeStep({
         </Text>
       </TouchableOpacity>
 
-      <PrimaryBtn label={t('onboarding.setupAgent')} onPress={onEnable} disabled={!agreed || !riskAgreed} />
-      <GhostBtn label={t('onboarding.skipForNow')} onPress={agreed && riskAgreed ? onSkip : () => Alert.alert('Agreement required', 'Please tick both boxes to continue.')} />
+      {walletLinked && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8, paddingHorizontal: 4 }}>
+          <Text style={{ fontSize: 13, color: C.green }}>✓</Text>
+          <Text style={{ fontSize: 12, color: C.green, flex: 1 }} numberOfLines={1}>
+            {phantomWallet.slice(0, 8)}…{phantomWallet.slice(-6)} linked
+          </Text>
+          <TouchableOpacity onPress={() => { onChangePhantomWallet(''); setShowPaste(false); }}>
+            <Text style={{ fontSize: 11, color: '#9ca3af' }}>×</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Primary: prove ownership via Phantom MWA */}
+      <TouchableOpacity
+        onPress={handleConnectPhantom}
+        disabled={!termsOk || mwaLoading}
+        style={{
+          backgroundColor: termsOk ? '#7c3aed' : '#e5e7eb',
+          borderRadius: 10,
+          paddingVertical: 14,
+          alignItems: 'center',
+          marginBottom: 10,
+        }}>
+        <Text style={{ fontSize: 15, fontWeight: '700', color: termsOk ? '#fff' : '#9ca3af' }}>
+          {mwaLoading ? 'Opening Phantom…' : walletLinked ? 'Reconnect Phantom →' : 'Connect Phantom →'}
+        </Text>
+      </TouchableOpacity>
+
+      {/* Paste fallback — collapsed by default */}
+      <TouchableOpacity onPress={() => setShowPaste(v => !v)} style={{ alignItems: 'center', marginBottom: 8 }}>
+        <Text style={{ fontSize: 12, color: '#6b7280', textDecorationLine: 'underline' }}>
+          {showPaste ? 'Hide manual entry' : 'Paste address manually instead'}
+        </Text>
+      </TouchableOpacity>
+
+      {showPaste && (
+        <View style={{ marginBottom: 16 }}>
+          <TextInput
+            style={[s.textInput, walletLinked && { borderColor: C.greenBorder }]}
+            value={phantomWallet}
+            onChangeText={onChangePhantomWallet}
+            placeholder={t('onboarding.ownerWalletPlaceholder')}
+            placeholderTextColor={C.hint}
+            autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="done"
+          />
+          {walletLinked && (
+            <Text style={[s.inputHint, { color: C.green }]}>
+              {t('onboarding.ownerWalletEnabled')}
+            </Text>
+          )}
+          <Text style={{ fontSize: 10, color: '#f59e0b', marginTop: 4 }}>
+            Pasting an address does not prove ownership. Connect Phantom for cryptographic proof.
+          </Text>
+        </View>
+      )}
+
+      <PrimaryBtn
+        label={walletLinked ? t('onboarding.setupAgent') : t('onboarding.setupAgent')}
+        onPress={termsOk ? onEnable : () => Alert.alert('Agreement required', 'Please tick both boxes to continue.')}
+        disabled={!termsOk}
+      />
+      <GhostBtn
+        label={t('onboarding.skipForNow')}
+        onPress={termsOk ? onSkip : () => Alert.alert('Agreement required', 'Please tick both boxes to continue.')}
+      />
     </StepShell>
   );
 }
@@ -560,17 +642,102 @@ function TokenChoiceStep({
 }: {
   agentName: string;
   onBack: () => void;
-  onLaunch: () => void;
+  onLaunch: (giftCode?: string, paymentTxid?: string) => void;
   onSkip: () => void;
 }) {
   const name = agentName.trim() || 'your agent';
+  const [giftCode, setGiftCode] = useState('');
+  const [codeValid, setCodeValid] = useState<boolean | null>(null);
+  const [codeChecking, setCodeChecking] = useState(false);
+  const [launchInfo, setLaunchInfo] = useState<{
+    gated: boolean;
+    self_pay_fee_lamports: number;
+    fee_wallet: string | null;
+    self_pay_available: boolean;
+  } | null>(null);
+  const [mwaLoading, setMwaLoading] = useState(false);
+
+  useEffect(() => {
+    fetch(`${AGGREGATOR_API}/sponsor/launch-info`)
+      .then(r => r.json())
+      .then(data => setLaunchInfo(data))
+      .catch(() => setLaunchInfo({ gated: false, self_pay_fee_lamports: 20_000_000, fee_wallet: null, self_pay_available: false }));
+  }, []);
+
+  // Debounce gift code validation
+  useEffect(() => {
+    if (!giftCode.trim()) { setCodeValid(null); return; }
+    const timer = setTimeout(async () => {
+      setCodeChecking(true);
+      try {
+        const res = await fetch(`${AGGREGATOR_API}/sponsor/validate-code`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: giftCode.trim() }),
+        });
+        const data = await res.json();
+        setCodeValid(data.valid === true);
+      } catch {
+        setCodeValid(null);
+      } finally {
+        setCodeChecking(false);
+      }
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [giftCode]);
+
+  const handlePhantomPay = async () => {
+    const feeWallet = launchInfo?.fee_wallet;
+    const feeLamports = launchInfo?.self_pay_fee_lamports ?? 20_000_000;
+    if (!feeWallet) {
+      Alert.alert('Unavailable', 'Self-pay is not configured on this network.');
+      return;
+    }
+    setMwaLoading(true);
+    try {
+      const { transact } = require('@solana-mobile/mobile-wallet-adapter-protocol-web3js');
+      const { Connection, SystemProgram, Transaction, PublicKey } = require('@solana/web3.js');
+      const txSig: string = await transact(async (wallet: any) => {
+        const { accounts } = await wallet.authorize({
+          cluster: 'mainnet-beta',
+          identity: { name: '01 Protocol', uri: 'https://0x01.world', icon: 'https://0x01.world/logo.png' },
+        });
+        const fromPubkey = new PublicKey(accounts[0].address);
+        // Signing the payment IS proof of ownership — save as cold wallet immediately.
+        const walletB58 = fromPubkey.toBase58();
+        await AsyncStorage.setItem('zerox1:linked_wallet', walletB58).catch(() => {});
+        const connection = new Connection('https://api.mainnet-beta.solana.com', 'confirmed');
+        const { blockhash } = await connection.getLatestBlockhash();
+        const tx = new Transaction({ recentBlockhash: blockhash, feePayer: fromPubkey }).add(
+          SystemProgram.transfer({ fromPubkey, toPubkey: new PublicKey(feeWallet), lamports: feeLamports }),
+        );
+        const sigs: string[] = await wallet.signAndSendTransactions({ transactions: [tx] });
+        return sigs[0];
+      });
+      if (txSig) onLaunch(undefined, txSig);
+    } catch (e: any) {
+      Alert.alert('Payment failed', e?.message ?? 'Could not complete Phantom payment. Make sure Phantom is installed.');
+    } finally {
+      setMwaLoading(false);
+    }
+  };
+
+  const gated = launchInfo?.gated ?? false;
+  const canLaunchFree = !gated || codeValid === true;
+  const feeSOL = ((launchInfo?.self_pay_fee_lamports ?? 20_000_000) / 1e9).toFixed(3);
+  const selfPayAvailable = !!(launchInfo?.self_pay_available && launchInfo?.fee_wallet);
+
+  const codeStatusColor = codeChecking ? '#9ca3af' : codeValid === true ? '#16a34a' : codeValid === false ? '#dc2626' : '#9ca3af';
+  const codeStatusIcon = codeChecking ? '…' : codeValid === true ? '✓' : codeValid === false ? '✗' : '';
+
   return (
     <StepShell step={4} total={4}>
       <BackBtn onPress={onBack} />
       <Heading label="Launch your agent token?" />
       <Sub>
-        Launching creates a Solana token for {name} on Bags.fm — free, sponsored
-        by the 01 protocol.
+        {gated
+          ? `Enter a gift code to get a sponsored launch for ${name}, or pay a small fee.`
+          : `Launching creates a Solana token for ${name} on Bags.fm — free, sponsored by the 01 protocol.`}
       </Sub>
 
       <View style={{
@@ -585,27 +752,40 @@ function TokenChoiceStep({
           WHAT'S AN AGENT TOKEN?
         </Text>
         <Text style={{ fontSize: 12, color: '#374151', lineHeight: 18 }}>
-          A Solana token representing your agent. As your reputation grows, token holders earn trading fees — and so do you. Free forever, sponsored by 01.
+          A Solana token representing your agent. As your reputation grows, token holders earn trading fees — and so do you.{gated ? ' Get a gift code from the 01 community.' : ' Free forever, sponsored by 01.'}
         </Text>
       </View>
 
+      {gated && (
+        <View style={{ marginBottom: 16 }}>
+          <Text style={{ fontSize: 11, color: '#6b7280', marginBottom: 6, letterSpacing: 0.3 }}>
+            GIFT CODE (from Discord / referral)
+          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: codeValid === true ? '#16a34a' : codeValid === false ? '#dc2626' : '#d1d5db', borderRadius: 8, paddingHorizontal: 12 }}>
+            <TextInput
+              style={{ flex: 1, height: 44, fontSize: 14, color: '#111827', fontFamily: 'monospace' }}
+              placeholder="Enter gift code…"
+              placeholderTextColor="#9ca3af"
+              value={giftCode}
+              onChangeText={setGiftCode}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            {!!codeStatusIcon && (
+              <Text style={{ fontSize: 16, color: codeStatusColor, marginLeft: 8 }}>{codeStatusIcon}</Text>
+            )}
+          </View>
+          {codeValid === false && (
+            <Text style={{ fontSize: 11, color: '#dc2626', marginTop: 4 }}>Invalid or already used code.</Text>
+          )}
+        </View>
+      )}
+
       <View style={{ gap: 10, marginBottom: 28 }}>
         {[
-          {
-            icon: '◈',
-            title: 'Economy utility',
-            body: 'Requesters buy your token to signal hiring intent. Token price reflects your reputation and demand. Trading fees go straight to your wallet.',
-          },
-          {
-            icon: '♦',
-            title: 'Sponsors open-source dev',
-            body: '01 is free and open-source. A portion of trading fees flows back to the protocol — keeping it free and funded forever.',
-          },
-          {
-            icon: '◎',
-            title: 'Free launch',
-            body: 'The 01 aggregator covers all SOL gas fees. You pay nothing. You can also launch later from Settings.',
-          },
+          { icon: '◈', title: 'Economy utility', body: 'Requesters buy your token to signal hiring intent. Token price reflects your reputation and demand. Trading fees go straight to your wallet.' },
+          { icon: '♦', title: 'Sponsors open-source dev', body: '01 is free and open-source. A portion of trading fees flows back to the protocol — keeping it free and funded forever.' },
+          { icon: '◎', title: gated ? 'Get a code' : 'Free launch', body: gated ? 'Ask in the 01 Discord or get a referral from an existing agent to receive a sponsored gift code.' : 'The 01 aggregator covers all SOL gas fees. You pay nothing. You can also launch later from Settings.' },
         ].map(({ icon, title, body }) => (
           <View key={title} style={s.tokenCard}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
@@ -617,7 +797,30 @@ function TokenChoiceStep({
         ))}
       </View>
 
-      <PrimaryBtn label="Launch my token →" onPress={onLaunch} />
+      <PrimaryBtn
+        label={canLaunchFree ? 'Launch my token →' : 'Launch my token →'}
+        onPress={() => canLaunchFree ? onLaunch(gated ? giftCode.trim() : undefined) : undefined}
+        disabled={!canLaunchFree}
+      />
+
+      {gated && selfPayAvailable && (
+        <TouchableOpacity
+          onPress={handlePhantomPay}
+          disabled={mwaLoading}
+          style={{
+            marginTop: 10,
+            borderWidth: 1,
+            borderColor: '#7c3aed',
+            borderRadius: 8,
+            paddingVertical: 12,
+            alignItems: 'center',
+          }}>
+          <Text style={{ fontSize: 14, color: '#7c3aed', fontWeight: '600' }}>
+            {mwaLoading ? 'Opening Phantom…' : `Pay with Phantom (~${feeSOL} SOL) →`}
+          </Text>
+        </TouchableOpacity>
+      )}
+
       <GhostBtn label="Skip — I'll launch later" onPress={onSkip} />
     </StepShell>
   );
@@ -645,6 +848,8 @@ export function OnboardingScreen({
   const [saving, setSaving] = useState(false);
   const [savedConfig, setSavedConfig] = useState<AgentBrainConfig | null>(null);
   const [launchToken, setLaunchToken] = useState(false);
+  const [launchGiftCode, setLaunchGiftCode] = useState('');
+  const [launchPaymentTxid, setLaunchPaymentTxid] = useState('');
 
   // Load partial onboarding state on mount
   useEffect(() => {
@@ -783,8 +988,13 @@ export function OnboardingScreen({
         <TokenChoiceStep
           agentName={agentName}
           onBack={() => setStep(3)}
-          onLaunch={() => { setLaunchToken(true); setStep(6); }}
-          onSkip={() => { setLaunchToken(false); setStep(6); }}
+          onLaunch={(giftCode, paymentTxid) => {
+            setLaunchToken(true);
+            setLaunchGiftCode(giftCode ?? '');
+            setLaunchPaymentTxid(paymentTxid ?? '');
+            setStep(6);
+          }}
+          onSkip={() => { setLaunchToken(false); setLaunchGiftCode(''); setLaunchPaymentTxid(''); setStep(6); }}
         />
       );
     case 6:
@@ -794,6 +1004,8 @@ export function OnboardingScreen({
           agentAvatar={agentAvatar}
           config={savedConfig!}
           launchToken={launchToken}
+          giftCode={launchGiftCode}
+          paymentTxid={launchPaymentTxid}
           onFinish={onDone}
         />
       );
@@ -816,12 +1028,16 @@ function LaunchSuccessStep({
   agentAvatar,
   config,
   launchToken,
+  giftCode,
+  paymentTxid,
   onFinish,
 }: {
   agentName: string;
   agentAvatar: string;
   config: AgentBrainConfig;
   launchToken: boolean;
+  giftCode?: string;
+  paymentTxid?: string;
   onFinish: (config: AgentBrainConfig | null) => void;
 }) {
   const { t } = useTranslation();
@@ -945,6 +1161,8 @@ function LaunchSuccessStep({
         } else {
           launchBody.image_b64 = DEFAULT_AGENT_ICON_B64;
         }
+        if (giftCode) launchBody.gift_code = giftCode;
+        if (paymentTxid) launchBody.payment_txid = paymentTxid;
 
         let tokenSuccess = false;
         try {
