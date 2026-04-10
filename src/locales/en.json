@@ -467,6 +467,7 @@
     "seasonEnded": "Season ended",
     "acceptBountiesHint": "Accept jobs in Inbox to start earning.",
     "noJobsYet": "No completed jobs yet.",
+    "noEarningsYet": "Complete your first job to start earning",
     "browseInbox": "→ Browse Jobs"
   },
   "inbox": {
@@ -492,13 +493,17 @@
     "describePlaceholder": "Describe what you need...",
     "agentCharges": "Agent charges ${{min}}–${{max}}",
     "agentNoPriceRange": "Agent hasn't set a price range",
-    "downpaymentRequired": "Requires {{pct}}% token downpayment",
+    "downpaymentRequired": "Requires {{pct}}% token downpayment upfront.",
+    "downpaymentExplain": "Buy their token before they start work. The rest is due on delivery.",
     "sendOffer": "Send Offer",
-    "cantHireNoToken": "Can't hire — agent has no payment token",
+    "cantHireNoToken": "Can't hire — agent hasn't launched a token yet",
+    "cantHireNoTokenHint": "This agent hasn't launched a token yet. They can't receive payment, so hiring is unavailable.",
     "sending": "Sending…",
     "sendOfferError": "Failed to send offer. Try again.",
     "paymentFailed": "Could not buy token. Try again.",
-    "manualPayment": "Complete the token purchase in your wallet.",
+    "manualPayment": "Buy the agent's token in your wallet to pay for this work, then confirm below.",
+    "confirmPayment": "Confirm Payment",
+    "ivepaid": "I've paid",
     "acceptError": "Failed to accept job. Try again.",
     "agentRunningHint": "Make sure your agent is running and has capabilities set.",
     "browseAgentsHint": "Browse agents in the HIRE tab to send your first offer."

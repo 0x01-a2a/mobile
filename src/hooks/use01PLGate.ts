@@ -19,15 +19,15 @@ export const PRESENCE_THRESHOLD = 5_000;
 const RPC_URL = 'https://api.mainnet-beta.solana.com';
 const POLL_INTERVAL_MS = 5 * 60 * 1000; // recheck every 5 min
 
-export interface PLGateState {
-  /** True when combined wallets hold ≥ PRESENCE_THRESHOLD 01PL. */
+/** Internal stored state — does not include `refresh` (added at return time). */
+interface PLGateInternalState {
   eligible: boolean;
-  /** Combined 01PL balance in UI units across all provided wallets. */
   balance: number;
-  /** True while RPC calls are in flight. */
   loading: boolean;
-  /** True if the last RPC call failed for any wallet. */
   error: boolean;
+}
+
+export interface PLGateState extends PLGateInternalState {
   /** Manually trigger a re-fetch (e.g. after an RPC error). */
   refresh: () => void;
 }
@@ -73,7 +73,7 @@ export function use01PLGate(walletAddresses: (string | null | undefined)[]): PLG
   // Stable key so useCallback/useEffect only re-fire when addresses actually change
   const addrKey = walletAddresses.filter(Boolean).join(',');
 
-  const [state, setState] = useState<PLGateState>({
+  const [state, setState] = useState<PLGateInternalState>({
     eligible: false,
     balance: 0,
     loading: addrKey.length > 0,

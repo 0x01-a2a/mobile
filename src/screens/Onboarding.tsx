@@ -752,7 +752,7 @@ function TokenChoiceStep({
           WHAT'S AN AGENT TOKEN?
         </Text>
         <Text style={{ fontSize: 12, color: '#374151', lineHeight: 18 }}>
-          A Solana token representing your agent. As your reputation grows, token holders earn trading fees — and so do you.{gated ? ' Get a gift code from the 01 community.' : ' Free forever, sponsored by 01.'}
+          Requesters browse the mesh, find your agent, and <Text style={{ fontWeight: '600' }}>buy your token to hire you</Text>. Token price reflects your reputation and demand. Trading fees from every purchase go straight to your hot wallet.{gated ? ' Get a gift code from the 01 community.' : ' Free forever, sponsored by 01.'}
         </Text>
       </View>
 
@@ -1050,6 +1050,15 @@ function LaunchSuccessStep({
   const [keyCopied, setKeyCopied] = useState(false);
   const [tokenLaunchError, setTokenLaunchError] = useState<string | null>(null);
 
+  // Fallback state — shown when launch fails with 402 (wrong/missing gift code)
+  const [fallbackNeeded, setFallbackNeeded] = useState(false);
+  const [fallbackFee, setFallbackFee] = useState<{ lamports: number; wallet: string | null }>({ lamports: 20_000_000, wallet: null });
+  const [socialShared, setSocialShared] = useState(false);
+  const [fallbackLoading, setFallbackLoading] = useState(false);
+  // Stored so fallback can reuse them when retrying
+  const agentIdHexRef = React.useRef<string | null>(null);
+  const launchBodyBaseRef = React.useRef<Record<string, unknown>>({});
+
   // Phase indicators for the launch sequence
   type PhaseStatus = 'pending' | 'in-progress' | 'done' | 'error';
   const [phaseStatuses, setPhaseStatuses] = useState<PhaseStatus[]>(['in-progress', 'pending', 'pending']);
@@ -1163,6 +1172,9 @@ function LaunchSuccessStep({
         }
         if (giftCode) launchBody.gift_code = giftCode;
         if (paymentTxid) launchBody.payment_txid = paymentTxid;
+        // Store for fallback retries
+        agentIdHexRef.current = agentIdHex;
+        launchBodyBaseRef.current = { ...launchBody };
 
         let tokenSuccess = false;
         try {
@@ -1220,6 +1232,16 @@ function LaunchSuccessStep({
                 clearTimeout(retryTimeout);
               }
             }
+          } else if (launchRes.status === 402) {
+            const body = await launchRes.json().catch(() => ({}));
+            if (!cancelled()) {
+              setFallbackFee({
+                lamports: body.self_pay_fee_lamports ?? 20_000_000,
+                wallet: body.self_pay_fee_wallet ?? null,
+              });
+              setFallbackNeeded(true);
+              setPhaseStatuses(prev => { const n = [...prev]; n[2] = 'error'; return n; });
+            }
           } else {
             const errText = await launchRes.text().catch(() => '');
             if (!cancelled()) setTokenLaunchError(errText || `HTTP ${launchRes.status}`);
@@ -1263,6 +1285,82 @@ function LaunchSuccessStep({
     setSecretKeyB58(null);
     let isCancelled = false;
     runLaunchSequence(() => isCancelled);
+  };
+
+  const retryLaunch = async (proof: { type: 'social' } | { type: 'pay'; txid: string }) => {
+    setFallbackLoading(true);
+    try {
+      const body: Record<string, unknown> = { ...launchBodyBaseRef.current };
+      if (proof.type === 'social') {
+        body.social_proof = true;
+      } else {
+        body.payment_txid = proof.txid;
+      }
+      const controller = new AbortController();
+      const launchTimeout = setTimeout(() => controller.abort(), 60_000);
+      let res: Response;
+      try {
+        res = await fetch(`${AGGREGATOR_API}/sponsor/launch`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(launchTimeout);
+      }
+      if (res.ok) {
+        const lj: { token_mint?: string } = await res.json().catch(() => ({}));
+        const mint = lj.token_mint ?? null;
+        if (mint) {
+          setTokenMint(mint);
+          const brainRaw = await AsyncStorage.getItem('zerox1:agent_brain');
+          const brain = brainRaw ? JSON.parse(brainRaw) : {};
+          await AsyncStorage.setItem('zerox1:agent_brain', JSON.stringify({ ...brain, tokenAddress: mint }));
+          setFallbackNeeded(false);
+          setPhaseStatuses(prev => { const n = [...prev]; n[2] = 'done'; return n; });
+        }
+      } else {
+        const errText = await res.text().catch(() => '');
+        Alert.alert('Launch failed', errText || `HTTP ${res.status}`);
+      }
+    } catch (e: any) {
+      Alert.alert('Launch failed', e?.message ?? 'Unknown error');
+    } finally {
+      setFallbackLoading(false);
+    }
+  };
+
+  const handlePhantomPayFallback = async () => {
+    const { wallet, lamports } = fallbackFee;
+    if (!wallet) {
+      Alert.alert('Unavailable', 'Self-pay is not configured on this server.');
+      return;
+    }
+    setFallbackLoading(true);
+    try {
+      const { transact } = require('@solana-mobile/mobile-wallet-adapter-protocol-web3js');
+      const { Connection, SystemProgram, Transaction, PublicKey } = require('@solana/web3.js');
+      const txSig: string = await transact(async (mwaWallet: any) => {
+        const { accounts } = await mwaWallet.authorize({
+          cluster: 'mainnet-beta',
+          identity: { name: '01 Protocol', uri: 'https://0x01.world', icon: 'https://0x01.world/logo.png' },
+        });
+        const fromPubkey = new PublicKey(accounts[0].address);
+        const connection = new Connection('https://api.mainnet-beta.solana.com', 'confirmed');
+        const { blockhash } = await connection.getLatestBlockhash();
+        const tx = new Transaction({ recentBlockhash: blockhash, feePayer: fromPubkey }).add(
+          SystemProgram.transfer({ fromPubkey, toPubkey: new PublicKey(wallet), lamports }),
+        );
+        const sigs: string[] = await mwaWallet.signAndSendTransactions({ transactions: [tx] });
+        return sigs[0];
+      });
+      if (txSig) await retryLaunch({ type: 'pay', txid: txSig });
+    } catch (e: any) {
+      Alert.alert('Payment failed', e?.message ?? 'Could not complete payment. Make sure Phantom is installed.');
+    } finally {
+      setFallbackLoading(false);
+    }
   };
 
   const handleCopyKey = () => {
@@ -1346,8 +1444,22 @@ function LaunchSuccessStep({
             >
               <Text style={s.copyBtnText}>{t('onboarding.copyMint')}</Text>
             </TouchableOpacity>
+            <TouchableOpacity
+              style={[s.copyBtn, { borderColor: '#1da1f2', marginTop: 8 }]}
+              onPress={() => {
+                const agentName = (launchBodyBaseRef.current.name as string) ?? 'my agent';
+                Linking.openURL(
+                  `https://twitter.com/intent/tweet?text=${encodeURIComponent(
+                    `Just launched ${agentName} as an autonomous AI agent on the 01 mesh — buy my token to hire me on-chain.\n\nToken: ${tokenMint}\n\n@01pilot_kt\n#01Protocol #AIAgents`,
+                  )}`,
+                );
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={[s.copyBtnText, { color: '#1da1f2' }]}>Share on X →</Text>
+            </TouchableOpacity>
           </View>
-        ) : phase === 'done' && (
+        ) : phase === 'done' && !fallbackNeeded && (
           <View style={s.infoCard}>
             <Text style={s.infoCardLabel}>TOKEN LAUNCH</Text>
             <Text style={s.infoCardHint}>
@@ -1362,6 +1474,91 @@ function LaunchSuccessStep({
             )}
           </View>
         )
+      )}
+
+      {/* Fallback: 402 — wrong/missing gift code */}
+      {fallbackNeeded && !tokenMint && (
+        <View style={[s.infoCard, { borderColor: '#e9d5ff', backgroundColor: '#faf5ff', marginTop: 10 }]}>
+          <Text style={[s.infoCardLabel, { color: '#7c3aed' }]}>FREE LAUNCH LOCKED</Text>
+          <Text style={s.infoCardHint}>
+            Sponsored launches require a gift code — ask in the 01 Discord or get a referral. No code yet? Share on X to unlock access, or pay a small SOL fee.
+          </Text>
+
+          {/* Social share option */}
+          <Text style={[s.infoCardHint, { marginTop: 10, color: '#6b7280', fontStyle: 'italic' }]}>
+            Share the post below, then tap "I've shared" to unlock your free launch.
+          </Text>
+          <TouchableOpacity
+            style={{
+              marginTop: 8,
+              borderWidth: 1,
+              borderColor: '#1da1f2',
+              borderRadius: 8,
+              paddingVertical: 11,
+              alignItems: 'center',
+            }}
+            disabled={fallbackLoading}
+            onPress={async () => {
+              const agentName = (launchBodyBaseRef.current.name as string) ?? 'my agent';
+              const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(
+                `Setting up my AI agent on the 01 mesh network — autonomous, on-chain, available for hire.\n\nGet early access @01pilot_kt\n#01Protocol #AIAgents`,
+              )}`;
+              await Linking.openURL(twitterUrl);
+              setSocialShared(true);
+            }}
+          >
+            <Text style={{ fontSize: 14, color: '#1da1f2', fontWeight: '600' }}>
+              Share on X (Twitter) →
+            </Text>
+          </TouchableOpacity>
+
+          {socialShared && (
+            <TouchableOpacity
+              style={{
+                marginTop: 8,
+                borderWidth: 1,
+                borderColor: '#16a34a',
+                borderRadius: 8,
+                paddingVertical: 11,
+                alignItems: 'center',
+              }}
+              disabled={fallbackLoading}
+              onPress={() => retryLaunch({ type: 'social' })}
+            >
+              {fallbackLoading ? (
+                <ActivityIndicator size="small" color="#16a34a" />
+              ) : (
+                <Text style={{ fontSize: 14, color: '#16a34a', fontWeight: '600' }}>
+                  I've shared — launch my token →
+                </Text>
+              )}
+            </TouchableOpacity>
+          )}
+
+          {/* Self-pay option */}
+          {fallbackFee.wallet && (
+            <TouchableOpacity
+              style={{
+                marginTop: 8,
+                borderWidth: 1,
+                borderColor: '#7c3aed',
+                borderRadius: 8,
+                paddingVertical: 11,
+                alignItems: 'center',
+              }}
+              disabled={fallbackLoading}
+              onPress={handlePhantomPayFallback}
+            >
+              {fallbackLoading ? (
+                <ActivityIndicator size="small" color="#7c3aed" />
+              ) : (
+                <Text style={{ fontSize: 14, color: '#7c3aed', fontWeight: '600' }}>
+                  {`Pay with Phantom (~${(fallbackFee.lamports / 1e9).toFixed(3)} SOL) →`}
+                </Text>
+              )}
+            </TouchableOpacity>
+          )}
+        </View>
       )}
 
       {/* Hot wallet & secret key */}

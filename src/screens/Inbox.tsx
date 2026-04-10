@@ -260,6 +260,16 @@ export default function InboxScreen() {
   }, [selectedAgent, hireDescription, addOffer]);
 
   const handlePayAccept = useCallback(async (offer: SentOffer) => {
+    const sendVerdict = async () => {
+      const sent = await sendEnvelope({
+        msg_type: 'VERDICT',
+        recipient: offer.agent_id,
+        conversation_id: offer.conversation_id,
+        payload_b64: btoa(JSON.stringify({ outcome: 'positive', message: 'Accepted' })),
+      });
+      if (sent) updateStatus(offer.conversation_id, 'completed');
+    };
+
     const result = await buyAgentToken(
       offer.token_address,
       offer.price_range_usd?.[1] ?? 1,
@@ -269,17 +279,17 @@ export default function InboxScreen() {
       return;
     }
     if (result === 'not_implemented') {
-      Alert.alert(t('inbox.payAccept'), t('inbox.manualPayment'));
+      Alert.alert(
+        t('inbox.confirmPayment'),
+        t('inbox.manualPayment'),
+        [
+          { text: t('common.cancel'), style: 'cancel' },
+          { text: t('inbox.ivepaid'), onPress: sendVerdict },
+        ],
+      );
+      return;
     }
-    const sent = await sendEnvelope({
-      msg_type: 'VERDICT',
-      recipient: offer.agent_id,
-      conversation_id: offer.conversation_id,
-      payload_b64: btoa(JSON.stringify({ outcome: 'positive', message: 'Accepted' })),
-    });
-    if (sent) {
-      updateStatus(offer.conversation_id, 'completed');
-    }
+    await sendVerdict();
   }, [updateStatus]);
 
   const handleDispute = useCallback(async (offer: SentOffer) => {
@@ -383,7 +393,9 @@ export default function InboxScreen() {
                       </Text>
                     </View>
                     <View style={s.cardMetaRow}>
-                      <Text style={[s.cardMeta, !above && s.cardMetaMuted]}>{card.fromAgent}</Text>
+                      <Text style={[s.cardMeta, !above && s.cardMetaMuted]}>
+                        {allAgents.find(a => a.agent_id === card.sender)?.name || card.fromAgent}
+                      </Text>
                       <Text style={[s.cardExpiry, urgent && s.cardExpiryUrgent]}>
                         {fmtExpiry(card.expiresAt)}
                       </Text>
@@ -492,7 +504,7 @@ export default function InboxScreen() {
                       )}
                       {!!agent.downpayment_bps && (
                         <Text style={s.downpaymentBadge}>
-                          {Math.round(agent.downpayment_bps / 100)}% down
+                          {Math.round(agent.downpayment_bps / 100)}% upfront
                         </Text>
                       )}
                     </View>
@@ -708,7 +720,12 @@ export default function InboxScreen() {
               {!!selectedAgent.downpayment_bps && (
                 <Text style={s.downpaymentNote}>
                   {t('inbox.downpaymentRequired', { pct: Math.round(selectedAgent.downpayment_bps / 100) })}
+                  {'\n'}{t('inbox.downpaymentExplain')}
                 </Text>
+              )}
+
+              {!selectedAgent.token_address && (
+                <Text style={s.noTokenHint}>{t('inbox.cantHireNoTokenHint')}</Text>
               )}
 
               <TouchableOpacity
@@ -932,6 +949,7 @@ const s = StyleSheet.create({
   },
   feeText: { fontSize: 12, color: '#6b7280', marginBottom: 6 },
   downpaymentNote: { fontSize: 11, color: '#d97706', marginBottom: 10 },
+  noTokenHint: { fontSize: 11, color: '#9ca3af', marginBottom: 10, fontStyle: 'italic' },
   sendBtn: {
     backgroundColor: '#111', borderRadius: 10, padding: 12,
     alignItems: 'center', marginTop: 8, marginBottom: 24,

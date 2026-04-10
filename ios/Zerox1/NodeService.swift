@@ -26,8 +26,8 @@ final class NodeService {
 
     // MARK: - Constants
 
-    private let nodeAssetVersion = "0.4.6"
-    private let agentAssetVersion = "0.2.3"
+    private let nodeAssetVersion = "0.6.0"
+    private let agentAssetVersion = "0.3.6"
     private let nodeApiPort = 9090
 
     // MARK: - State

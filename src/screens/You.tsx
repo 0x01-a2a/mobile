@@ -335,6 +335,14 @@ function WalletTab() {
         </TouchableOpacity>
       </View>
 
+      {/* How earnings work */}
+      <View style={s.howItWorksCard}>
+        <Text style={s.howItWorksTitle}>HOW YOU EARN</Text>
+        <Text style={s.howItWorksBody}>
+          Requesters browse the 01 mesh and buy your agent token to hire you. Every token purchase sends trading fees to this hot wallet. Link a personal wallet below to sweep earnings to cold storage.
+        </Text>
+      </View>
+
       {/* Actions */}
       <View style={s.walletActions}>
         <TouchableOpacity
@@ -937,13 +945,16 @@ function BrainTab() {
             <Text style={s.ruleLabel}>{t('you.autoAcceptAbove')}</Text>
             <Text style={s.ruleHint}>{t('you.autoAcceptHint')}</Text>
           </View>
-          <TextInput
-            style={s.ruleInput}
-            value={minFee}
-            onChangeText={setMinFee}
-            keyboardType="decimal-pad"
-            selectTextOnFocus
-          />
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <Text style={{ fontSize: 14, color: '#374151', marginRight: 2 }}>$</Text>
+            <TextInput
+              style={s.ruleInput}
+              value={minFee}
+              onChangeText={setMinFee}
+              keyboardType="decimal-pad"
+              selectTextOnFocus
+            />
+          </View>
         </View>
         <View style={[s.ruleRow, s.ruleRowBorder]}>
           <Text style={s.ruleLabel}>{t('you.minReputation')}</Text>
@@ -2039,6 +2050,9 @@ const s = StyleSheet.create({
   walletDescText: { fontSize: 11, color: '#9ca3af', marginTop: 2 },
 
   walletActions: { flexDirection: 'row', gap: 6, paddingHorizontal: 16, marginBottom: 4 },
+  howItWorksCard: { marginHorizontal: 16, marginBottom: 12, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, padding: 12 },
+  howItWorksTitle: { fontSize: 9, color: '#94a3b8', letterSpacing: 0.5, marginBottom: 4 },
+  howItWorksBody: { fontSize: 12, color: '#475569', lineHeight: 18 },
   sweepBtn: { flex: 1, backgroundColor: '#111', borderRadius: 9, padding: 10, alignItems: 'center' },
   sweepBtnText: { fontSize: 11, color: '#fff', fontWeight: '600' },
   historyBtn: { flex: 1, borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 9, padding: 10, alignItems: 'center' },

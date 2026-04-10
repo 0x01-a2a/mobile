@@ -124,6 +124,9 @@ export default function TodayScreen() {
             <Text style={[s.earningsAmount, s.earningsAmountMuted]}>{fmt(earnedAllTime)}</Text>
           </View>
         </View>
+        {earnedToday === 0 && earnedAllTime === 0 && !loading && (
+          <Text style={s.earningsHint}>{t('today.noEarningsYet')}</Text>
+        )}
       </View>
 
       {/* Quick actions */}
@@ -305,12 +308,12 @@ export default function TodayScreen() {
                     style={s.modalStatCol}
                     onPress={() =>
                       Alert.alert(
-                        'Earn Rate',
-                        '% weekly gains relative to your token price. Updates daily at midnight UTC.',
+                        'Token Rate',
+                        'Weekly % change in your agent token\'s price on Bags.fm. This is token performance, not job income.',
                       )
                     }
                   >
-                    <Text style={s.modalStatLabel}>EARN RATE <Text style={s.modalStatHint}>(?)</Text></Text>
+                    <Text style={s.modalStatLabel}>TOKEN RATE <Text style={s.modalStatHint}>(?)</Text></Text>
                     <Text style={s.modalStatValue}>{fmtRate(leagueData.wallet.earn_rate_pct)}</Text>
                   </TouchableOpacity>
                   <View style={s.modalStatCol}>
@@ -323,7 +326,7 @@ export default function TodayScreen() {
                   </View>
                 </View>
               )}
-              <Text style={s.modalFootnote}>% weekly gains · updates daily</Text>
+              <Text style={s.modalFootnote}>Token price performance · updates daily</Text>
             </ScrollView>
           </View>
         )}
@@ -365,6 +368,7 @@ const s = StyleSheet.create({
   earningsLabel: { fontSize: 9, color: '#6b7280', letterSpacing: 0.3, marginBottom: 2 },
   earningsAmount: { fontSize: 18, fontWeight: '700', color: '#111', letterSpacing: -0.5 },
   earningsAmountMuted: { color: '#374151' },
+  earningsHint: { fontSize: 10, color: '#9ca3af', marginTop: 6, fontStyle: 'italic' },
 
   actionsRow: {
     flexDirection: 'row', gap: 8, paddingHorizontal: 16, marginBottom: 4,

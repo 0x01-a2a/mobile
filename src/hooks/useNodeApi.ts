@@ -421,20 +421,20 @@ export function useInbox(
         // the token via Authorization header (never in the query string to
         // prevent log leakage). React Native's WebSocket supports headers via
         // the third constructor argument.
-        ws = new WebSocket(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ws = new (WebSocket as any)(
           `${_wsBase}/ws/hosted/inbox`,
           undefined,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          { headers: { Authorization: `Bearer ${_hostedToken}` } } as any,
-        );
+          { headers: { Authorization: `Bearer ${_hostedToken}` } },
+        ) as WebSocket;
       } else if (_hostedToken) {
         // Local mode with auth: connect to /ws/inbox with the API secret.
-        ws = new WebSocket(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ws = new (WebSocket as any)(
           `${_wsBase}/ws/inbox`,
           undefined,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          { headers: { Authorization: `Bearer ${_hostedToken}` } } as any,
-        );
+          { headers: { Authorization: `Bearer ${_hostedToken}` } },
+        ) as WebSocket;
       } else {
         ws = new WebSocket(`${_wsBase}/ws/inbox`);
       }
@@ -448,7 +448,7 @@ export function useInbox(
           handlerRef.current(env);
         } catch { /* malformed */ }
       };
-      ws.onerror = (e: WebSocketErrorEvent) => {
+      ws.onerror = (e: Event) => {
         const msg = (e as any)?.message ?? '';
         // HTTP 401/403 surfaces here in React Native. Stop reconnecting so
         // we don't spin forever with a bad hosted token (local mode retries).

@@ -21,7 +21,8 @@ const Tab = createBottomTabNavigator();
 
 // Stable tab button renderer — defined at module scope so it is never recreated
 // and does not cause unnecessary tab bar re-renders.
-function TabButton(props: React.ComponentProps<typeof Pressable>) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function TabButton(props: any) {
   return <Pressable {...(props as any)} android_ripple={null} />;
 }
 
