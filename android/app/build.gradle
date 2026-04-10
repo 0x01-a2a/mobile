@@ -110,6 +110,12 @@ android {
             keyAlias 'zerox1-dappstore'
             keyPassword System.getenv("ZEROX1_DAPPSTORE_KEY_PASS") ?: "unset"
         }
+        dappstore {
+            storeFile file(System.getenv("ZEROX1_DAPPSTORE_KEYSTORE") ?: "/Users/tobiasd/Desktop/zerox1/secrets/dappstore.keystore")
+            storePassword System.getenv("ZEROX1_DAPPSTORE_STORE_PASS") ?: 'zerox1-dappstore-2026'
+            keyAlias 'zerox1-dappstore'
+            keyPassword System.getenv("ZEROX1_DAPPSTORE_KEY_PASS") ?: 'zerox1-dappstore-2026'
+        }
     }
     buildTypes {
         debug {

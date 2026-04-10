@@ -232,6 +232,59 @@ class NodeModule(private val ctx: ReactApplicationContext)
         }
     }
 
+    /**
+     * Update the LLM provider / model / base-url in SharedPreferences so that
+     * the next zeroclaw restart picks up the new values from the restart loop.
+     * Does not restart zeroclaw — call reloadAgent() afterwards to apply immediately.
+     */
+    @ReactMethod
+    fun updateBrainConfig(provider: String, model: String, baseUrl: String, promise: Promise) {
+        try {
+            ctx.getSharedPreferences("zerox1", Context.MODE_PRIVATE).edit().apply {
+                putString("llm_provider",  provider)
+                putString("llm_model",     model)
+                putString("llm_base_url",  baseUrl)
+                apply()
+            }
+            promise.resolve(null)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to update brain config in SharedPreferences: $e")
+            promise.reject("UPDATE_FAILED", e.message)
+        }
+    }
+
+    /**
+     * Reload the agent brain without a full node restart.
+     *
+     * Calls POST /agent/reload on the local node API.  The node SIGTERMs zeroclaw;
+     * the restart loop in NodeService then re-writes config.toml from SharedPreferences
+     * (picking up any key / provider changes) and launches zeroclaw again.
+     */
+    @ReactMethod
+    fun reloadAgent(promise: Promise) {
+        moduleScope.launch {
+            try {
+                val secret = securePrefs().getString(KEY_NODE_API_SECRET, null)
+                val conn = java.net.URL("http://127.0.0.1:9090/agent/reload")
+                    .openConnection() as java.net.HttpURLConnection
+                conn.requestMethod = "POST"
+                if (secret != null) conn.setRequestProperty("Authorization", "Bearer $secret")
+                conn.connectTimeout = 5_000
+                conn.readTimeout    = 5_000
+                val code = conn.responseCode
+                conn.disconnect()
+                if (code in 200..299) {
+                    promise.resolve(null)
+                } else {
+                    promise.reject("RELOAD_FAILED", "Node returned HTTP $code")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "reloadAgent failed: $e")
+                promise.reject("RELOAD_ERROR", e.message ?: "unknown error")
+            }
+        }
+    }
+
     @ReactMethod
     fun saveFalApiKey(key: String, promise: Promise) {
         try {

@@ -113,4 +113,7 @@ const staticStyles = StyleSheet.create({
     marginTop: 0,
     marginBottom: 0,
   },
+  iconSide: {
+    fontSize: 16,
+  },
 });

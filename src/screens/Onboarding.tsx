@@ -143,10 +143,14 @@ function StepShell({
 }
 
 function Heading({ label }: { label: string }) {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   return <Text style={s.heading}>{label}</Text>;
 }
 
 function Sub({ children }: { children: React.ReactNode }) {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   return <Text style={s.sub}>{children}</Text>;
 }
 
@@ -159,6 +163,8 @@ function PrimaryBtn({
   onPress: () => void;
   disabled?: boolean;
 }) {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   return (
     <TouchableOpacity
       style={[s.primaryBtn, disabled && s.primaryBtnDisabled, disabled && { opacity: 0.4 }]}
@@ -174,6 +180,8 @@ function PrimaryBtn({
 }
 
 function GhostBtn({ label, onPress }: { label: string; onPress: () => void }) {
+  const { colors } = useTheme();
+  const s = useStyles(colors);
   return (
     <TouchableOpacity style={s.ghostBtn} onPress={onPress} activeOpacity={0.7}>
       <Text style={s.ghostBtnText}>{label}</Text>
@@ -837,6 +845,9 @@ export function OnboardingScreen({
 }: {
   onDone: (config: AgentBrainConfig | null) => void;
 }) {
+  const { colors } = useTheme();
+  const { isTablet, isWide, contentHPad, width: screenWidth } = useLayout();
+  const s = useStyles(colors, isTablet, isWide, screenWidth);
   const [step, setStep] = useState(0);
   const [phantomWallet, setPhantomWallet] = useState('');
   const [agentName, setAgentName] = useState('');
@@ -1741,7 +1752,7 @@ const s = StyleSheet.create({
   infoCardHint: { fontSize: 12, color: C.sub, lineHeight: 17 },
   monoText: {
     fontSize: 12,
-    color: C.text,
+    color: colors.text,
     fontFamily: 'monospace',
     lineHeight: 18,
     marginTop: 4,

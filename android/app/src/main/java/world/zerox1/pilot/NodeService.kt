@@ -103,6 +103,10 @@ class NodeService : Service() {
         @Volatile var isRunning: Boolean = false
             private set
 
+        /** True while NodeService is in the foreground (set in onCreate/onDestroy). */
+        @Volatile var isRunning: Boolean = false
+            private set
+
         // ── Bundled zeroclaw skill definitions ──────────────────────────────
         // ── 0x01 mesh protocol skill (bundled on every start) ───────────────
         val ZEROX1_MESH_SKILL_TOML = """
