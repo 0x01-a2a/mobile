@@ -14,7 +14,6 @@ import {
   KeyboardAvoidingView,
   Modal,
   Platform,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -1022,7 +1021,6 @@ export function ChatScreen() {
         </SafeAreaView>
       </Modal>
 
-      </View>
       </View>
     </KeyboardAvoidingView>
   );

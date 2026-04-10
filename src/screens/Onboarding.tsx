@@ -41,6 +41,7 @@ import {
   saveLlmApiKey,
 } from '../hooks/useAgentBrain';
 import { AGGREGATOR_API } from '../hooks/useNodeApi';
+import { useTheme } from '../theme/ThemeContext';
 
 export const ONBOARDING_KEY = 'zerox1:onboarding_done';
 const ONBOARDING_STATE_KEY = 'zerox1:onboarding_partial_state';
@@ -89,6 +90,9 @@ export async function checkOnboardingDone(): Promise<boolean> {
 }
 
 // Light palette — matches Today.tsx / You.tsx
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function useStyles(..._args: any[]) { return s; }
+
 const C = {
   bg: '#ffffff',
   card: '#f9fafb',
@@ -1752,7 +1756,7 @@ const s = StyleSheet.create({
   infoCardHint: { fontSize: 12, color: C.sub, lineHeight: 17 },
   monoText: {
     fontSize: 12,
-    color: colors.text,
+    color: C.text,
     fontFamily: 'monospace',
     lineHeight: 18,
     marginTop: 4,

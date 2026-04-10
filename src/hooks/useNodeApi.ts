@@ -1367,11 +1367,6 @@ export async function walletSend(
     body: JSON.stringify({ to, amount, mint }),
   });
   if (!res.ok) {
-    // If the node API is unreachable (e.g. node stopped but not hosted mode),
-    // attempt the on-device path as a last resort.
-    if (res.status === 0 || res.status >= 500) {
-      return sweepUsdcOnDevice(destination, amount);
-    }
     const text = await res.text();
     throw new Error(text || `HTTP ${res.status}`);
   }
