@@ -136,5 +136,7 @@
 		<string>AgentStatusIntent</string>
 		<string>CheckPortfolioIntent</string>
 	</array>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>
