@@ -1074,7 +1074,7 @@ description = "Passively observe owner behavior from phone data and update MEMOR
 author      = "0x01 World"
 tags        = ["memory", "observation", "identity", "personal", "passive"]
 
-prompts = ["""
+prompts = [${TOML_TQ}
 # Passive Memory Observation
 
 You maintain a living MEMORY.md that models your owner from observed behavior — never by asking questions.
@@ -1093,19 +1093,19 @@ You maintain a living MEMORY.md that models your owner from observed behavior �
 - Keep entries factual and concise — no speculation.
 - Preserve existing sections when updating; only overwrite what has changed.
 - Schedule daily observation using the cron_add tool (schedule: "0 3 * * *"). Check cron_list first — only add if a job named memory_consolidate does not already exist.
-"""]
+${TOML_TQ}]
 
 [[tools]]
 name        = "memory_read_current"
 description = "Read the current MEMORY.md to see what is already known before updating."
 kind        = "shell"
-command     = """curl -s "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/agent/memory" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" """
+command     = ${TOML_TQ}curl -s "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/agent/memory" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${TOML_TQ}
 
 [[tools]]
 name        = "memory_write"
 description = "Overwrite MEMORY.md with updated content. Always read current content first to preserve existing observations."
 kind        = "shell"
-command     = """jq -nc --arg c {content} '{"content":${'$'}c}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/agent/memory/write" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-"""
+command     = ${TOML_TQ}jq -nc --arg c {content} '{"content":${'$'}c}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/agent/memory/write" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 content = "Full updated MEMORY.md content as a string"
@@ -1114,31 +1114,31 @@ content = "Full updated MEMORY.md content as a string"
 name        = "observe_sms_patterns"
 description = "Read recent SMS inbox to extract contact interaction patterns and response behaviors."
 kind        = "shell"
-command     = """curl -s "${'$'}{ZX01_BRIDGE:-http://127.0.0.1:9092}/phone/sms?limit=100" -H "x-bridge-token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" """
+command     = ${TOML_TQ}curl -s "${'$'}{ZX01_BRIDGE:-http://127.0.0.1:9092}/phone/sms?limit=100" -H "x-bridge-token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" ${TOML_TQ}
 
 [[tools]]
 name        = "observe_notification_log"
 description = "Read notification history to learn which apps and senders the owner engages with vs dismisses."
 kind        = "shell"
-command     = """curl -s "${'$'}{ZX01_BRIDGE:-http://127.0.0.1:9092}/phone/notifications/history?limit=200" -H "x-bridge-token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" """
+command     = ${TOML_TQ}curl -s "${'$'}{ZX01_BRIDGE:-http://127.0.0.1:9092}/phone/notifications/history?limit=200" -H "x-bridge-token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" ${TOML_TQ}
 
 [[tools]]
 name        = "observe_calendar"
 description = "Read calendar events to learn active hours, meeting density, and schedule patterns."
 kind        = "shell"
-command     = """curl -s "${'$'}{ZX01_BRIDGE:-http://127.0.0.1:9092}/phone/calendar?days=14" -H "x-bridge-token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" """
+command     = ${TOML_TQ}curl -s "${'$'}{ZX01_BRIDGE:-http://127.0.0.1:9092}/phone/calendar?days=14" -H "x-bridge-token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" ${TOML_TQ}
 
 [[tools]]
 name        = "observe_app_usage"
 description = "Read app usage statistics to understand daily rhythm and focus periods."
 kind        = "shell"
-command     = """curl -s "${'$'}{ZX01_BRIDGE:-http://127.0.0.1:9092}/phone/app_usage?days=7" -H "x-bridge-token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" """
+command     = ${TOML_TQ}curl -s "${'$'}{ZX01_BRIDGE:-http://127.0.0.1:9092}/phone/app_usage?days=7" -H "x-bridge-token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" ${TOML_TQ}
 
 [[tools]]
 name        = "observe_contacts"
 description = "Read contacts to identify known people and cross-reference with SMS/notification patterns."
 kind        = "shell"
-command     = """curl -s "${'$'}{ZX01_BRIDGE:-http://127.0.0.1:9092}/phone/contacts" -H "x-bridge-token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" """
+command     = ${TOML_TQ}curl -s "${'$'}{ZX01_BRIDGE:-http://127.0.0.1:9092}/phone/contacts" -H "x-bridge-token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" ${TOML_TQ}
 """.trimIndent()
 
         val PERSONA_OBSERVE_SKILL_TOML = """
@@ -1149,7 +1149,7 @@ description = "Passively observe owner communication style from SMS and notifica
 author      = "0x01 World"
 tags        = ["persona", "style", "observation", "identity", "passive", "communication"]
 
-prompts = ["""
+prompts = [${TOML_TQ}
 # Passive Persona Observation
 
 You maintain a living PERSONA.md that captures your owner's communication style — derived entirely from how they actually write.
@@ -1169,19 +1169,19 @@ You maintain a living PERSONA.md that captures your owner's communication style 
 - Compute a formality score (0.0 = very casual, 1.0 = formal).
 - Preserve Hard Limits conservatively — only add, never remove.
 - Schedule weekly observation using the cron_add tool (schedule: "0 4 * * 0"). Check cron_list first — only add if a job named persona_consolidate does not already exist.
-"""]
+${TOML_TQ}]
 
 [[tools]]
 name        = "persona_read_current"
 description = "Read the current PERSONA.md before updating to preserve existing observations."
 kind        = "shell"
-command     = """curl -s "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/agent/persona" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" """
+command     = ${TOML_TQ}curl -s "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/agent/persona" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${TOML_TQ}
 
 [[tools]]
 name        = "persona_write"
 description = "Overwrite PERSONA.md with updated content. Always read current content first."
 kind        = "shell"
-command     = """jq -nc --arg c {content} '{"content":${'$'}c}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/agent/persona/write" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-"""
+command     = ${TOML_TQ}jq -nc --arg c {content} '{"content":${'$'}c}' | curl -s -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/agent/persona/write" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
 
 [tools.args]
 content = "Full updated PERSONA.md content as a string"
@@ -1190,13 +1190,13 @@ content = "Full updated PERSONA.md content as a string"
 name        = "observe_sent_sms"
 description = "Read SMS messages sent by the owner. Used to model their natural writing style."
 kind        = "shell"
-command     = """curl -s "${'$'}{ZX01_BRIDGE:-http://127.0.0.1:9092}/phone/sms?box=sent&limit=200" -H "x-bridge-token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" """
+command     = ${TOML_TQ}curl -s "${'$'}{ZX01_BRIDGE:-http://127.0.0.1:9092}/phone/sms?box=sent&limit=200" -H "x-bridge-token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" ${TOML_TQ}
 
 [[tools]]
 name        = "observe_notification_replies"
 description = "Read recent notification history to observe how the owner responds to messages."
 kind        = "shell"
-command     = """curl -s "${'$'}{ZX01_BRIDGE:-http://127.0.0.1:9092}/phone/notifications/history?limit=200" -H "x-bridge-token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" """
+command     = ${TOML_TQ}curl -s "${'$'}{ZX01_BRIDGE:-http://127.0.0.1:9092}/phone/notifications/history?limit=200" -H "x-bridge-token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" ${TOML_TQ}
 """.trimIndent()
 
         val SOUL_MD = """
