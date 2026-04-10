@@ -1,6 +1,6 @@
 {
   "name": "world.zerox1.pilot",
-  "version": "0.2.26",
+  "version": "0.7.0",
   "private": true,
   "scripts": {
     "android": "react-native run-android",

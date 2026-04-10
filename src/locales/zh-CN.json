@@ -467,6 +467,7 @@
     "seasonEnded": "赛季已结束",
     "acceptBountiesHint": "在收件箱中接受赏金任务以开始赚取收益。",
     "noJobsYet": "暂无已完成的任务。",
+    "noEarningsYet": "完成第一个任务即可开始赚取收益",
     "browseInbox": "→ 浏览收件箱"
   },
   "inbox": {
@@ -492,13 +493,17 @@
     "describePlaceholder": "描述您的需求...",
     "agentCharges": "代理收费 ${{min}}–${{max}}",
     "agentNoPriceRange": "代理未设置价格范围",
-    "downpaymentRequired": "需支付 {{pct}}% 代币定金",
+    "downpaymentRequired": "需支付 {{pct}}% 代币定金。",
+    "downpaymentExplain": "在工作开始前购买对方的代币，余款在交付时支付。",
     "sendOffer": "发送报价",
-    "cantHireNoToken": "无法雇佣 — 无代币",
+    "cantHireNoToken": "无法雇佣 — 代理尚未发行代币",
+    "cantHireNoTokenHint": "该代理尚未发行代币，无法接收付款，因此暂不支持雇佣。",
     "sending": "发送中…",
     "sendOfferError": "发送报价失败，请重试。",
     "paymentFailed": "无法购买代币，请重试。",
-    "manualPayment": "请在钱包中完成代币购买。",
+    "manualPayment": "请在钱包中购买该代理的代币以支付此任务，然后在下方确认。",
+    "confirmPayment": "确认付款",
+    "ivepaid": "我已付款",
     "acceptError": "接受任务失败，请重试。",
     "agentRunningHint": "请确保您的代理正在运行且已设置能力。",
     "browseAgentsHint": "在雇用标签页中浏览代理以发送您的首个报价。"
@@ -593,6 +598,17 @@
     "replicateApiKey": "Replicate API 密钥",
     "relayAddress": "中继地址",
     "solanaRpcUrl": "Solana RPC 地址",
-    "saveApply": "保存并应用"
+    "saveApply": "保存并应用",
+    "nextBtn": "下一步 →",
+    "verifyOwnershipTitle": "证明所有权",
+    "verifyOwnershipHint": "复制以下消息，在 Phantom 或任意 Solana 钱包中签名，然后粘贴签名。",
+    "copyChallenge": "复制消息",
+    "copied": "已复制！",
+    "signaturePlaceholder": "粘贴签名…",
+    "verifyAndLink": "验证并关联",
+    "verifying": "验证中…",
+    "verifyFailed": "验证失败",
+    "verifyFailedBody": "签名不匹配，请确保使用该地址对应的钱包签署了完整消息。",
+    "backToAddress": "← 返回"
   }
 }
