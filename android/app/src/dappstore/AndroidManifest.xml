@@ -7,6 +7,9 @@
         android:name="com.solanamobile.seedvault"
         android:required="false" />
 
+    <!-- Strip OTA installer — updates are managed by the dApp Store -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" tools:node="remove" />
+
     <!-- Strip SMS — requires being default SMS app -->
     <uses-permission android:name="android.permission.READ_SMS" tools:node="remove" />
     <uses-permission android:name="android.permission.SEND_SMS" tools:node="remove" />

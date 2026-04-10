@@ -926,6 +926,10 @@ class NodeModule(private val ctx: ReactApplicationContext)
      */
     @ReactMethod
     fun checkForUpdate(promise: Promise) {
+        if (BuildConfig.DISTRIBUTION != "full") {
+            promise.reject("NOT_SUPPORTED", "Updates are managed by the store.")
+            return
+        }
         moduleScope.launch {
             try {
                 val conn = URL(RELEASES_API_URL).openConnection() as HttpURLConnection
@@ -1005,6 +1009,10 @@ class NodeModule(private val ctx: ReactApplicationContext)
      */
     @ReactMethod
     fun downloadAndInstall(downloadUrl: String, promise: Promise) {
+        if (BuildConfig.DISTRIBUTION != "full") {
+            promise.reject("NOT_SUPPORTED", "Updates are managed by the store.")
+            return
+        }
         moduleScope.launch {
             try {
                 val host = java.net.URL(downloadUrl).host
