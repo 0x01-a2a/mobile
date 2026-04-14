@@ -851,6 +851,7 @@ function PresenceCard({
 
 import type { Capability, LlmProvider } from '../hooks/useAgentBrain';
 import { PROVIDERS as PROVIDER_INFOS } from '../hooks/useAgentBrain';
+import { useLocalLLM, LOCAL_MODELS, DEFAULT_LOCAL_MODEL_KEY } from '../hooks/useLocalLLM';
 
 const PROVIDERS: LlmProvider[] = PROVIDER_INFOS.map(p => p.key);
 const PRESET_CAPS: Capability[] = ['summarization', 'qa', 'translation', 'code_review', 'data_analysis'];
@@ -1594,6 +1595,15 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
   const [llmBaseUrl, setLlmBaseUrl] = useState(brain?.customBaseUrl ?? '');
   const [llmModel, setLlmModel] = useState(brain?.customModel ?? '');
   const [llmSaving, setLlmSaving] = useState(false);
+  // Local (private) model state
+  const [localModelKey, setLocalModelKey] = useState(brain?.localModelKey ?? DEFAULT_LOCAL_MODEL_KEY);
+  const {
+    status: localStatus,
+    downloadedModelKey,
+    downloadProgress,
+    downloadModel,
+    deleteModel: deleteLocalModel,
+  } = useLocalLLM();
 
   // Video generation API key state
   const [falApiKey, setFalApiKey] = useState('');
@@ -1613,6 +1623,7 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
     setReplicateApiKey('');
     setLlmBaseUrl(brain?.customBaseUrl ?? '');
     setLlmModel(brain?.customModel ?? '');
+    setLocalModelKey(brain?.localModelKey ?? DEFAULT_LOCAL_MODEL_KEY);
     NodeModule.getBridgeCapabilities().then(setCaps).catch(() => {});
     NodeModule.checkPermissions().then(setPerms).catch(() => {});
   }, [visible, config?.relayAddr, config?.rpcUrl, brain?.enabled, brain?.provider, brain?.customBaseUrl, brain?.customModel]);
@@ -1621,23 +1632,30 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
     if (!brain || !saveBrain) return;
     setLlmSaving(true);
     try {
-      if (llmApiKey.trim()) await saveLlmApiKey(llmApiKey.trim());
+      if (llmProvider !== 'local' && llmApiKey.trim()) await saveLlmApiKey(llmApiKey.trim());
       await saveBrain({
         ...brain,
         provider: llmProvider,
         customBaseUrl: llmBaseUrl.trim(),
         customModel: llmModel.trim(),
-        apiKeySet: llmApiKey.trim() ? true : brain.apiKeySet,
+        apiKeySet: llmProvider !== 'local' && llmApiKey.trim() ? true : brain.apiKeySet,
+        localModelKey: llmProvider === 'local' ? localModelKey : brain.localModelKey,
       });
-      await applyAndRestart({ ...config, agentBrainProvider: llmProvider });
+      // For the local provider, no API key is pushed to the node — inference
+      // bypasses the gateway entirely (see useZeroclawChat).
+      if (llmProvider !== 'local') {
+        await applyAndRestart({ ...config, agentBrainProvider: llmProvider });
+      }
       setLlmApiKey('');
-      Alert.alert('Saved', 'LLM settings updated. Agent restarting.');
+      Alert.alert('Saved', llmProvider === 'local'
+        ? 'Private Chat enabled. All conversations run on-device.'
+        : 'LLM settings updated. Agent restarting.');
     } catch (e: any) {
       Alert.alert('Error', e?.message ?? 'Failed to save LLM settings.');
     } finally {
       setLlmSaving(false);
     }
-  }, [brain, saveBrain, llmProvider, llmApiKey, llmBaseUrl, llmModel, config, applyAndRestart]);
+  }, [brain, saveBrain, llmProvider, llmApiKey, llmBaseUrl, llmModel, localModelKey, config, applyAndRestart]);
 
   const handleSaveFal = useCallback(async () => {
     if (!falApiKey.trim()) return;
@@ -1769,59 +1787,139 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
               </View>
             </View>
             <View style={s.settingsCardDivider} />
-            {/* API key */}
-            <View style={[s.settingsRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 6, paddingBottom: 14 }]}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%' }}>
-                <Text style={s.settingsLabel}>API key</Text>
-                <Text style={s.settingsHint}>{brain?.apiKeySet ? 'key stored ●●●●' : 'not set'}</Text>
-              </View>
-              <TextInput
-                style={s.advancedInput}
-                value={llmApiKey}
-                onChangeText={setLlmApiKey}
-                placeholder={brain?.apiKeySet ? 'Enter new key to replace…' : 'sk-…'}
-                placeholderTextColor="#d1d5db"
-                secureTextEntry
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-            </View>
-            {/* Model override — available for all providers */}
-            <View style={s.settingsCardDivider} />
-            <View style={[s.settingsRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 6, paddingBottom: 14 }]}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%' }}>
-                <Text style={s.settingsLabel}>{t('you.model')}</Text>
-                <Text style={s.settingsHint}>
-                  default: {PROVIDER_INFOS.find(p => p.key === llmProvider)?.model ?? '—'}
-                </Text>
-              </View>
-              <TextInput
-                style={s.advancedInput}
-                value={llmModel}
-                onChangeText={setLlmModel}
-                placeholder={PROVIDER_INFOS.find(p => p.key === llmProvider)?.model ?? 'model name'}
-                placeholderTextColor="#d1d5db"
-                autoCapitalize="none"
-                autoCorrect={false}
-                spellCheck={false}
-              />
-            </View>
-            {/* Base URL — only for custom provider */}
-            {llmProvider === 'custom' && (
+
+            {llmProvider === 'local' ? (
+              /* ── Private / on-device mode ───────────────────────────────── */
               <>
+                {/* Privacy callout */}
+                <View style={s.privateCallout}>
+                  <Text style={s.privateCalloutEmoji}>🔒</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.privateCalloutTitle}>All inference runs on-device</Text>
+                    <Text style={s.privateCalloutBody}>
+                      No API key required. Conversations never leave your phone.
+                      Works offline. No usage costs.
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Model picker */}
                 <View style={s.settingsCardDivider} />
+                <View style={[s.settingsRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 8, paddingBottom: 14 }]}>
+                  <Text style={s.settingsLabel}>Model</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                    {LOCAL_MODELS.map(m => {
+                      const active = localModelKey === m.key;
+                      const isDownloaded = downloadedModelKey === m.key;
+                      return (
+                        <TouchableOpacity
+                          key={m.key}
+                          style={[s.providerPill, active && s.providerPillActive]}
+                          onPress={() => setLocalModelKey(m.key)}
+                        >
+                          <Text style={[s.providerPillText, active && s.providerPillTextActive]}>
+                            {m.label}{isDownloaded ? ' ✓' : ''}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                  <Text style={s.settingsHint}>
+                    {LOCAL_MODELS.find(m => m.key === localModelKey)?.sizeMb ?? '—'} MB download · WiFi recommended
+                  </Text>
+                </View>
+
+                {/* Download / delete */}
+                <View style={s.settingsCardDivider} />
+                <View style={[s.settingsRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 8, paddingBottom: 14 }]}>
+                  <Text style={s.settingsLabel}>Model file</Text>
+                  {localStatus === 'downloading' ? (
+                    <View style={{ width: '100%', gap: 6 }}>
+                      <View style={s.downloadBar}>
+                        <View style={[s.downloadBarFill, { width: `${downloadProgress}%` as any }]} />
+                      </View>
+                      <Text style={s.settingsHint}>Downloading… {downloadProgress}%</Text>
+                    </View>
+                  ) : downloadedModelKey === localModelKey ? (
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      <View style={s.localReadyBadge}>
+                        <Text style={s.localReadyText}>● Ready</Text>
+                      </View>
+                      <TouchableOpacity
+                        style={s.localDeleteBtn}
+                        onPress={() => deleteLocalModel(localModelKey)}
+                      >
+                        <Text style={s.localDeleteText}>Delete</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      style={s.localDownloadBtn}
+                      onPress={() => downloadModel(localModelKey)}
+                    >
+                      <Text style={s.localDownloadText}>Download model</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </>
+            ) : (
+              /* ── Cloud provider: API key + model + base URL ─────────────── */
+              <>
+                {/* API key */}
                 <View style={[s.settingsRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 6, paddingBottom: 14 }]}>
-                  <Text style={s.settingsLabel}>{t('you.baseUrl')}</Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%' }}>
+                    <Text style={s.settingsLabel}>API key</Text>
+                    <Text style={s.settingsHint}>{brain?.apiKeySet ? 'key stored ●●●●' : 'not set'}</Text>
+                  </View>
                   <TextInput
                     style={s.advancedInput}
-                    value={llmBaseUrl}
-                    onChangeText={setLlmBaseUrl}
-                    placeholder="https://api.openai.com/v1"
+                    value={llmApiKey}
+                    onChangeText={setLlmApiKey}
+                    placeholder={brain?.apiKeySet ? 'Enter new key to replace…' : 'sk-…'}
                     placeholderTextColor="#d1d5db"
+                    secureTextEntry
                     autoCapitalize="none"
                     autoCorrect={false}
                   />
                 </View>
+                {/* Model override */}
+                <View style={s.settingsCardDivider} />
+                <View style={[s.settingsRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 6, paddingBottom: 14 }]}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%' }}>
+                    <Text style={s.settingsLabel}>{t('you.model')}</Text>
+                    <Text style={s.settingsHint}>
+                      default: {PROVIDER_INFOS.find(p => p.key === llmProvider)?.model ?? '—'}
+                    </Text>
+                  </View>
+                  <TextInput
+                    style={s.advancedInput}
+                    value={llmModel}
+                    onChangeText={setLlmModel}
+                    placeholder={PROVIDER_INFOS.find(p => p.key === llmProvider)?.model ?? 'model name'}
+                    placeholderTextColor="#d1d5db"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    spellCheck={false}
+                  />
+                </View>
+                {/* Base URL — only for custom provider */}
+                {llmProvider === 'custom' && (
+                  <>
+                    <View style={s.settingsCardDivider} />
+                    <View style={[s.settingsRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 6, paddingBottom: 14 }]}>
+                      <Text style={s.settingsLabel}>{t('you.baseUrl')}</Text>
+                      <TextInput
+                        style={s.advancedInput}
+                        value={llmBaseUrl}
+                        onChangeText={setLlmBaseUrl}
+                        placeholder="https://api.openai.com/v1"
+                        placeholderTextColor="#d1d5db"
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                      />
+                    </View>
+                  </>
+                )}
               </>
             )}
           </View>
@@ -2106,6 +2204,19 @@ const s = StyleSheet.create({
   providerPillActive: { backgroundColor: '#111', borderColor: '#111' },
   providerPillText: { fontSize: 10, color: '#374151', fontWeight: '500' },
   providerPillTextActive: { color: '#fff' },
+  // Private / on-device LLM styles
+  privateCallout: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingVertical: 12, paddingBottom: 14 },
+  privateCalloutEmoji: { fontSize: 22 },
+  privateCalloutTitle: { fontSize: 12, fontWeight: '700', color: '#111', marginBottom: 2 },
+  privateCalloutBody: { fontSize: 11, color: '#6b7280', lineHeight: 16 },
+  downloadBar: { height: 6, borderRadius: 3, backgroundColor: '#e5e7eb', overflow: 'hidden', width: '100%' },
+  downloadBarFill: { height: 6, borderRadius: 3, backgroundColor: '#22c55e' },
+  localReadyBadge: { backgroundColor: '#dcfce7', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 5 },
+  localReadyText: { fontSize: 11, color: '#16a34a', fontWeight: '600' },
+  localDeleteBtn: { borderWidth: 1, borderColor: '#fca5a5', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 5 },
+  localDeleteText: { fontSize: 11, color: '#dc2626', fontWeight: '500' },
+  localDownloadBtn: { backgroundColor: '#111', borderRadius: 8, paddingHorizontal: 16, paddingVertical: 9 },
+  localDownloadText: { fontSize: 12, color: '#fff', fontWeight: '600' },
 
   // Settings / Advanced tab
   settingsSectionLabel: { fontSize: 10, color: '#9ca3af', letterSpacing: 0.5, marginBottom: 6, marginTop: 18, paddingHorizontal: 16 },

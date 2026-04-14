@@ -15,7 +15,7 @@ import { Platform } from 'react-native';
 // Types
 // ============================================================================
 
-export type LlmProvider = 'anthropic' | 'openai' | 'gemini' | 'zai' | 'minimax' | 'custom';
+export type LlmProvider = 'anthropic' | 'openai' | 'gemini' | 'zai' | 'minimax' | 'custom' | 'local';
 
 export type Capability =
   | 'summarization'
@@ -53,6 +53,7 @@ export interface ProviderInfo {
 }
 
 export const PROVIDERS: ProviderInfo[] = [
+  { key: 'local', label: 'Private 🔒', model: 'gemma-4-1b', hint: 'On-device · no API key · no data leaves phone' },
   { key: 'gemini', label: 'Gemini', model: 'gemini-2.5-flash', hint: 'aistudio.google.com' },
   { key: 'anthropic', label: 'Claude', model: 'claude-haiku-4-5-20251001', hint: 'console.anthropic.com' },
   { key: 'openai', label: 'OpenAI', model: 'gpt-4o-mini', hint: 'platform.openai.com' },
@@ -82,6 +83,8 @@ export interface AgentBrainConfig {
   customBaseUrl?: string;
   /** Bags.fm token mint address launched at onboarding. */
   tokenAddress?: string;
+  /** GGUF model key to use when provider === 'local' (e.g. 'gemma-4-1b'). */
+  localModelKey?: string;
 }
 
 const DEFAULT_CONFIG: AgentBrainConfig = {

@@ -11,6 +11,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { AppState, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NodeModule } from '../native/NodeModule';
+import { runLocalInference, DEFAULT_LOCAL_MODEL_KEY } from './useLocalLLM';
 
 // Gateway ports differ by platform:
 // - iOS in-process FFI binds zeroclaw on 9093 to avoid clashing with
@@ -266,6 +267,25 @@ export function useZeroclawChat(agentId?: string, conversationId?: string): UseZ
     setError(null);
 
     try {
+      // ── Local (private) inference path ──────────────────────────────────────
+      // When the user has chosen the 'local' provider the reply is generated
+      // entirely on-device via llama.rn — the zeroclaw gateway is never called
+      // and no message content reaches any network endpoint.
+      const brainRawLocal = await AsyncStorage.getItem('zerox1:agent_brain').catch(() => null);
+      const brainCfgLocal = brainRawLocal ? JSON.parse(brainRawLocal) : null;
+      if (brainCfgLocal?.provider === 'local') {
+        const modelKey: string = brainCfgLocal.localModelKey ?? DEFAULT_LOCAL_MODEL_KEY;
+        const reply = await runLocalInference(messageText, systemContextRef.current, modelKey);
+        const localMsg: ChatMessage = { id: genId(), role: 'assistant', text: reply, ts: Date.now() };
+        setMessages(prev => {
+          const next = [...prev, localMsg];
+          AsyncStorage.setItem(messagesKeyRef.current, JSON.stringify(next.slice(-MAX_STORED_MESSAGES))).catch(() => {});
+          return next;
+        });
+        return;
+      }
+      // ── Cloud provider path (zeroclaw gateway) ───────────────────────────────
+
       const sessionId = await getOrCreateSession();
       const auth = await NodeModule.getLocalAuthConfig();
       if (__DEV__ && Platform.OS === 'ios') {
