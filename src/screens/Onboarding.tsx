@@ -11,6 +11,7 @@
  */
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLayout } from '../hooks/useLayout';
+import { useRegionGate } from '../hooks/useRegionGate';
 import { useTranslation } from 'react-i18next';
 import React, { useState, useEffect } from 'react';
 import {
@@ -231,6 +232,28 @@ function WelcomeStep({
       return;
     }
     setMwaLoading(true);
+
+    if (Platform.OS === 'ios') {
+      // iOS: Phantom Universal Link deep link protocol (MWA is Android-only)
+      const { buildConnectUrl, setPendingConnectCb } = require('../utils/phantomDeepLink');
+      setPendingConnectCb((publicKey: string | null) => {
+        setMwaLoading(false);
+        if (publicKey) {
+          onChangePhantomWallet(publicKey);
+          onEnable();
+        } else {
+          Alert.alert('Connection failed', 'Could not connect Phantom. Make sure it is installed and try again.');
+        }
+      });
+      const url = buildConnectUrl('phantom-connect');
+      Linking.openURL(url).catch(() => {
+        setMwaLoading(false);
+        Alert.alert('Could not open Phantom', 'Make sure Phantom is installed on your device.');
+      });
+      return;
+    }
+
+    // Android: MWA protocol
     try {
       const { transact } = require('@solana-mobile/mobile-wallet-adapter-protocol-web3js');
       const { PublicKey } = require('@solana/web3.js');
@@ -239,13 +262,11 @@ function WelcomeStep({
           cluster: 'mainnet-beta',
           identity: { name: '01 Protocol', uri: 'https://0x01.world', icon: 'https://0x01.world/logo.png' },
         });
-        // Sign a nonce to cryptographically prove the user controls this key.
         const nonce = new TextEncoder().encode(`01-link-${Date.now()}`);
         await wallet.signMessages({ addresses: [accounts[0].address], payloads: [nonce] });
         const walletB58 = new PublicKey(accounts[0].address).toBase58();
         onChangePhantomWallet(walletB58);
       });
-      // Signature succeeded — wallet is proven. Proceed.
       onEnable();
     } catch (e: any) {
       const msg: string = e?.message ?? '';
@@ -706,6 +727,54 @@ function TokenChoiceStep({
       return;
     }
     setMwaLoading(true);
+
+    if (Platform.OS === 'ios') {
+      // iOS: Phantom Universal Link — connect first, then sign+send
+      const { buildConnectUrl, buildSignAndSendUrl, setPendingConnectCb, setPendingSignCb } =
+        require('../utils/phantomDeepLink');
+      setPendingConnectCb(async (publicKey: string | null) => {
+        if (!publicKey) {
+          setMwaLoading(false);
+          Alert.alert('Connection failed', 'Could not connect Phantom.');
+          return;
+        }
+        try {
+          const { Connection, SystemProgram, Transaction, PublicKey } = require('@solana/web3.js');
+          const fromPubkey = new PublicKey(publicKey);
+          await AsyncStorage.setItem('zerox1:linked_wallet', publicKey).catch(() => {});
+          const connection = new Connection('https://api.mainnet-beta.solana.com', 'confirmed');
+          const { blockhash } = await connection.getLatestBlockhash();
+          const tx = new Transaction({ recentBlockhash: blockhash, feePayer: fromPubkey }).add(
+            SystemProgram.transfer({ fromPubkey, toPubkey: new PublicKey(feeWallet), lamports: feeLamports }),
+          );
+          const serialized: Uint8Array = tx.serialize({ requireAllSignatures: false });
+          setPendingSignCb((sig: string | null) => {
+            setMwaLoading(false);
+            if (sig) {
+              onLaunch(undefined, sig);
+            } else {
+              Alert.alert('Payment failed', 'Could not complete payment. Please try again.');
+            }
+          });
+          const signUrl = buildSignAndSendUrl(serialized, 'phantom-sign');
+          Linking.openURL(signUrl).catch(() => {
+            setMwaLoading(false);
+            Alert.alert('Could not open Phantom', 'Make sure Phantom is installed on your device.');
+          });
+        } catch (e: any) {
+          setMwaLoading(false);
+          Alert.alert('Payment failed', e?.message ?? 'Could not build transaction.');
+        }
+      });
+      const connectUrl = buildConnectUrl('phantom-connect');
+      Linking.openURL(connectUrl).catch(() => {
+        setMwaLoading(false);
+        Alert.alert('Could not open Phantom', 'Make sure Phantom is installed on your device.');
+      });
+      return;
+    }
+
+    // Android: MWA protocol
     try {
       const { transact } = require('@solana-mobile/mobile-wallet-adapter-protocol-web3js');
       const { Connection, SystemProgram, Transaction, PublicKey } = require('@solana/web3.js');
@@ -715,7 +784,6 @@ function TokenChoiceStep({
           identity: { name: '01 Protocol', uri: 'https://0x01.world', icon: 'https://0x01.world/logo.png' },
         });
         const fromPubkey = new PublicKey(accounts[0].address);
-        // Signing the payment IS proof of ownership — save as cold wallet immediately.
         const walletB58 = fromPubkey.toBase58();
         await AsyncStorage.setItem('zerox1:linked_wallet', walletB58).catch(() => {});
         const connection = new Connection('https://api.mainnet-beta.solana.com', 'confirmed');
@@ -815,7 +883,7 @@ function TokenChoiceStep({
         disabled={!canLaunchFree}
       />
 
-      {gated && selfPayAvailable && (
+      {gated && selfPayAvailable && Platform.OS !== 'ios' && (
         <TouchableOpacity
           onPress={handlePhantomPay}
           disabled={mwaLoading}
@@ -852,6 +920,10 @@ export function OnboardingScreen({
   const { colors } = useTheme();
   const { isTablet, isWide, contentHPad, width: screenWidth } = useLayout();
   const s = useStyles(colors, isTablet, isWide, screenWidth);
+  const { brainAvailable } = useRegionGate();
+  // In regions where the AI brain is unavailable, skip provider/key steps (2 & 3)
+  // and go directly from name → token launch.
+  const nextAfterName = brainAvailable ? 2 : 5;
   const [step, setStep] = useState(0);
   const [phantomWallet, setPhantomWallet] = useState('');
   const [agentName, setAgentName] = useState('');
@@ -866,6 +938,23 @@ export function OnboardingScreen({
   const [launchGiftCode, setLaunchGiftCode] = useState('');
   const [launchPaymentTxid, setLaunchPaymentTxid] = useState('');
 
+  // iOS: dispatch Phantom deep link callbacks (zerox1://phantom-connect, zerox1://phantom-sign)
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    const { handleIncomingUrl } = require('../utils/phantomDeepLink');
+    const sub = Linking.addEventListener('url', ({ url }: { url: string }) => {
+      handleIncomingUrl(url);
+    });
+    // Handle cold-start (app opened FROM Phantom redirect)
+    Linking.getInitialURL().then((url: string | null) => {
+      if (url) handleIncomingUrl(url);
+    }).catch(() => {});
+    return () => sub.remove();
+  }, []);
+
+  // Ref lock to prevent double-tap on the LLM key save button.
+  const finishingRef = React.useRef(false);
+
   // Load partial onboarding state on mount
   useEffect(() => {
     (async () => {
@@ -873,7 +962,10 @@ export function OnboardingScreen({
         const raw = await AsyncStorage.getItem(ONBOARDING_STATE_KEY);
         if (raw) {
           const saved = JSON.parse(raw);
-          if (typeof saved.step === 'number') setStep(saved.step);
+          // Never restore to step 6 (LaunchSuccessStep) — savedConfig is not
+          // persisted, so restoring to 6 would crash on the null assertion.
+          // Clamp to the last data-entry step so the user re-commits cleanly.
+          if (typeof saved.step === 'number') setStep(Math.min(saved.step, 5));
           if (saved.agentName) setAgentName(saved.agentName);
           if (saved.agentAvatar) setAgentAvatar(saved.agentAvatar);
           if (saved.provider) setProvider(saved.provider);
@@ -900,6 +992,8 @@ export function OnboardingScreen({
   };
 
   const handleFinish = async () => {
+    if (finishingRef.current) return; // prevent double-tap
+    finishingRef.current = true;
     setSaving(true);
     try {
       if (agentName.trim() || agentAvatar) {
@@ -939,6 +1033,7 @@ export function OnboardingScreen({
       Alert.alert('Error', e?.message ?? 'Failed to save config.');
     } finally {
       setSaving(false);
+      finishingRef.current = false;
     }
   };
 
@@ -968,8 +1063,52 @@ export function OnboardingScreen({
           onChangeName={setAgentName}
           onChangeAvatar={setAgentAvatar}
           onBack={() => setStep(0)}
-          onNext={() => setStep(2)}
-          onSkip={() => setStep(2)}
+          onNext={async () => {
+            if (!brainAvailable && !savedConfig) {
+              // Brain steps are skipped in gated regions. Set a minimal config so
+              // LaunchSuccessStep (step 6) has a non-null config to work with.
+              const cfg: AgentBrainConfig = {
+                enabled: false,
+                provider: 'openai',
+                capabilities: [],
+                minFeeUsdc: 5,
+                minReputation: 50,
+                autoAccept: false,
+                maxActionsPerHour: 100,
+                maxCostPerDayCents: 1000,
+                apiKeySet: false,
+                customBaseUrl: '',
+                customModel: '',
+              };
+              await AsyncStorage.setItem('zerox1:auto_start', 'true');
+              await AsyncStorage.setItem('zerox1:agent_brain', JSON.stringify(cfg));
+              setSavedConfig(cfg);
+            }
+            setStep(nextAfterName);
+          }}
+          onSkip={async () => {
+            if (!brainAvailable && !savedConfig) {
+              // Same minimal-config path as onNext so LaunchSuccessStep never
+              // receives a null config regardless of which path the user takes.
+              const cfg: AgentBrainConfig = {
+                enabled: false,
+                provider: 'openai',
+                capabilities: [],
+                minFeeUsdc: 5,
+                minReputation: 50,
+                autoAccept: false,
+                maxActionsPerHour: 100,
+                maxCostPerDayCents: 1000,
+                apiKeySet: false,
+                customBaseUrl: '',
+                customModel: '',
+              };
+              await AsyncStorage.setItem('zerox1:auto_start', 'true');
+              await AsyncStorage.setItem('zerox1:agent_brain', JSON.stringify(cfg));
+              setSavedConfig(cfg);
+            }
+            setStep(nextAfterName);
+          }}
         />
       );
     case 2:
@@ -1002,14 +1141,24 @@ export function OnboardingScreen({
       return (
         <TokenChoiceStep
           agentName={agentName}
-          onBack={() => setStep(3)}
+          onBack={() => setStep(brainAvailable ? 3 : 1)}
           onLaunch={(giftCode, paymentTxid) => {
             setLaunchToken(true);
             setLaunchGiftCode(giftCode ?? '');
             setLaunchPaymentTxid(paymentTxid ?? '');
+            // Write onboarding_done optimistically before LaunchSuccessStep mounts.
+            // If the app is killed mid-launch the node is still running, and the
+            // user will land on the main app rather than re-entering onboarding.
+            markOnboardingDone().catch(() => {});
             setStep(6);
           }}
-          onSkip={() => { setLaunchToken(false); setLaunchGiftCode(''); setLaunchPaymentTxid(''); setStep(6); }}
+          onSkip={() => {
+            setLaunchToken(false);
+            setLaunchGiftCode('');
+            setLaunchPaymentTxid('');
+            markOnboardingDone().catch(() => {});
+            setStep(6);
+          }}
         />
       );
     case 6:
@@ -1353,6 +1502,53 @@ function LaunchSuccessStep({
       return;
     }
     setFallbackLoading(true);
+
+    if (Platform.OS === 'ios') {
+      // iOS: Phantom Universal Link — connect first, then sign+send
+      const { buildConnectUrl, buildSignAndSendUrl, setPendingConnectCb, setPendingSignCb } =
+        require('../utils/phantomDeepLink');
+      setPendingConnectCb(async (publicKey: string | null) => {
+        if (!publicKey) {
+          setFallbackLoading(false);
+          Alert.alert('Connection failed', 'Could not connect Phantom.');
+          return;
+        }
+        try {
+          const { Connection, SystemProgram, Transaction, PublicKey } = require('@solana/web3.js');
+          const fromPubkey = new PublicKey(publicKey);
+          const connection = new Connection('https://api.mainnet-beta.solana.com', 'confirmed');
+          const { blockhash } = await connection.getLatestBlockhash();
+          const tx = new Transaction({ recentBlockhash: blockhash, feePayer: fromPubkey }).add(
+            SystemProgram.transfer({ fromPubkey, toPubkey: new PublicKey(wallet), lamports }),
+          );
+          const serialized: Uint8Array = tx.serialize({ requireAllSignatures: false });
+          setPendingSignCb(async (sig: string | null) => {
+            setFallbackLoading(false);
+            if (sig) {
+              await retryLaunch({ type: 'pay', txid: sig });
+            } else {
+              Alert.alert('Payment failed', 'Could not complete payment. Please try again.');
+            }
+          });
+          const signUrl = buildSignAndSendUrl(serialized, 'phantom-sign');
+          Linking.openURL(signUrl).catch(() => {
+            setFallbackLoading(false);
+            Alert.alert('Could not open Phantom', 'Make sure Phantom is installed on your device.');
+          });
+        } catch (e: any) {
+          setFallbackLoading(false);
+          Alert.alert('Payment failed', e?.message ?? 'Could not build transaction.');
+        }
+      });
+      const connectUrl = buildConnectUrl('phantom-connect');
+      Linking.openURL(connectUrl).catch(() => {
+        setFallbackLoading(false);
+        Alert.alert('Could not open Phantom', 'Make sure Phantom is installed on your device.');
+      });
+      return;
+    }
+
+    // Android: MWA protocol
     try {
       const { transact } = require('@solana-mobile/mobile-wallet-adapter-protocol-web3js');
       const { Connection, SystemProgram, Transaction, PublicKey } = require('@solana/web3.js');

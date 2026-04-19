@@ -78,7 +78,24 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             intentIdentifiers: [],
             options: []
         )
-        UNUserNotificationCenter.current().setNotificationCategories([agentCategory])
+
+        // Emergency call category — shown after an emergency relay fires.
+        // Primary action opens the Phone app to call the first emergency contact.
+        // The phone number is carried in notification userInfo["emergency_phone"].
+        let callNowAction = UNNotificationAction(
+            identifier: "EMERGENCY_CALL_NOW",
+            title: "Call Now",
+            options: [.foreground]
+        )
+        let emergencyCategory = UNNotificationCategory(
+            identifier: "EMERGENCY_CALL",
+            actions: [callNowAction],
+            intentIdentifiers: [],
+            // Keep the notification on screen until explicitly dismissed.
+            options: [.customDismissAction]
+        )
+
+        UNUserNotificationCenter.current().setNotificationCategories([agentCategory, emergencyCategory])
         UNUserNotificationCenter.current().delegate = self
 
         // Auto-start node if enabled
@@ -171,19 +188,29 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        let url: URL?
         switch response.actionIdentifier {
         case "AGENT_CHAT":
-            url = URL(string: "zerox1://chat")
+            DispatchQueue.main.async { UIApplication.shared.open(URL(string: "zerox1://chat")!) }
         case "AGENT_BRIEF":
-            url = URL(string: "zerox1://chat?mode=brief")
+            DispatchQueue.main.async { UIApplication.shared.open(URL(string: "zerox1://chat?mode=brief")!) }
         case "AGENT_INBOX":
-            url = URL(string: "zerox1://inbox")
+            DispatchQueue.main.async { UIApplication.shared.open(URL(string: "zerox1://inbox")!) }
+        case "EMERGENCY_CALL_NOW":
+            // Strip everything except digits and leading + so tel:// is well-formed.
+            let raw = response.notification.request.content.userInfo["emergency_phone"] as? String ?? ""
+            let digits = raw.unicodeScalars.filter {
+                CharacterSet.decimalDigits.union(CharacterSet(charactersIn: "+")).contains($0)
+            }
+            let cleaned = String(digits)
+            if !cleaned.isEmpty, let url = URL(string: "tel://\(cleaned)") {
+                DispatchQueue.main.async { UIApplication.shared.open(url) }
+            }
         default:
-            url = nil
-        }
-        if let url = url {
-            DispatchQueue.main.async { UIApplication.shared.open(url) }
+            // Default tap on the emergency notification body — open chat so owner
+            // can type "I'm okay" to cancel any pending relay.
+            if response.notification.request.content.categoryIdentifier == "EMERGENCY_CALL" {
+                DispatchQueue.main.async { UIApplication.shared.open(URL(string: "zerox1://chat")!) }
+            }
         }
         completionHandler()
     }

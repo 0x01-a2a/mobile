@@ -274,7 +274,7 @@ export function ChatScreen() {
   const route = useRoute();
   const navigation = useNavigation<any>();
   const params = (route.params ?? {}) as ChatRouteParams;
-  const { config } = useNode();
+  const { config, status: nodeStatus, loading: nodeLoading } = useNode();
 
   const agents = useOwnedAgents().filter(a => a.mode !== 'linked');
   const [selectedAgentId, setSelectedAgentId] = useState<string>(
@@ -328,7 +328,7 @@ export function ChatScreen() {
   }, [params.agentId, agents, selectedAgentId]);
 
   // Session scoped by agentId + conversationId so each bounty has its own LLM context.
-  const { messages, loading, error, send, resetSession } = useZeroclawChat(selectedAgentId, selectedConvId);
+  const { messages, loading, error, send, resetSession, prewarm } = useZeroclawChat(selectedAgentId, selectedConvId);
   const { upload, uploading, error: uploadError } = useBlobs();
   const [draft, setDraft] = useState('');
   const listRef = useRef<FlatList>(null);
@@ -345,6 +345,12 @@ export function ChatScreen() {
   // Text deliver modal state
   const [textDeliverVisible, setTextDeliverVisible] = useState(false);
   const [textDeliverInput, setTextDeliverInput] = useState('');
+
+  // Pre-warm the ZeroClaw gateway URL as soon as the node is running so it is
+  // cached before the user sends their first message.
+  useEffect(() => {
+    if (nodeStatus === 'running') prewarm();
+  }, [nodeStatus]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Show the Bags API key modal when ZeroClaw signals rate limiting.
   useEffect(() => {
@@ -706,21 +712,70 @@ export function ChatScreen() {
                 <Text style={s.emptyLine}>  /___\___|_|_\___/ \_/\_/</Text>
                 <Text style={s.emptyHint}>{t('chat.agentBrainReady')}</Text>
                 <View style={s.suggestionsWrap}>
-                  {[
-                    'Every morning check my calendar and health, then DCA into SOL if conditions are good',
-                    'Watch my notifications and reply to anything routine automatically',
-                    'When my salary SMS arrives, convert 20% to SOL immediately',
-                    'Check my portfolio balance and tell me how I\'m doing',
-                    'Find agents in China that can help with supplier sourcing',
-                  ].map(suggestion => (
-                    <TouchableOpacity
-                      key={suggestion}
-                      style={s.suggestionChip}
-                      onPress={() => setDraft(suggestion)}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={s.suggestionText}>{suggestion}</Text>
-                    </TouchableOpacity>
+                  {([
+                    {
+                      label: 'HEALTH & BODY',
+                      prompts: [
+                        'Check my steps and heart rate, then tell me if I should work out or rest today',
+                        'Log this morning\'s run to Health and add a recovery reminder for tomorrow',
+                      ],
+                    },
+                    {
+                      label: 'SCHEDULE & REMINDERS',
+                      prompts: [
+                        'Read my calendar and give me a briefing for today',
+                        'Every morning check my calendar and health, then DCA into SOL if conditions look good',
+                      ],
+                    },
+                    {
+                      label: 'TRADING & DEFI',
+                      prompts: [
+                        'Check my portfolio and alert me if SOL drops more than 10% today',
+                        'When my salary SMS arrives, convert 20% to SOL immediately',
+                      ],
+                    },
+                    {
+                      label: 'MESSAGING & CONTACTS',
+                      prompts: [
+                        'Watch my notifications and auto-reply to anything routine while I\'m in a meeting',
+                        'Photograph this business card and add them to my contacts',
+                      ],
+                    },
+                    {
+                      label: 'LOCATION & CONTEXT',
+                      prompts: [
+                        'When I leave home, check my portfolio and brief me on anything urgent',
+                        'Find agents near me that offer document translation',
+                      ],
+                    },
+                    {
+                      label: 'VOICE & TRANSCRIPTION',
+                      prompts: [
+                        'Transcribe this voice note and extract action items into my Reminders',
+                        'Record this meeting, summarize it, and send the key points to the attendees',
+                      ],
+                    },
+                    {
+                      label: 'MESH & AGENTS',
+                      prompts: [
+                        'Find agents in China that can help with supplier sourcing',
+                        'Hire an agent to monitor a website and notify me when the price drops',
+                      ],
+                    },
+                  ] as { label: string; prompts: string[] }[]).map(group => (
+                    <View key={group.label} style={s.suggestionGroup}>
+                      <Text style={s.suggestionGroupLabel}>{group.label}</Text>
+                      {group.prompts.map(prompt => (
+                        <TouchableOpacity
+                          key={prompt}
+                          style={s.suggestionChip}
+                          onPress={() => setDraft(prompt)}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={s.suggestionText}>{prompt}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
                   ))}
                 </View>
               </View>
@@ -734,20 +789,19 @@ export function ChatScreen() {
             }
           />
 
-          {/* ZeroClaw error banner */}
-          {error ? (
-            <View style={s.errorBanner}>
-              <Text style={s.errorText}>{error}</Text>
-              <Text style={s.errorHint}>
-                {t('chat.enableAgentBrain')}
-              </Text>
+          {/* Status banner — starting takes priority over errors */}
+          {nodeLoading ? (
+            <View style={s.startingBanner}>
+              <Text style={s.startingText}>starting agent...</Text>
             </View>
-          ) : null}
-
-          {/* Upload error banner */}
-          {uploadError ? (
+          ) : (uploadError || error) ? (
             <View style={s.errorBanner}>
-              <Text style={s.errorText}>{uploadError}</Text>
+              <Text style={s.errorText}>{uploadError || error}</Text>
+              {!uploadError && (
+                <Text style={s.errorHint}>
+                  {t('chat.enableAgentBrain')}
+                </Text>
+              )}
             </View>
           ) : null}
 
@@ -783,9 +837,9 @@ export function ChatScreen() {
             )}
             <View style={s.inputRow}>
               <TouchableOpacity
-                style={[s.attachBtn, loading && s.sendBtnDisabled]}
+                style={[s.attachBtn, (loading || nodeStatus !== 'running') && s.sendBtnDisabled]}
                 onPress={pickChatImage}
-                disabled={loading}
+                disabled={loading || nodeStatus !== 'running'}
               >
                 <Text style={s.attachBtnText}>📎</Text>
               </TouchableOpacity>
@@ -793,20 +847,20 @@ export function ChatScreen() {
                 style={s.input}
                 value={draft}
                 onChangeText={setDraft}
-                placeholder={t('you.messagePlaceholder', { name: config.agentName || '01 Pilot' })}
+                placeholder={nodeLoading ? 'starting agent...' : t('you.messagePlaceholder', { name: config.agentName || '01 Pilot' })}
                 placeholderTextColor={colors.sub}
                 multiline
                 maxLength={4000}
                 onSubmitEditing={handleSend}
                 blurOnSubmit={false}
-                editable={!loading}
+                editable={!loading && !nodeLoading}
               />
               <TouchableOpacity
-                style={[s.sendBtn, ((!draft.trim() && !pendingImage) || loading) && s.sendBtnDisabled]}
+                style={[s.sendBtn, ((!draft.trim() && !pendingImage) || loading || nodeLoading) && s.sendBtnDisabled]}
                 onPress={handleSend}
-                disabled={(!draft.trim() && !pendingImage) || loading}
+                disabled={(!draft.trim() && !pendingImage) || loading || nodeLoading}
               >
-                <Text style={s.sendBtnText}>{loading ? '…' : '↑'}</Text>
+                <Text style={s.sendBtnText}>{(loading || nodeLoading) ? '…' : '↑'}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1083,9 +1137,13 @@ function useStyles(colors: ThemeColors, isTablet = false) {
   emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80, paddingBottom: 24 },
   emptyLine: { color: colors.sub, fontFamily: 'monospace', fontSize: 11, lineHeight: 17 },
   emptyHint: { color: colors.sub, fontFamily: 'monospace', fontSize: 12, textAlign: 'center' },
-  suggestionsWrap: { marginTop: 24, width: '100%', paddingHorizontal: 8, gap: 8 },
+  suggestionsWrap: { marginTop: 24, width: '100%', paddingHorizontal: 8, gap: 16 },
+  suggestionGroup: { gap: 6 },
+  suggestionGroupLabel: { color: colors.sub, fontFamily: 'monospace', fontSize: 9, letterSpacing: 1.5, marginBottom: 2, opacity: 0.6 },
   suggestionChip: { borderWidth: 1, borderColor: colors.border, borderRadius: 4, paddingHorizontal: 12, paddingVertical: 8 },
   suggestionText: { color: colors.sub, fontFamily: 'monospace', fontSize: 11, lineHeight: 16 },
+  startingBanner: { backgroundColor: colors.card, borderTopWidth: 1, borderTopColor: colors.border, padding: 10, alignItems: 'center' },
+  startingText: { color: colors.sub, fontFamily: 'monospace', fontSize: 11 },
   errorBanner: { backgroundColor: colors.card, borderTopWidth: 1, borderTopColor: colors.red, padding: 12 },
   errorText: { color: colors.red, fontFamily: 'monospace', fontSize: 11, marginBottom: 2 },
   errorHint: { color: colors.sub, fontFamily: 'monospace', fontSize: 10 },

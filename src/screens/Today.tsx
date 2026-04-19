@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView, StyleSheet, Image, Modal,
-  ActivityIndicator, Alert,
+  ActivityIndicator, Alert, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -9,6 +9,9 @@ import { useTranslation } from 'react-i18next';
 import { useNode } from '../hooks/useNode';
 import { useTaskLog, useSkrLeague } from '../hooks/useNodeApi';
 import { DEFAULT_AGENT_ICON_URI } from '../assets/defaultAgentIcon';
+import { useLayout } from '../hooks/useLayout';
+import { useAudioMute } from '../hooks/useAudioMute.tsx';
+import { useTheme, ThemeColors } from '../theme/ThemeContext';
 
 function isToday(timestampSeconds: number): boolean {
   const d = new Date(timestampSeconds * 1000);
@@ -58,7 +61,11 @@ export default function TodayScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const { t } = useTranslation();
+  const { contentMaxWidth } = useLayout();
   const { status, config } = useNode();
+  const { muted, toggle: toggleMute } = useAudioMute();
+  const { colors } = useTheme();
+  const s = makeStyles(colors);
   const { entries, loading } = useTaskLog();
   const { data: leagueData } = useSkrLeague();
   const [leagueModalVisible, setLeagueModalVisible] = useState(false);
@@ -87,14 +94,31 @@ export default function TodayScreen() {
     [entries],
   );
 
+  const centerStyle = contentMaxWidth
+    ? { maxWidth: contentMaxWidth, alignSelf: 'center' as const, width: '100%' as const }
+    : undefined;
+
   return (
     <ScrollView style={s.root} contentContainerStyle={s.content}>
+      <View style={centerStyle}>
       {/* Top bar */}
       <View style={[s.topBar, { paddingTop: insets.top + 12 }]}>
         <Text style={s.pilotLabel}>01 PILOT</Text>
-        <TouchableOpacity onPress={() => navigation.navigate('You')}>
-          <Text style={s.settingsIcon}>◎</Text>
-        </TouchableOpacity>
+        <View style={s.topBarRight}>
+          {Platform.OS === 'ios' && isRunning && (
+            <TouchableOpacity
+              onPress={toggleMute}
+              style={[s.muteBtn, muted && s.muteBtnMuted]}
+            >
+              <Text style={[s.muteLabel, muted && s.muteLabelMuted]}>
+                {muted ? 'MUTED' : 'AUDIO'}
+              </Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity onPress={() => navigation.navigate('You')}>
+            <Text style={s.settingsIcon}>◎</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Agent hero card */}
@@ -159,7 +183,7 @@ export default function TodayScreen() {
         <Text style={s.sectionLabel}>{t('today.recentJobs')}</Text>
         {loading && (
           <View style={s.loadingContainer}>
-            <ActivityIndicator size="small" color="#22c55e" />
+            <ActivityIndicator size="small" color={colors.green} />
           </View>
         )}
         {!loading && recentJobs.length === 0 && (
@@ -172,6 +196,9 @@ export default function TodayScreen() {
           </View>
         )}
         {recentJobs.map((entry, i) => {
+          // Note: recentJobs is pre-filtered to outcome === 'success', so isActive
+          // will always be false here. The badge is preserved for forward-compat if
+          // the filter is relaxed, but it never shows in the current data set.
           const isActive = entry.outcome !== 'success' && (entry.amount_usd ?? 0) === 0;
           const isLast = i === recentJobs.length - 1;
           return (
@@ -215,7 +242,7 @@ export default function TodayScreen() {
               <View key={entry.rank} style={[s.leagueRow, isYou && s.leagueRowHighlight]}>
                 <Text style={s.leagueRank}>#{entry.rank}</Text>
                 <Text style={[s.leagueName, isYou && s.leagueNameYou]}>{entry.label}</Text>
-                <Text style={s.leagueRate}>{fmtRate(entry.earn_rate_pct)}</Text>
+                <Text style={[s.leagueRate, { color: entry.earn_rate_pct < 0 ? colors.red : colors.green }]}>{fmtRate(entry.earn_rate_pct)}</Text>
               </View>
             );
           })}
@@ -231,6 +258,8 @@ export default function TodayScreen() {
           </TouchableOpacity>
         </View>
       )}
+
+      </View>
 
       {/* League bottom-sheet modal */}
       <Modal
@@ -298,7 +327,7 @@ export default function TodayScreen() {
                   <View key={entry.rank} style={[s.leagueRow, isYou && s.leagueRowHighlight]}>
                     <Text style={s.leagueRank}>#{entry.rank}</Text>
                     <Text style={[s.leagueName, isYou && s.leagueNameYou]}>{entry.label}</Text>
-                    <Text style={s.leagueRate}>{fmtRate(entry.earn_rate_pct)}</Text>
+                    <Text style={[s.leagueRate, { color: entry.earn_rate_pct < 0 ? colors.red : colors.green }]}>{fmtRate(entry.earn_rate_pct)}</Text>
                   </View>
                 );
               })}
@@ -314,7 +343,7 @@ export default function TodayScreen() {
                     }
                   >
                     <Text style={s.modalStatLabel}>TOKEN RATE <Text style={s.modalStatHint}>(?)</Text></Text>
-                    <Text style={s.modalStatValue}>{fmtRate(leagueData.wallet.earn_rate_pct)}</Text>
+                    <Text style={[s.modalStatValue, { color: leagueData.wallet.earn_rate_pct < 0 ? colors.red : colors.green }]}>{fmtRate(leagueData.wallet.earn_rate_pct)}</Text>
                   </TouchableOpacity>
                   <View style={s.modalStatCol}>
                     <Text style={s.modalStatLabel}>{t('today.leagueTrades')}</Text>
@@ -335,127 +364,139 @@ export default function TodayScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#fff' },
-  content: { paddingBottom: 24 },
-  topBar: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: 16, paddingBottom: 4,
-  },
-  pilotLabel: { fontSize: 10, color: '#6b7280', fontWeight: '600', letterSpacing: 0.5 },
-  settingsIcon: { fontSize: 20, color: '#374151' },
+function makeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    root: { flex: 1, backgroundColor: colors.bg },
+    content: { paddingBottom: 24 },
+    topBar: {
+      flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+      paddingHorizontal: 16, paddingBottom: 4,
+    },
+    pilotLabel: { fontSize: 13, color: colors.sub, fontWeight: '700', letterSpacing: 1.5 },
+    topBarRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    muteBtn: {
+      paddingHorizontal: 8, paddingVertical: 3,
+      borderRadius: 4, borderWidth: 1, borderColor: colors.green,
+    },
+    muteBtnMuted: { borderColor: colors.border },
+    muteLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.5, color: colors.green },
+    muteLabelMuted: { color: colors.sub },
+    settingsIcon: { fontSize: 20, color: colors.text },
 
-  heroCard: {
-    margin: 16, marginTop: 12,
-    backgroundColor: '#f0fdf4',
-    borderRadius: 14,
-    borderWidth: 1, borderColor: '#bbf7d0',
-    padding: 14,
-  },
-  heroRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  avatarCircle: {
-    width: 38, height: 38, borderRadius: 19,
-    backgroundColor: '#fff', borderWidth: 2, borderColor: '#86efac',
-    overflow: 'hidden',
-  },
-  avatarImage: { width: 38, height: 38 },
-  heroInfo: { flex: 1 },
-  agentName: { fontSize: 13, fontWeight: '600', color: '#111' },
-  agentStatus: { fontSize: 10, color: '#16a34a', marginTop: 2 },
-  heroDivider: { height: 1, backgroundColor: '#bbf7d0', opacity: 0.5, marginVertical: 10 },
-  earningsRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  earningsRight: { alignItems: 'flex-end' },
-  earningsLabel: { fontSize: 9, color: '#6b7280', letterSpacing: 0.3, marginBottom: 2 },
-  earningsAmount: { fontSize: 18, fontWeight: '700', color: '#111', letterSpacing: -0.5 },
-  earningsAmountMuted: { color: '#374151' },
-  earningsHint: { fontSize: 10, color: '#9ca3af', marginTop: 6, fontStyle: 'italic' },
+    heroCard: {
+      margin: 16, marginTop: 12,
+      backgroundColor: colors.card,
+      borderRadius: 14,
+      borderWidth: 1, borderColor: colors.border,
+      borderLeftWidth: 3, borderLeftColor: colors.green,
+      padding: 14,
+    },
+    heroRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    avatarCircle: {
+      width: 40, height: 40, borderRadius: 20,
+      backgroundColor: colors.bg, borderWidth: 2, borderColor: colors.green,
+      overflow: 'hidden',
+    },
+    avatarImage: { width: 40, height: 40 },
+    heroInfo: { flex: 1 },
+    agentName: { fontSize: 14, fontWeight: '600', color: colors.text },
+    agentStatus: { fontSize: 11, color: colors.green, marginTop: 2 },
+    heroDivider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border, marginVertical: 12 },
+    earningsRow: { flexDirection: 'row', justifyContent: 'space-between' },
+    earningsRight: { alignItems: 'flex-end' },
+    earningsLabel: { fontSize: 11, color: colors.sub, letterSpacing: 0.3, marginBottom: 2 },
+    earningsAmount: { fontSize: 20, fontWeight: '700', color: colors.text, letterSpacing: -0.5 },
+    earningsAmountMuted: { color: colors.sub },
+    earningsHint: { fontSize: 11, color: colors.dim, marginTop: 6, fontStyle: 'italic' },
 
-  actionsRow: {
-    flexDirection: 'row', gap: 8, paddingHorizontal: 16, marginBottom: 4,
-  },
-  actionBtn: {
-    flex: 1, borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 10,
-    paddingVertical: 9, alignItems: 'center',
-  },
-  actionBtnPrimary: { backgroundColor: '#111', borderColor: '#111' },
-  actionText: { fontSize: 9, color: '#374151', fontWeight: '600' },
-  actionTextPrimary: { color: '#fff' },
+    actionsRow: {
+      flexDirection: 'row', gap: 8, paddingHorizontal: 16, marginBottom: 4,
+    },
+    actionBtn: {
+      flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: 10,
+      paddingVertical: 11, alignItems: 'center',
+    },
+    actionBtnPrimary: { flex: 2, backgroundColor: colors.text, borderColor: colors.text },
+    actionText: { fontSize: 12, color: colors.sub, fontWeight: '600' },
+    actionTextPrimary: { color: colors.bg, fontSize: 12, fontWeight: '700' },
 
-  sectionDivider: { height: 6, backgroundColor: '#f3f4f6', marginTop: 12 },
+    sectionDivider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border, marginHorizontal: 16, marginTop: 16 },
 
-  section: { paddingHorizontal: 16, paddingTop: 14 },
-  sectionLabel: {
-    fontSize: 10, color: '#9ca3af', letterSpacing: 0.5, marginBottom: 10,
-  },
-  emptyText: { fontSize: 14, color: '#9ca3af', textAlign: 'center', paddingVertical: 24 },
+    section: { paddingHorizontal: 16, paddingTop: 14 },
+    sectionLabel: {
+      fontSize: 11, color: colors.dim, letterSpacing: 0.5, marginBottom: 10,
+    },
+    emptyText: { fontSize: 14, color: colors.dim, textAlign: 'center', paddingVertical: 24 },
 
-  loadingContainer: { alignItems: 'center', paddingVertical: 24 },
+    loadingContainer: { alignItems: 'center', paddingVertical: 24 },
 
-  emptyContainer: { alignItems: 'center', paddingVertical: 24 },
-  emptyPrimary: { fontSize: 13, color: '#374151', textAlign: 'center', marginBottom: 4 },
-  emptySecondary: { fontSize: 11, color: '#9ca3af', textAlign: 'center', marginBottom: 12 },
-  emptyAction: {
-    borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 8,
-    paddingHorizontal: 14, paddingVertical: 7,
-  },
-  emptyActionText: { fontSize: 11, color: '#374151', fontWeight: '600' },
+    emptyContainer: { alignItems: 'center', paddingVertical: 24 },
+    emptyPrimary: { fontSize: 13, color: colors.text, textAlign: 'center', marginBottom: 4 },
+    emptySecondary: { fontSize: 12, color: colors.sub, textAlign: 'center', marginBottom: 12 },
+    emptyAction: {
+      borderWidth: 1, borderColor: colors.border, borderRadius: 8,
+      paddingHorizontal: 14, paddingVertical: 8,
+    },
+    emptyActionText: { fontSize: 12, color: colors.text, fontWeight: '600' },
 
-  jobRow: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingVertical: 8,
-  },
-  jobRowBorder: { borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
-  jobTitle: { fontSize: 12, color: '#111', fontWeight: '500' },
-  jobTitleMuted: { color: '#9ca3af' },
-  jobTime: { fontSize: 10, color: '#9ca3af', marginTop: 2 },
-  jobAmount: { fontSize: 13, color: '#22c55e', fontWeight: '600' },
-  workingBadge: {
-    borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 4,
-    paddingHorizontal: 6, paddingVertical: 2, backgroundColor: '#f9fafb',
-  },
-  workingBadgeText: { fontSize: 10, color: '#9ca3af' },
+    jobRow: {
+      flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+      paddingVertical: 10,
+    },
+    jobRowBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+    jobTitle: { fontSize: 13, color: colors.text, fontWeight: '500' },
+    jobTitleMuted: { color: colors.dim },
+    jobTime: { fontSize: 11, color: colors.sub, marginTop: 2 },
+    jobAmount: { fontSize: 13, color: colors.green, fontWeight: '600' },
+    workingBadge: {
+      borderWidth: 1, borderColor: colors.border, borderRadius: 4,
+      paddingHorizontal: 6, paddingVertical: 2, backgroundColor: colors.card,
+    },
+    workingBadgeText: { fontSize: 11, color: colors.sub },
 
-  // ── Earnings League ──────────────────────────────────────────────────────
-  leagueHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  leagueCountdown: { fontSize: 10, color: '#9ca3af' },
-  leagueRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
-  leagueRowHighlight: { backgroundColor: '#f0fdf4', borderRadius: 6, marginHorizontal: -4, paddingHorizontal: 4 },
-  leagueRowYouAppended: { borderTopWidth: 1, borderTopColor: '#e5e7eb', borderBottomWidth: 0 },
-  leagueRank: { fontSize: 11, color: '#9ca3af', width: 28 },
-  leagueName: { flex: 1, fontSize: 12, color: '#111', fontWeight: '500' },
-  leagueNameYou: { color: '#22c55e' },
-  leagueRate: { fontSize: 12, color: '#22c55e', fontWeight: '600' },
-  leagueSeeAll: { paddingVertical: 10 },
-  leagueSeeAllText: { fontSize: 11, color: '#6b7280' },
-  // ── League modal ─────────────────────────────────────────────────────────
-  modalRoot: { flex: 1, backgroundColor: '#fff' },
-  modalHandle: { width: 32, height: 4, backgroundColor: '#e5e7eb', borderRadius: 2, alignSelf: 'center', marginTop: 8, marginBottom: 16 },
-  modalHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginBottom: 12 },
-  modalTitle: { fontSize: 11, fontWeight: '700', color: '#111', letterSpacing: 0.5 },
-  modalClose: { fontSize: 16, color: '#6b7280', padding: 4 },
-  modalScroll: { flex: 1 },
-  modalScrollContent: { paddingHorizontal: 16, paddingBottom: 32 },
-  modalSectionLabel: { fontSize: 10, color: '#9ca3af', letterSpacing: 0.5, marginBottom: 8 },
-  modalInfoRow: { fontSize: 12, color: '#374151', marginBottom: 6 },
-  modalFooter: { flexDirection: 'row', justifyContent: 'space-around', paddingVertical: 16, borderTopWidth: 1, borderTopColor: '#f3f4f6', marginTop: 8 },
-  modalStatCol: { alignItems: 'center' as const },
-  modalStatLabel: { fontSize: 9, color: '#9ca3af', letterSpacing: 0.3, marginBottom: 4 },
-  modalStatValue: { fontSize: 15, fontWeight: '700', color: '#111' },
-  modalStatHint: { fontSize: 9, color: '#9ca3af' },
-  modalFootnote: { fontSize: 10, color: '#9ca3af', textAlign: 'center', marginTop: 8 },
-  // ── Period filter pills ───────────────────────────────────────────────────
-  periodFilterRow: { flexDirection: 'row', gap: 8, marginBottom: 8, marginTop: 4 },
-  periodEarningsRow: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    backgroundColor: '#f0fdf4', borderRadius: 8, padding: 10, marginBottom: 12,
-  },
-  periodEarningsLabel: { fontSize: 10, color: '#6b7280', fontWeight: '600', letterSpacing: 0.3 },
-  periodEarningsValue: { fontSize: 16, fontWeight: '700', color: '#16a34a' },
-  periodPill: {
-    borderWidth: 1, borderColor: '#d1d5db', borderRadius: 20,
-    paddingHorizontal: 10, paddingVertical: 4,
-  },
-  periodPillSelected: { backgroundColor: '#111', borderColor: '#111' },
-  periodPillText: { fontSize: 11, color: '#6b7280', fontWeight: '500' },
-  periodPillTextSelected: { color: '#fff' },
-});
+    // ── Earnings League ──────────────────────────────────────────────────────
+    leagueHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+    leagueCountdown: { fontSize: 11, color: colors.sub },
+    leagueRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+    leagueRowHighlight: { backgroundColor: colors.card, borderRadius: 6, marginHorizontal: -4, paddingHorizontal: 4 },
+    leagueRowYouAppended: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, borderBottomWidth: 0 },
+    leagueRank: { fontSize: 12, color: colors.sub, width: 28 },
+    leagueName: { flex: 1, fontSize: 13, color: colors.text, fontWeight: '500' },
+    leagueNameYou: { color: colors.green },
+    leagueRate: { fontSize: 13, fontWeight: '600' },
+    leagueSeeAll: { paddingVertical: 10 },
+    leagueSeeAllText: { fontSize: 12, color: colors.sub },
+    // ── League modal ─────────────────────────────────────────────────────────
+    modalRoot: { flex: 1, backgroundColor: colors.bg },
+    modalHandle: { width: 32, height: 4, backgroundColor: colors.border, borderRadius: 2, alignSelf: 'center', marginTop: 8, marginBottom: 16 },
+    modalHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginBottom: 12 },
+    modalTitle: { fontSize: 12, fontWeight: '700', color: colors.text, letterSpacing: 0.5 },
+    modalClose: { fontSize: 16, color: colors.sub, padding: 4 },
+    modalScroll: { flex: 1 },
+    modalScrollContent: { paddingHorizontal: 16, paddingBottom: 32 },
+    modalSectionLabel: { fontSize: 11, color: colors.sub, letterSpacing: 0.5, marginBottom: 8 },
+    modalInfoRow: { fontSize: 13, color: colors.text, marginBottom: 6 },
+    modalFooter: { flexDirection: 'row', justifyContent: 'space-around', paddingVertical: 16, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, marginTop: 8 },
+    modalStatCol: { alignItems: 'center' as const },
+    modalStatLabel: { fontSize: 11, color: colors.sub, letterSpacing: 0.3, marginBottom: 4 },
+    modalStatValue: { fontSize: 16, fontWeight: '700', color: colors.text },
+    modalStatHint: { fontSize: 10, color: colors.dim },
+    modalFootnote: { fontSize: 11, color: colors.dim, textAlign: 'center', marginTop: 8 },
+    // ── Period filter pills ───────────────────────────────────────────────────
+    periodFilterRow: { flexDirection: 'row', gap: 8, marginBottom: 8, marginTop: 4 },
+    periodEarningsRow: {
+      flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+      backgroundColor: colors.card, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border, padding: 10, marginBottom: 12,
+    },
+    periodEarningsLabel: { fontSize: 11, color: colors.sub, fontWeight: '600', letterSpacing: 0.3 },
+    periodEarningsValue: { fontSize: 16, fontWeight: '700', color: colors.green },
+    periodPill: {
+      borderWidth: 1, borderColor: colors.border, borderRadius: 20,
+      paddingHorizontal: 12, paddingVertical: 5,
+    },
+    periodPillSelected: { backgroundColor: colors.text, borderColor: colors.text },
+    periodPillText: { fontSize: 12, color: colors.sub, fontWeight: '500' },
+    periodPillTextSelected: { color: colors.bg },
+  });
+}

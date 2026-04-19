@@ -89,7 +89,7 @@ struct AgentLiveActivityWidget: Widget {
                         .lineLimit(1)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    HStack(spacing: 20) {
+                    HStack(spacing: 16) {
                         Link(destination: URL(string: "zerox1://chat")!) {
                             Label("Chat", systemImage: "bubble.left.fill")
                                 .font(.caption.bold())
@@ -106,12 +106,21 @@ struct AgentLiveActivityWidget: Widget {
                             .font(.caption.bold())
                             .foregroundColor(.white.opacity(0.65))
                         }
-                        Link(destination: URL(string: "zerox1://chat?mode=brief")!) {
-                            Label("Brief", systemImage: "sparkles")
+                        Spacer()
+                        // Mute / unmute ambient working sound
+                        Link(destination: URL(string: context.state.audioMuted
+                                ? "zerox1://unmute-audio"
+                                : "zerox1://mute-audio")!) {
+                            Image(systemName: context.state.audioMuted
+                                    ? "speaker.slash.fill"
+                                    : "speaker.wave.2.fill")
                                 .font(.caption.bold())
-                                .foregroundColor(.white.opacity(0.65))
+                                .foregroundColor(context.state.audioMuted
+                                    ? .white.opacity(0.35)
+                                    : accent.opacity(0.75))
                         }
                     }
+                    .padding(.horizontal, 4)
                     .padding(.bottom, 4)
                 }
             } compactLeading: {
@@ -119,8 +128,13 @@ struct AgentLiveActivityWidget: Widget {
                 PulseDot(active: context.state.isActive)
                     .padding(.leading, 4)
             } compactTrailing: {
-                // ── Compact right: badge if pending, else earned today ───────
-                if context.state.pendingCount > 0 {
+                // ── Compact right: muted icon > badge > earned today ─────────
+                if context.state.audioMuted {
+                    Image(systemName: "speaker.slash.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.35))
+                        .padding(.trailing, 2)
+                } else if context.state.pendingCount > 0 {
                     PendingBadge(count: context.state.pendingCount)
                         .padding(.trailing, 2)
                 } else {

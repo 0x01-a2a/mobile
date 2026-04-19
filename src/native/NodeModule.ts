@@ -342,6 +342,7 @@ export const NodeModule = {
     earnedToday?: string;
     isActive?: boolean;
     pendingCount?: number;
+    audioMuted?: boolean;
   }): Promise<string | null> =>
     ZeroxNodeModule.startLiveActivity(config),
 
@@ -355,6 +356,7 @@ export const NodeModule = {
     earnedToday?: string;
     isActive?: boolean;
     pendingCount?: number;
+    audioMuted?: boolean;
   }): Promise<void> =>
     ZeroxNodeModule.updateLiveActivity(activityId, state),
 
@@ -401,6 +403,51 @@ export const NodeModule = {
     Platform.OS === 'ios'
       ? ZeroxNodeModule.setAggregatorSleepState(sleeping)
       : Promise.resolve(),
+
+  /**
+   * Set the current task type so iOS plays the matching ambient sound while
+   * ZeroClaw is working. Call when a task is accepted; clear ("") when done.
+   * taskType: "page_flip" | "keyboard" | "rain" | "ocean" | ""
+   * iOS only — no-op on Android.
+   */
+  setAgentTaskType: (taskType: string): Promise<void> =>
+    Platform.OS === 'ios'
+      ? ZeroxNodeModule.setAgentTaskType(taskType)
+      : Promise.resolve(),
+
+  /**
+   * Mute or unmute the ambient working sound played while ZeroClaw processes a task.
+   * The audio session stays alive when muted (volume 0); only the audible output stops.
+   * iOS only — no-op on Android.
+   */
+  setAudioMuted: (muted: boolean): Promise<void> =>
+    Platform.OS === 'ios'
+      ? ZeroxNodeModule.setAudioMuted(muted)
+      : Promise.resolve(),
+
+  /**
+   * Update the Android foreground service notification status line.
+   * Android only — no-op on iOS (Live Activity handles this).
+   */
+  setAgentStatus: (status: string): Promise<void> =>
+    Platform.OS === 'android'
+      ? ZeroxNodeModule.setAgentStatus(status)
+      : Promise.resolve(),
+
+  saveEmergencyContacts: (contactsJson: string): Promise<void> =>
+    ZeroxNodeModule.saveEmergencyContacts(contactsJson),
+
+  setSafetyEnabled: (enabled: boolean): Promise<void> =>
+    ZeroxNodeModule.setSafetyEnabled(enabled),
+
+  /**
+   * Returns the device/storefront region and whether the AI brain is available.
+   * iOS: SKStorefront country code (CHN) or Locale fallback (CN).
+   * Android: SIM country ISO or Locale fallback.
+   * Mainland China returns brainAvailable: false.
+   */
+  getRegion: (): Promise<{ region: string; brainAvailable: boolean }> =>
+    ZeroxNodeModule.getRegion(),
 };
 
 // Temporary iOS bridge instrumentation to diagnose stale native module builds.

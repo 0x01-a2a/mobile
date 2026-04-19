@@ -24,6 +24,7 @@ import { useNode } from './useNode';
 import { useIdentity, fetchTaskLog, getInboxWsParams } from './useNodeApi';
 import { useTheme } from '../theme/ThemeContext';
 import { NodeModule } from '../native/NodeModule';
+import { useAudioMute } from './useAudioMute.tsx';
 import type { TaskLogEntry } from './useNodeApi';
 
 const EARNINGS_POLL_MS = 30_000;
@@ -63,6 +64,7 @@ export function useLiveActivity(): void {
   const { status } = useNode();
   const identity = useIdentity();
   const { pilotMode } = useTheme();
+  const { muted } = useAudioMute();
 
   const activityIdRef   = useRef<string | null>(null);
   const statusRef       = useRef(status);
@@ -70,10 +72,12 @@ export function useLiveActivity(): void {
   const pendingRef      = useRef(0);
   const phraseRef       = useRef('Standing by');
   const currentTaskRef  = useRef('');
+  const mutedRef        = useRef(muted);
   const pollTimerRef    = useRef<ReturnType<typeof setInterval> | null>(null);
   const wsRef           = useRef<WebSocket | null>(null);
 
   useEffect(() => { statusRef.current = status; }, [status]);
+  useEffect(() => { mutedRef.current = muted; }, [muted]);
 
   // ── Push a state snapshot to the active island ────────────────────────────
   const pushState = useCallback(async (overrides?: {
@@ -93,6 +97,7 @@ export function useLiveActivity(): void {
         earnedToday:  earnedRef.current,
         isActive:     overrides?.isActive ?? (statusRef.current === 'running'),
         pendingCount: pendingRef.current,
+        audioMuted:   mutedRef.current,
       });
     } catch {
       // Island may have been dismissed by the user — ignore.
@@ -158,7 +163,48 @@ export function useLiveActivity(): void {
     wsRef.current = null;
   }, []);
 
-  // ── Main lifecycle effect ─────────────────────────────────────────────────
+  // ── Android notification status ──────────────────────────────────────────
+  const androidWsRef = useRef<WebSocket | null>(null);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+
+    if (status !== 'running') {
+      androidWsRef.current?.close();
+      androidWsRef.current = null;
+      NodeModule.setAgentStatus('Running — connected to 0x01 mesh').catch(() => {});
+      return;
+    }
+
+    if (androidWsRef.current) return; // already connected
+
+    try {
+      const { wsBase, token, isHosted } = getInboxWsParams();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const WS = WebSocket as any;
+      const ws: WebSocket = isHosted && token
+        ? new WS(`${wsBase}/ws/hosted/inbox`, undefined, { headers: { Authorization: `Bearer ${token}` } })
+        : new WS(`${wsBase}/ws/inbox`);
+
+      ws.onmessage = (e: MessageEvent) => {
+        try {
+          const env = JSON.parse(e.data as string) as { msg_type: string };
+          const phrase = PHRASE_FROM_MSG_TYPE[env.msg_type];
+          if (phrase) NodeModule.setAgentStatus(phrase).catch(() => {});
+        } catch { /* malformed */ }
+      };
+      ws.onerror = () => { ws.close(); androidWsRef.current = null; };
+      ws.onclose = () => { androidWsRef.current = null; };
+      androidWsRef.current = ws;
+    } catch { /* WS unavailable */ }
+
+    return () => {
+      androidWsRef.current?.close();
+      androidWsRef.current = null;
+    };
+  }, [status]);
+
+  // ── Main lifecycle effect (iOS) ───────────────────────────────────────────
   useEffect(() => {
     if (Platform.OS !== 'ios') return;
 
@@ -223,4 +269,10 @@ export function useLiveActivity(): void {
       isActive,
     });
   }, [status, pushState]);
+
+  // ── Reflect mute toggle immediately ──────────────────────────────────────
+  useEffect(() => {
+    if (Platform.OS !== 'ios' || !activityIdRef.current) return;
+    pushState();
+  }, [muted, pushState]);
 }

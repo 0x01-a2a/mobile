@@ -96,3 +96,15 @@ android/app/src/main/assets/zeroclaw-config.json
 # Bridge server token (generated at runtime)
 android/app/src/main/assets/bridge.token
 .claude/
+
+# Superpowers / Claude Code plugin runtime files
+.superpowers/
+
+# iOS build artefacts
+*.xcarchive
+*.dSYM
+ios/Zerox1.xcodeproj/xcuserdata/
+
+# dApp Store — APK is staged by CI, not committed
+dapp-store/files/*.apk
+secrets/dappstore-publisher.json

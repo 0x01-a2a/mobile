@@ -89,6 +89,40 @@ class NodeModule: RCTEventEmitter {
         }
     }
 
+    /// Write the active task type so KeepAliveService plays the matching ambient sound.
+    /// Call when a task is accepted in the Inbox.
+    /// taskType: "page_flip" | "keyboard" | "rain" | "ocean" | "" (clears)
+    @objc func setAgentTaskType(_ taskType: String,
+                                 resolver resolve: @escaping RCTPromiseResolveBlock,
+                                 rejecter reject: @escaping RCTPromiseRejectBlock) {
+        NodeService.shared.setTaskType(taskType)
+        resolve(nil)
+    }
+
+    @objc func setAudioMuted(_ muted: Bool,
+                              resolver resolve: @escaping RCTPromiseResolveBlock,
+                              rejecter reject: @escaping RCTPromiseRejectBlock) {
+        NodeService.shared.setAudioMuted(muted)
+        resolve(nil)
+    }
+
+    /// Persist emergency contacts JSON to UserDefaults so PhoneBridgeServer can
+    /// read them without going through AsyncStorage.
+    @objc func saveEmergencyContacts(_ contacts: String,
+                                      resolver resolve: @escaping RCTPromiseResolveBlock,
+                                      rejecter reject: @escaping RCTPromiseRejectBlock) {
+        UserDefaults.standard.set(contacts, forKey: "zerox1_emergency_contacts")
+        resolve(nil)
+    }
+
+    /// Persist safety-monitoring enabled flag to UserDefaults.
+    @objc func setSafetyEnabled(_ enabled: Bool,
+                                 resolver resolve: @escaping RCTPromiseResolveBlock,
+                                 rejecter reject: @escaping RCTPromiseRejectBlock) {
+        UserDefaults.standard.set(enabled, forKey: "zerox1_safety_enabled")
+        resolve(nil)
+    }
+
     @objc func getLocalAuthConfig(_ resolve: @escaping RCTPromiseResolveBlock,
                                   rejecter reject: @escaping RCTPromiseRejectBlock) {
         let token = KeychainHelper.load(key: "node_api_token")
@@ -559,6 +593,26 @@ class NodeModule: RCTEventEmitter {
         resolve(token as Any)
     }
 
+    // MARK: - Region gate
+
+    /// Returns {region: String, brainAvailable: Bool}.
+    /// Uses SKStorefront (most reliable for App Store policy) with Locale fallback.
+    /// Mainland China (CHN / CN) blocks the AI brain to comply with App Store regulations.
+    @objc func getRegion(_ resolve: @escaping RCTPromiseResolveBlock,
+                         rejecter reject: @escaping RCTPromiseRejectBlock) {
+        let regionCode: String
+        if #available(iOS 16.0, *) {
+            regionCode = Locale.current.region?.identifier ?? Locale.current.regionCode ?? ""
+        } else {
+            regionCode = Locale.current.regionCode ?? ""
+        }
+        let isChina = ["CHN", "CN"].contains(regionCode.uppercased())
+        resolve([
+            "region": regionCode,
+            "brainAvailable": !isChina,
+        ])
+    }
+
     // MARK: - Presence / Overlay / Screen capture stubs (Android-only features)
 
     @objc func setPresenceMode(_ enabled: Bool,
@@ -621,7 +675,8 @@ class NodeModule: RCTEventEmitter {
                 currentTask: config["currentTask"] as? String ?? "",
                 earnedToday: config["earnedToday"] as? String ?? "$0.00",
                 isActive: config["isActive"] as? Bool ?? true,
-                pendingCount: config["pendingCount"] as? Int ?? 0
+                pendingCount: config["pendingCount"] as? Int ?? 0,
+                audioMuted: config["audioMuted"] as? Bool ?? false
             )
             do {
                 let activity = try Activity<AgentActivityAttributes>.request(
@@ -646,12 +701,14 @@ class NodeModule: RCTEventEmitter {
             Task {
                 for activity in Activity<AgentActivityAttributes>.activities {
                     if activity.id == activityId as String {
+                        let current = activity.content.state
                         let newState = AgentActivityAttributes.ContentState(
-                            statusPhrase: stateDict["statusPhrase"] as? String ?? "Standing by",
-                            currentTask: stateDict["currentTask"] as? String ?? "",
-                            earnedToday: stateDict["earnedToday"] as? String ?? "$0.00",
-                            isActive: stateDict["isActive"] as? Bool ?? true,
-                            pendingCount: stateDict["pendingCount"] as? Int ?? 0
+                            statusPhrase: stateDict["statusPhrase"] as? String ?? current.statusPhrase,
+                            currentTask: stateDict["currentTask"] as? String ?? current.currentTask,
+                            earnedToday: stateDict["earnedToday"] as? String ?? current.earnedToday,
+                            isActive: stateDict["isActive"] as? Bool ?? current.isActive,
+                            pendingCount: stateDict["pendingCount"] as? Int ?? current.pendingCount,
+                            audioMuted: stateDict["audioMuted"] as? Bool ?? current.audioMuted
                         )
                         await activity.update(.init(state: newState, staleDate: nil))
                         break

@@ -8,6 +8,13 @@ require Pod::Executable.execute_command('node', ['-p',
 platform :ios, min_ios_version_supported
 prepare_react_native_project!
 
+# App Store validation is currently failing because the prebuilt React Native
+# / Hermes frameworks are being archived without matching dSYMs. For release
+# archives, prefer local builds so Xcode produces symbols alongside the
+# frameworks instead of depending on remote artifact dSYM packaging.
+ENV['RCT_USE_PREBUILT_RNCORE'] = '0'
+ENV['RCT_BUILD_HERMES_FROM_SOURCE'] = 'true'
+
 linkage = ENV['USE_FRAMEWORKS']
 if linkage != nil
   Pod::UI.puts "Configuring Pod with #{linkage}ally linked Frameworks".green
@@ -35,6 +42,14 @@ target 'Zerox1' do
       target.build_configurations.each do |config|
         config.build_settings['CLANG_WARN_NON_MODULAR_INCLUDE_IN_FRAMEWORK_MODULE'] = 'NO'
       end
+    end
+
+    # App Store validation requires MinimumOSVersion in every embedded framework
+    # Info.plist. The prebuilt hermesvm.framework ships without it — patch all
+    # copies that CocoaPods installs so archives pass validation.
+    Dir.glob("#{installer.sandbox.root}/**/hermesvm.framework/Info.plist").each do |plist|
+      system('/usr/libexec/PlistBuddy', '-c', 'Add :MinimumOSVersion string 16.0', plist, err: '/dev/null')
+      system('/usr/libexec/PlistBuddy', '-c', 'Set :MinimumOSVersion 16.0', plist)
     end
   end
 end

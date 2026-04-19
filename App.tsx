@@ -14,6 +14,7 @@ import { AppNavigator } from './src/navigation/AppNavigator';
 import { OnboardingScreen, checkOnboardingDone } from './src/screens/Onboarding';
 import { AgentBrainConfig, useAgentBrain } from './src/hooks/useAgentBrain';
 import { NodeProvider } from './src/hooks/useNode';
+import { AudioMuteProvider } from './src/hooks/useAudioMute.tsx';
 import { initI18n } from './src/i18n';
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext';
 import { useScreenActionListener } from './src/hooks/useScreenActions';
@@ -145,9 +146,11 @@ export default function App() {
           <SignOutContext.Provider value={() => setOnboardingDone(false)}>
             <NavigationContainer linking={DEEP_LINKING}>
               <NodeProvider>
-                <AppNavigator />
-                <ScreenActionGate />
-                <ReelWatcher />
+                <AudioMuteProvider>
+                  <AppNavigator />
+                  <ScreenActionGate />
+                  <ReelWatcher />
+                </AudioMuteProvider>
               </NodeProvider>
             </NavigationContainer>
           </SignOutContext.Provider>

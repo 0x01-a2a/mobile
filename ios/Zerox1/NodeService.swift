@@ -2,7 +2,6 @@ import Foundation
 import UIKit
 import CryptoKit
 import os.log
-
 private let AGGREGATOR_URL = "https://api.0x01.world"
 
 /// Manages the lifecycle of zerox1-node and zeroclaw running in-process via C FFI.
@@ -82,6 +81,133 @@ final class NodeService {
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: zeroclawConfigDir, withIntermediateDirectories: true)
         try writeSoulMd()
+        try writeBundledSkills()
+    }
+
+    private func writeBundledSkills() throws {
+        let skillsRoot = zeroclawWorkspaceDir.appendingPathComponent("skills", isDirectory: true)
+        try FileManager.default.createDirectory(at: skillsRoot, withIntermediateDirectories: true)
+
+        let safetyDir = skillsRoot.appendingPathComponent("safety", isDirectory: true)
+        try FileManager.default.createDirectory(at: safetyDir, withIntermediateDirectories: true)
+        let safetyPath = safetyDir.appendingPathComponent("SKILL.toml")
+        // Always overwrite — this is a machine-managed skill, not user-editable.
+        // App updates with improved skill definitions will take effect on next launch.
+        try safetySkillToml.write(to: safetyPath, atomically: true, encoding: .utf8)
+    }
+
+    private var safetySkillToml: String {
+        // tq = three double-quotes — used as TOML multi-line string markers.
+        // Interpolated here to keep them out of the Swift multiline string delimiters.
+        let tq = "\"\"\""
+        return """
+[skill]
+name        = "safety"
+version     = "1.0.0"
+description = "Personal safety guardian. Monitors for falls, manages emergency contacts, and fires SMS alerts via the aggregator relay when a genuine emergency is confirmed."
+author      = "0x01 World"
+tags        = ["safety", "emergency", "fall-detection", "contacts", "alerts", "health"]
+
+prompts = [\(tq)
+# Safety Guardian
+
+You are the safety guardian for your owner. You run a continuous background monitoring loop and can fire emergency SMS alerts when a real danger is confirmed.
+
+## Safety state
+
+Check `zerox1_safety_enabled` in your memory before starting any monitoring. If it is false, skip all monitoring — the owner has not opted in.
+
+## Monitoring loop
+
+1. Call `imu_fall_check` to query the motion sensor.
+   - The response includes `next_check_secs` — schedule your next check using `cron_add` with that delay.
+   - If `skipped: true`: the device is in a vehicle or high-motion state. Nothing to do.
+   - If `fall_detected: true`: proceed to the confirmation flow.
+
+2. **Confirmation flow (30-second window)**
+   - Call `phone_notify` with title "Are you OK?" and body "Fall detected — tap to confirm or say you're fine. Contacting emergency contacts in 30 seconds."
+   - Call `phone_speak` with "Fall detected. Say I'm okay to cancel emergency alert."
+   - Wait 30 seconds. If the owner responds with any "ok / fine / cancel" message, abort and log the false alarm.
+   - If no response after 30 seconds: fire the relay.
+
+3. **Emergency relay**
+   - Call `emergency_relay` with a plain-language message ("Fall detected, no response after 30 seconds").
+     The bridge reads contacts, location, and battery automatically and fires both SMS and a call-now notification.
+   - Call `phone_speak` with "Emergency alert sent."
+
+## Auto-activation
+
+Safety mode is off by default. Turn it on automatically (write `zerox1_safety_enabled = true` to memory, then schedule the monitoring loop via `cron_add`) when the owner signals a higher-risk situation:
+
+- Mentions a solo outdoor activity ("going hiking alone", "running by myself", "night walk")
+- Mentions a medical concern ("not feeling well", "dizzy", "heart is racing")
+- Explicitly asks you to watch over them ("keep an eye on me", "monitor me for a bit")
+- Location or time context is high-risk (remote area, late night, unfamiliar place)
+
+When auto-activating: tell the owner safety monitoring is now on and how to turn it off ("say 'stop safety mode' to cancel").
+
+When the owner says "stop safety mode", "I'm home", or "I'm fine": write `zerox1_safety_enabled = false` to memory and remove the monitoring cron job.
+
+## Rules
+
+- NEVER fire `emergency_relay` without the 30-second confirmation window.
+- NEVER fire more than once per hour (the aggregator enforces this server-side, but respect it here too).
+- If `emergency_contacts_read` returns an empty list, call `phone_notify` informing the owner that no emergency contacts are configured and skip the relay.
+- Fall detection sensitivity: `peak_g > 3.0` is a hard fall. Values 2.0–3.0 are ambiguous — still trigger the confirmation flow.
+\(tq)]
+
+[[tools]]
+name        = "imu_fall_check"
+description = "Run a battery-efficient fall detection check. Queries the motion activity sensor first — if in vehicle/cycling/running, returns skipped=true. Otherwise runs a 2-second accelerometer burst and returns peak_g, fall_detected, and next_check_secs."
+kind        = "shell"
+command     = "curl -sf -H 'X-Bridge-Token: ${ZX01_BRIDGE_TOKEN:-}' '${ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/imu/fall_check'"
+
+[[tools]]
+name        = "emergency_contacts_read"
+description = "Read the list of emergency contacts configured by the owner. Returns a JSON array of {name, phone} objects."
+kind        = "shell"
+command     = "curl -sf -H 'X-Bridge-Token: ${ZX01_BRIDGE_TOKEN:-}' '${ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/emergency/contacts'"
+
+[[tools]]
+name        = "emergency_relay"
+description = "Fire an emergency alert via the phone bridge. The bridge handles everything: reads contacts and device data, sends SMS via the aggregator, and shows a call-now notification for the first contact. Only call this after the 30-second confirmation window."
+kind        = "shell"
+command     = "jq -nc --arg m {message} '{\\\"message\\\":$m}' | curl -sf -X POST -H 'Content-Type: application/json' -H 'X-Bridge-Token: ${ZX01_BRIDGE_TOKEN:-}' '${ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/emergency/relay' -d @-"
+
+[tools.args]
+message = "Human-readable emergency message, e.g. 'Fall detected, no response after 30 seconds'"
+
+[[tools]]
+name        = "phone_location"
+description = "Get the device current GPS coordinates."
+kind        = "shell"
+command     = "curl -sf -H 'X-Bridge-Token: ${ZX01_BRIDGE_TOKEN:-}' '${ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/location'"
+
+[[tools]]
+name        = "phone_battery"
+description = "Get the device current battery level and charging state."
+kind        = "shell"
+command     = "curl -sf -H 'X-Bridge-Token: ${ZX01_BRIDGE_TOKEN:-}' '${ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/battery'"
+
+[[tools]]
+name        = "phone_notify"
+description = "Show a local push notification on the device."
+kind        = "shell"
+command     = "jq -nc --arg t {title} --arg b {body} '{\\\"title\\\":$t,\\\"body\\\":$b}' | curl -sf -X POST -H 'Content-Type: application/json' -H 'X-Bridge-Token: ${ZX01_BRIDGE_TOKEN:-}' '${ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/notify' -d @-"
+
+[tools.args]
+title = "Notification title"
+body  = "Notification body text"
+
+[[tools]]
+name        = "phone_speak"
+description = "Speak text aloud using the device text-to-speech engine."
+kind        = "shell"
+command     = "jq -nc --arg t {text} '{\\\"text\\\":$t}' | curl -sf -X POST -H 'Content-Type: application/json' -H 'X-Bridge-Token: ${ZX01_BRIDGE_TOKEN:-}' '${ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/speak' -d @-"
+
+[tools.args]
+text = "Text to speak aloud"
+"""
     }
 
     // MARK: - Token generation
@@ -275,6 +401,16 @@ paired_tokens = ["\(tomlEscape(gatewayToken))"]
                     UIApplication.shared.isIdleTimerDisabled = true
                 }
 
+                // Start ZeroClaw immediately in parallel with node readiness polling.
+                // ZeroClaw's signal channel has exponential-backoff retry, so it
+                // tolerates the node API not being ready for a few seconds. Starting
+                // both concurrently removes the full waitForNodeReady delay from the
+                // ZeroClaw cold-start critical path.
+                let brainEnabledEarly = (config["agentBrainEnabled"] as? NSNumber)?.boolValue ?? false
+                if brainEnabledEarly {
+                    self.startZeroclaw(config: config)
+                }
+
                 self.waitForNodeReady(token: token, config: config)
                 completion(nil)
 
@@ -285,15 +421,15 @@ paired_tokens = ["\(tomlEscape(gatewayToken))"]
     }
 
     private func waitForNodeReady(token: String, config: [String: Any], attempt: Int = 0) {
-        guard attempt < 60 else {
-            os_log(.error, "[NodeService] waitForNodeReady timed out after 60s — node did not become ready")
+        guard attempt < 30 else {
+            os_log(.error, "[NodeService] waitForNodeReady timed out after 30s — node did not become ready")
             return
         }
-        DispatchQueue.global().asyncAfter(deadline: .now() + 1) { [weak self] in
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { [weak self] in
             guard let self else { return }
             var req = URLRequest(url: URL(string: "http://127.0.0.1:\(self.nodeApiPort)/identity")!)
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            req.timeoutInterval = 2
+            req.timeoutInterval = 1.5
             URLSession.shared.dataTask(with: req) { data, resp, _ in
                 if let resp = resp as? HTTPURLResponse, resp.statusCode == 200 {
                     // Persist identity key returned by node only if not already stored,
@@ -311,22 +447,14 @@ paired_tokens = ["\(tomlEscape(gatewayToken))"]
                     }
                     // Start background keep-alive and health wake observers.
                     KeepAliveService.shared.nodeDidStart(dataDir: self.dataDir)
-                    HealthWakeService.shared.register()
                     PhoneBridgeServer.shared.start(token: self.phoneBridgeToken)
-                    os_log(.debug, "[NodeService] PhoneBridgeServer started on port 9092")
-                    let brainEnabled = (config["agentBrainEnabled"] as? NSNumber)?.boolValue ?? false
-                    os_log(.error, "[NodeService] node ready — agentBrainEnabled=%{public}@, provider=%{public}@, keyInChain=%{public}@",
-                           String(brainEnabled),
-                           (config["llmProvider"] as? String) ?? "nil",
-                           KeychainHelper.load(key: "llm_api_key") != nil ? "yes" : "no")
-                    NSLog("[NodeService] node ready brainEnabled=%@ provider=%@ keyInChain=%@",
-                          String(brainEnabled),
-                          (config["llmProvider"] as? String) ?? "nil",
-                          KeychainHelper.load(key: "llm_api_key") != nil ? "yes" : "no")
-                    print("[NodeService] node ready brainEnabled=\(brainEnabled) provider=\((config["llmProvider"] as? String) ?? "nil") keyInChain=\(KeychainHelper.load(key: "llm_api_key") != nil ? "yes" : "no")")
-                    if brainEnabled {
-                        self.startZeroclaw(config: config)
+                    // Only register HealthKit background delivery if the user has
+                    // the health capability enabled in Advanced > Data Access.
+                    if PhoneBridgeServer.shared.capabilities["health"] == true {
+                        HealthWakeService.shared.register()
                     }
+                    os_log(.debug, "[NodeService] PhoneBridgeServer started on port 9092")
+                    os_log(.debug, "[NodeService] node ready — identity + PhoneBridge init")
                 } else {
                     self.waitForNodeReady(token: token, config: config, attempt: attempt + 1)
                 }
@@ -339,9 +467,9 @@ paired_tokens = ["\(tomlEscape(gatewayToken))"]
             "http://127.0.0.1:9093/health",
             "http://127.0.0.1:42617/health",
         ]
-        // 60 attempts × ~1.5 s each ≈ 90 s total — gives zeroclaw time for
-        // SQLite init + gateway bind even on a cold first launch.
-        guard attempt < 60 else {
+        // 40 attempts × ~1.5 s each ≈ 60 s total — ZeroClaw gateway binds in <30 s
+        // on typical hardware; parallel start with node reduces this further.
+        guard attempt < 40 else {
             completion(nil)
             return
         }
@@ -379,6 +507,7 @@ paired_tokens = ["\(tomlEscape(gatewayToken))"]
     private func startZeroclaw(config: [String: Any]) {
         queue.async { [weak self] in
             guard let self else { return }
+
             do {
                 let configPath = try self.writeZeroclawConfig(config: config)
                 os_log(.error, "[NodeService] zeroclaw config written to %{public}@", configPath.path)
@@ -511,6 +640,20 @@ paired_tokens = ["\(tomlEscape(gatewayToken))"]
         req.httpMethod = "POST"
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         URLSession.shared.dataTask(with: req).resume()
+    }
+
+    /// Write the current task type so KeepAliveService can pick the matching ambient sound.
+    /// Call from JS (NodeModule.setAgentTaskType) when a task is accepted.
+    /// Values: "page_flip" | "keyboard" | "rain" | "ocean" | "" (clears / default)
+    func setTaskType(_ type: String) {
+        let path = dataDir.appendingPathComponent("zeroclaw.task_type")
+        try? type.write(to: path, atomically: true, encoding: .utf8)
+    }
+
+    /// Mute or unmute the ambient working sound.
+    /// Call from JS (NodeModule.setAudioMuted). Persisted across transitions by KeepAliveService.
+    func setAudioMuted(_ muted: Bool) {
+        KeepAliveService.shared.setMuted(muted)
     }
 }
 

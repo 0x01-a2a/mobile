@@ -4,7 +4,7 @@
  * Tabs: Today | Inbox | Chat | You
  */
 import React from 'react';
-import { StyleSheet, Pressable } from 'react-native';
+import { StyleSheet, Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useTranslation } from 'react-i18next';
@@ -28,8 +28,17 @@ function TabButton(props: any) {
 
 const SCREEN_OPTIONS = {
   headerShown: false,
-  tabBarIcon: () => null,
 } as const;
+
+function TabDot({ focused, color }: { focused: boolean; color: string }) {
+  return (
+    <View style={{
+      width: 14, height: 2, borderRadius: 1,
+      backgroundColor: focused ? color : 'transparent',
+      marginBottom: 1,
+    }} />
+  );
+}
 
 export function AppNavigator() {
   const insets = useSafeAreaInsets();
@@ -59,6 +68,7 @@ export function AppNavigator() {
           tabBarItemStyle: staticStyles.tabItem,
           tabBarIconStyle: staticStyles.tabIcon,
           tabBarButton: TabButton,
+          tabBarIcon: ({ focused, color }) => <TabDot focused={focused} color={color} />,
         }}
       >
       <Tab.Screen name="Today" component={TodayScreen} options={{ title: t('nav.today'), tabBarLabel: t('nav.today') }} />
@@ -95,7 +105,8 @@ const staticStyles = StyleSheet.create({
     paddingBottom: 0,
   },
   tabIcon: {
-    display: 'none',
+    marginBottom: 0,
+    marginTop: 4,
   },
   label: {
     fontSize: 11,
@@ -103,7 +114,7 @@ const staticStyles = StyleSheet.create({
     letterSpacing: 1,
     textAlign: 'center',
     marginBottom: 0,
-    marginTop: 0,
+    marginTop: 2,
   },
   labelSide: {
     fontSize: 10,

@@ -17,7 +17,7 @@
     <!-- Strip call log — requires carrier privilege or default dialer -->
     <uses-permission android:name="android.permission.READ_CALL_LOG" tools:node="remove" />
 
-    <!-- Strip activity recognition — flagged as sensitive on Play-adjacent stores -->
+    <!-- Strip activity recognition — not relevant to Seeker/Saga Solana use case -->
     <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" tools:node="remove" />
 
     <!-- Strip Bluetooth — not needed for Solana dApp use case -->
@@ -28,12 +28,11 @@
     <!-- Strip package usage stats — requires Special Access grant in Settings -->
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:node="remove" />
 
-    <!-- Remove call screening service — requires being default phone app -->
+    <!-- Remove call screening service — requires being default phone app.
+         Solana dApp Store policy does NOT prohibit notification listener or
+         accessibility services; those remain enabled (see BuildConfig flags). -->
     <application>
         <service android:name=".AgentCallScreeningService" tools:node="remove" />
-
-        <!-- Remove accessibility service — not permitted in dApp stores -->
-        <service android:name=".AgentAccessibilityService" tools:node="remove" />
     </application>
 
 </manifest>

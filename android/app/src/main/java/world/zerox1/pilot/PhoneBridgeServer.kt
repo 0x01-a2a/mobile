@@ -628,6 +628,12 @@ class PhoneBridgeServer(
             method == "GET"  && path == "/phone/highlight/status" -> handleHighlightStatus()
             method == "POST" && path == "/phone/highlight/publish" -> handleHighlightPublish(body)
 
+            // ---- Emergency relay ----
+            method == "GET"  && path == "/phone/emergency/contacts" -> handleEmergencyContacts()
+            method == "POST" && path == "/phone/emergency/relay"    -> handleEmergencyRelay(body)
+
+
+
             else -> jsonError("NOT_FOUND: $method $path", 404)
         }
     }
@@ -2980,6 +2986,157 @@ class PhoneBridgeServer(
             }
         } catch (e: Exception) {
             jsonError("upload_error: ${e.message}", 500)
+        }
+    }
+
+    // ── Emergency relay ──────────────────────────────────────────────────────
+
+    private fun handleEmergencyContacts(): BridgeResponse {
+        val prefs = context.getSharedPreferences("zerox1_bridge", Context.MODE_PRIVATE)
+        val json  = prefs.getString("emergency_contacts", "[]") ?: "[]"
+        return try {
+            // Validate it parses as a JSON array before returning.
+            val arr = org.json.JSONArray(json)
+            jsonOk(arr)
+        } catch (_: Exception) {
+            jsonOk(org.json.JSONArray())
+        }
+    }
+
+    private fun handleEmergencyRelay(body: JSONObject?): BridgeResponse {
+        val message = (body?.optString("message") ?: "Emergency: your contact may need help.").take(500)
+
+        // Read contacts from SharedPreferences (written by NodeModule.saveEmergencyContacts)
+        val prefs    = context.getSharedPreferences("zerox1_bridge", Context.MODE_PRIVATE)
+        val rawContacts = prefs.getString("emergency_contacts", "[]") ?: "[]"
+        val contacts: org.json.JSONArray
+        try {
+            contacts = org.json.JSONArray(rawContacts)
+        } catch (_: Exception) {
+            return jsonError("emergency_contacts malformed", 500)
+        }
+        if (contacts.length() == 0) {
+            return jsonError("no emergency contacts configured", 400)
+        }
+
+        // Get agent_id from running node API
+        val agentId = try {
+            val secret = try {
+                val masterKey = androidx.security.crypto.MasterKey.Builder(context)
+                    .setKeyScheme(androidx.security.crypto.MasterKey.KeyScheme.AES256_GCM)
+                    .build()
+                val secPrefs = androidx.security.crypto.EncryptedSharedPreferences.create(
+                    context, "zerox1_secure", masterKey,
+                    androidx.security.crypto.EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                    androidx.security.crypto.EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+                )
+                secPrefs.getString("local_node_api_secret", null).orEmpty()
+            } catch (_: Exception) { "" }
+            if (secret.isEmpty()) "" else {
+                val conn = java.net.URL("http://127.0.0.1:${NodeService.NODE_API_PORT}/identity")
+                    .openConnection() as java.net.HttpURLConnection
+                conn.setRequestProperty("Authorization", "Bearer $secret")
+                conn.connectTimeout = 3_000
+                conn.readTimeout = 3_000
+                if (conn.responseCode == 200) {
+                    val resp = JSONObject(conn.inputStream.bufferedReader().readText())
+                    conn.disconnect()
+                    resp.optString("agent_id").takeIf { it.length == 64 } ?: ""
+                } else { conn.disconnect(); "" }
+            }
+        } catch (_: Exception) { "" }
+
+        if (agentId.isEmpty()) {
+            return jsonError("agent_id not available — node not running", 503)
+        }
+
+        // Build payload
+        val payload = JSONObject().apply {
+            put("agent_id", agentId)
+            put("message",  message)
+            put("contacts", contacts)
+            put("timestamp", System.currentTimeMillis() / 1000)
+            put("platform", "android")
+        }
+
+        // Battery
+        val battIntent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        if (battIntent != null) {
+            val level = battIntent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+            val scale = battIntent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+            val pct   = if (scale > 0) level.toFloat() / scale else -1f
+            payload.put("battery", JSONObject().apply {
+                // Send as fraction 0.0–1.0 to match aggregator expectation
+                put("level", if (pct >= 0) pct.toDouble() else -1.0)
+                put("charging", battIntent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0)
+            })
+        }
+
+        // Last known location
+        try {
+            if (hasPermission(Manifest.permission.ACCESS_FINE_LOCATION) ||
+                hasPermission(Manifest.permission.ACCESS_COARSE_LOCATION)) {
+                val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+                val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+                @SuppressLint("MissingPermission")
+                val loc = providers.mapNotNull { lm?.getLastKnownLocation(it) }
+                    .maxByOrNull { it.time }
+                if (loc != null) {
+                    payload.put("location", JSONObject().apply {
+                        put("lat", loc.latitude)
+                        put("lon", loc.longitude)
+                        put("accuracy", loc.accuracy)
+                    })
+                }
+            }
+        } catch (_: Exception) {}
+
+        // Sign payload with agent Ed25519 identity key for aggregator auth.
+        // If the key file is missing, fail fast — the aggregator will reject
+        // unsigned requests with 401 and no SMS would be sent anyway.
+        val payloadBytes = payload.toString().toByteArray()
+        val keyFile = java.io.File(context.filesDir, "zerox1-identity.key")
+        if (!keyFile.exists()) {
+            return jsonError("identity key not found — node must be started before emergency relay", 500)
+        }
+
+        val sigHex: String = try {
+            val seed = keyFile.readBytes()
+            if (seed.size != 32) {
+                return jsonError("identity key is malformed (expected 32 bytes, got ${seed.size})", 500)
+            }
+            val spec     = net.i2p.crypto.eddsa.spec.EdDSANamedCurveTable.getByName("Ed25519")
+            val privSpec = net.i2p.crypto.eddsa.spec.EdDSAPrivateKeySpec(seed, spec)
+            val privKey  = net.i2p.crypto.eddsa.EdDSAPrivateKey(privSpec)
+            val signer   = net.i2p.crypto.eddsa.EdDSAEngine()
+            signer.initSign(privKey)
+            signer.update(payloadBytes)
+            signer.sign().joinToString("") { "%02x".format(it) }
+        } catch (e: Exception) {
+            return jsonError("signing failed: ${e.message}", 500)
+        }
+
+        // POST to aggregator (synchronous — bridge runs on IO thread)
+        return try {
+            val url = java.net.URL("https://api.0x01.world/emergency/relay")
+            val conn = url.openConnection() as java.net.HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.setRequestProperty("X-Agent-Signature", sigHex)
+            conn.doOutput = true
+            conn.connectTimeout = 15_000
+            conn.readTimeout    = 15_000
+            conn.outputStream.use { it.write(payloadBytes) }
+            val status  = conn.responseCode
+            conn.disconnect()
+            Log.i(TAG, "emergency relay: ${contacts.length()} contacts, aggregator_status=$status")
+            jsonOk(JSONObject().apply {
+                put("ok", status in 200..299)
+                put("contacts_notified", contacts.length())
+                put("aggregator_status", status)
+            })
+        } catch (e: Exception) {
+            jsonError("relay_failed: ${e.message}", 500)
         }
     }
 }

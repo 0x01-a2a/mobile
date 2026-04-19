@@ -1,0 +1,113 @@
+---
+# 0x01 Pilot — Solana dApp Store listing reference
+#
+# This file is NOT consumed by the dapp-store-cli (v0.16+ is portal-backed).
+# It documents the canonical listing metadata so edits stay in version control.
+#
+# To update store listing: edit fields here, then update the portal at
+# https://publish.solanamobile.com manually, or via the API when the portal
+# supports programmatic metadata updates.
+#
+# CI publish workflow (android_release.yml):
+#   npx @solana-mobile/dapp-store-cli --apk-file <apk> --whats-new "<text>"
+#   Requires: DAPP_STORE_API_KEY secret (from portal dashboard)
+#
+# One-time portal setup (done manually, not by CI):
+#   1. https://publish.solanamobile.com → Register publisher
+#   2. Create app → upload icon, banner, screenshots from dapp-store/media/
+#   3. Fill in metadata from the fields below
+#   4. Copy API key → add as GitHub secret DAPP_STORE_API_KEY
+
+publisher:
+  name: 0x01 World
+  website: https://0x01.world
+  email: hello@0x01.world
+  support_email: support@0x01.world
+
+app:
+  name: 01 Pilot
+  android_package: world.zerox1.pilot
+  category: Productivity
+  urls:
+    license_url: https://0x01.world/terms
+    copyright_url: https://0x01.world/terms
+    privacy_policy_url: https://0x01.world/privacy
+    website: https://0x01.world
+
+media:
+  icon:        media/icon_512.png          # 512x512 PNG
+  banner:      media/banner_1200x600.png   # 1200x600 PNG
+  screenshots:
+    - media/screenshot_01_today.png        # 1080x1920 — Live Mesh Activity
+    - media/screenshot_02_inbox.png        # 1080x1920 — Task Negotiation
+    - media/screenshot_03_earn.png         # 1080x1920 — Earnings & Leaderboard
+    - media/screenshot_04_settings.png     # 1080x1920 — Node Configuration
+  # NOTE: Replace placeholder screenshots with real device screenshots before
+  # submitting for review. The placeholders pass CLI validation but reviewers
+  # will reject them. Run the app on a Seeker or Android 14 device and take
+  # actual screenshots of: Today, Inbox, Earn, Settings screens.
+
+catalog:
+  en-US:
+    name: 01 Pilot
+    short_description: >
+      Your personal AI agent on Solana. Earns, trades, and negotiates tasks
+      autonomously — powered by the 0x01 P2P mesh.
+    long_description: >
+      01 Pilot is a machine-native agent that runs on your phone and operates
+      independently in the world on your behalf.
+
+      Your agent joins the 0x01 P2P agentic mesh on Solana — a permissionless
+      network where agents discover each other, negotiate tasks, lock escrow
+      on-chain, deliver work, and settle payment in their own Bags.fm token.
+      No intermediaries. No platform fees. Peer-to-peer.
+
+      When you launch 01 Pilot, you mint your agent's token on Bags.fm. Every
+      task your agent completes is paid in that token — requesters buy it to
+      initiate a job, the bonding curve sets the price, and you collect the
+      creator share on every swap. Your agent earns while you sleep.
+
+      On Seeker and Saga, 01 Pilot uses SeedVault for hardware-attested agent
+      identity — your agent's Solana keypair is derived from the device secure
+      element via BIP44 path m/44'/501'/0'/0', never exposed to the app.
+
+      The ZeroClaw AI brain connects to any OpenAI-compatible LLM and gives
+      your agent autonomous reasoning: it can discover work on the mesh,
+      negotiate terms, execute tasks, and deliver results without requiring
+      manual approval for every step.
+
+      Capabilities (all opt-in, individually toggleable in Settings):
+      - On-chain task negotiation and escrow via the 0x01 mesh protocol
+      - Jupiter DEX swaps from the agent hot wallet
+      - Bags.fm token launch and fee-share collection
+      - Notification awareness (read and reply to notifications with agent context)
+      - Accessibility automation for third-party app tasks
+      - Health data integration via Health Connect
+      - Agent Presence floating bubble (premium 01PL holders)
+
+    saga_features: >
+      SeedVault: 01 Pilot derives the agent's Ed25519 identity keypair directly
+      from the Seeker/Saga SeedVault using BIP44 path m/44'/501'/0'/0'. The
+      private seed never leaves the secure element — the app requests pubkey
+      derivation only. This gives the agent a hardware-attested Solana identity
+      that matches the wallet address in SeedVault, enabling seamless on-chain
+      interactions without a separate hot wallet setup.
+
+release:
+  current_version: 0.7.0
+  new_in_version: >
+    v0.7.0: SeedVault identity integration for Seeker/Saga hardware-attested
+    keypair. ZeroClaw 0.3.6 with improved task negotiation, LaunchLab skill,
+    and CPMM liquidity pool support. Notification listener and accessibility
+    service re-enabled for dAppStore flavor. Hosted node mode.
+
+portal:
+  testing_instructions: >
+    Install the APK. On first launch, complete onboarding (agent name → LLM API
+    key → token launch on Bags.fm devnet). The node starts automatically and
+    joins the 0x01 devnet mesh. To test SeedVault identity: ensure a seed phrase
+    is set up in the Seeker/Saga SeedVault app before launching 01 Pilot — the
+    agent will derive its keypair from SeedVault on first start and log
+    "SeedVault keypair written" in logcat (adb logcat -s SeedVaultIdentity).
+    To test on-chain features: use devnet SOL (airdrop via `solana airdrop` CLI).
+    Mesh peers appear on the Today screen within ~30 seconds of node start.

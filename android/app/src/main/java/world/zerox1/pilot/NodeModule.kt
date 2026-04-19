@@ -348,6 +348,51 @@ class NodeModule(private val ctx: ReactApplicationContext)
         promise.resolve(enabled)
     }
 
+    /**
+     * Persist emergency contacts JSON to SharedPreferences so
+     * PhoneBridgeServer.kt can read them for the emergency relay.
+     */
+    @ReactMethod
+    fun saveEmergencyContacts(contacts: String, promise: Promise) {
+        try {
+            ctx.getSharedPreferences("zerox1_bridge", Context.MODE_PRIVATE)
+                .edit().putString("emergency_contacts", contacts).apply()
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("ERR", e.message)
+        }
+    }
+
+    @ReactMethod
+    fun setSafetyEnabled(enabled: Boolean, promise: Promise) {
+        try {
+            ctx.getSharedPreferences("zerox1_bridge", Context.MODE_PRIVATE)
+                .edit().putBoolean("safety_enabled", enabled).apply()
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("ERR", e.message)
+        }
+    }
+
+    /**
+     * Update the foreground service notification status line.
+     * Called from useLiveActivity when inbox events arrive on Android.
+     */
+    @ReactMethod
+    fun setAgentStatus(status: String, promise: Promise) {
+        try {
+            ctx.sendBroadcast(
+                android.content.Intent(NodeService.ACTION_UPDATE_STATUS).apply {
+                    setPackage(ctx.packageName)
+                    putExtra(NodeService.EXTRA_STATUS_TEXT, status)
+                }
+            )
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("ERR", e.message)
+        }
+    }
+
     /** Returns true if the "Draw over other apps" permission is granted. */
     @ReactMethod
     fun hasOverlayPermission(promise: Promise) {
@@ -1162,5 +1207,32 @@ class NodeModule(private val ctx: ReactApplicationContext)
     @ReactMethod
     fun hasScreenCaptureGrant(promise: Promise) {
         promise.resolve(HighlightRecorder.hasGrant)
+    }
+
+    // ── Region gate ──────────────────────────────────────────────────────────
+
+    /**
+     * Returns {region: String, brainAvailable: Boolean}.
+     *
+     * Detection order:
+     *   1. SIM country ISO (most reliable — reflects the physical SIM card).
+     *   2. Device locale country (fallback if SIM unavailable / no SIM).
+     *
+     * Mainland China (CN) disables the AI brain to comply with app store
+     * and local AI regulations (Algorithm Filing / ICP requirements).
+     */
+    @ReactMethod
+    fun getRegion(promise: Promise) {
+        val tm = reactApplicationContext.getSystemService(android.content.Context.TELEPHONY_SERVICE)
+            as? android.telephony.TelephonyManager
+        val simCountry = (tm?.simCountryIso ?: "").uppercase()
+        val localeCountry = java.util.Locale.getDefault().country.uppercase()
+        val regionCode = if (simCountry.isNotEmpty()) simCountry else localeCountry
+        val isChina = regionCode == "CN"
+        val map = Arguments.createMap().apply {
+            putString("region", regionCode)
+            putBoolean("brainAvailable", !isChina)
+        }
+        promise.resolve(map)
     }
 }

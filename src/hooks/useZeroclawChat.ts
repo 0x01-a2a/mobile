@@ -44,6 +44,7 @@ export interface UseZeroclawChatResult {
   send: (text: string, image?: { uri: string; base64: string; mime: string; cid?: string }) => Promise<void>;
   resetSession: () => Promise<void>;
   injectSystemMessage: (text: string) => void;
+  prewarm: () => void;
 }
 
 function safeStringify(value: unknown): string {
@@ -498,5 +499,11 @@ export function useZeroclawChat(agentId?: string, conversationId?: string): UseZ
     setMessages(prev => [...prev, sysMsg]);
   }, []);
 
-  return { messages, loading, error, send, resetSession, injectSystemMessage };
+  // Probe the gateway in the background so the URL is cached before the first
+  // message. Call this as soon as the node is known to be running.
+  const prewarm = useCallback(() => {
+    resolveGatewayUrl(true).catch(() => {});
+  }, [resolveGatewayUrl]);
+
+  return { messages, loading, error, send, resetSession, injectSystemMessage, prewarm };
 }

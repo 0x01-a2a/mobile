@@ -182,7 +182,7 @@ describe('InboxScreen — Hire tab', () => {
     const { getByText, queryByText } = wrap(<InboxScreen />);
     fireEvent.press(getByText('HIRE'));
     fireEvent.press(getByText('NoToken'));
-    expect(queryByText("Can't hire — agent has no payment token")).toBeTruthy();
+    expect(queryByText("Can't hire — agent hasn't launched a token yet")).toBeTruthy();
   });
 
   it('successful send: calls sendEnvelope PROPOSE, addOffer, switches to SENT', async () => {

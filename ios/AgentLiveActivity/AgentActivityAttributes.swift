@@ -17,6 +17,8 @@ public struct AgentActivityAttributes: ActivityAttributes {
         public var isActive: Bool
         /// Number of unread messages / proposals waiting for user action (0 = none)
         public var pendingCount: Int
+        /// User has muted ambient working sounds (zeroclaw audio keepalive).
+        public var audioMuted: Bool
     }
 
     /// Static — set at Activity.request() time

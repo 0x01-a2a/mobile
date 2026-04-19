@@ -82,7 +82,7 @@ android {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode Integer.parseInt(System.getenv("VERSION_CODE") ?: "1")
-        versionName System.getenv("VERSION_NAME") ?: "0.4.0"
+        versionName System.getenv("VERSION_NAME") ?: "0.7.0"
         buildConfigField "String", "DEFAULT_BAGS_PARTNER_WALLET", "\"${System.getenv("ZEROX1_BAGS_PARTNER_WALLET") ?: ""}\""
         buildConfigField "String", "DEFAULT_BAGS_PARTNER_KEY", "\"${System.getenv("ZEROX1_BAGS_PARTNER_KEY") ?: ""}\""
         buildConfigField "String", "DEFAULT_BAGS_API_KEY", "\"${System.getenv("ZEROX1_BAGS_API_KEY") ?: ""}\""
@@ -109,12 +109,6 @@ android {
             storePassword System.getenv("ZEROX1_DAPPSTORE_STORE_PASS") ?: "unset"
             keyAlias 'zerox1-dappstore'
             keyPassword System.getenv("ZEROX1_DAPPSTORE_KEY_PASS") ?: "unset"
-        }
-        dappstore {
-            storeFile file(System.getenv("ZEROX1_DAPPSTORE_KEYSTORE") ?: "/Users/tobiasd/Desktop/zerox1/secrets/dappstore.keystore")
-            storePassword System.getenv("ZEROX1_DAPPSTORE_STORE_PASS") ?: 'zerox1-dappstore-2026'
-            keyAlias 'zerox1-dappstore'
-            keyPassword System.getenv("ZEROX1_DAPPSTORE_KEY_PASS") ?: 'zerox1-dappstore-2026'
         }
     }
     buildTypes {

@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback, useRef, useContext, createContext, Re
 import { AppState, AppStateStatus, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NodeModule, NodeConfig, NodeStatus, onNodeStatus } from '../native/NodeModule';
+import { useRegionGate } from './useRegionGate';
 import { configureNodeApi, loadTokenFromKeychain, loadBagsApiKey, registerApnsToken } from './useNodeApi';
 
 const STORAGE_KEYS = {
@@ -67,6 +68,11 @@ async function withBagsConfig(base: NodeConfig): Promise<NodeConfig> {
  */
 async function withBrainConfig(base: NodeConfig): Promise<NodeConfig> {
   try {
+    // Hard JS-layer gate: never send agentBrainEnabled=true in gated regions.
+    // The native layer enforces the same gate independently.
+    const { brainAvailable } = await NodeModule.getRegion().catch(() => ({ brainAvailable: true }));
+    if (!brainAvailable) return base;
+
     const raw = await AsyncStorage.getItem(STORAGE_KEYS.BRAIN);
     if (!raw) return base;
     const brain = JSON.parse(raw);
@@ -164,11 +170,17 @@ function useNodeInternal() {
                 }
               })();
             }
-            await Promise.race([
-              _startLock,
-              new Promise<void>((_, reject) => setTimeout(() => reject(new Error('Node start timed out')), 30_000)),
-            ]);
-            setStatus('running');
+            try {
+              await Promise.race([
+                _startLock,
+                new Promise<void>((_, reject) => setTimeout(() => reject(new Error('Node start timed out')), 30_000)),
+              ]);
+              setStatus('running');
+            } catch (e) {
+              // Auto-start failed (timeout or native error). Stay stopped so the
+              // user can see the node is not running and start it manually.
+              console.warn('[useNode] auto-start failed:', e);
+            }
           }
         } else {
           if (cfg.nodeApiUrl) {
@@ -317,6 +329,9 @@ function useNodeInternal() {
   }, [config]);
 
   const stop = useCallback(async () => {
+    // Discard any in-flight start lock so its completion can't flip status
+    // back to 'running' after we've explicitly stopped the node.
+    _startLock = null;
     await NodeModule.stopNode();
     setStatus('stopped');
   }, []);

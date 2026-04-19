@@ -99,6 +99,10 @@ class NodeService : Service() {
         // Sent by NodeModule.setPresenceMode() to trigger a notification rebuild
         const val ACTION_REFRESH_NOTIF = "world.zerox1.01pilot.REFRESH_NOTIF"
 
+        // Sent by NodeModule.setAgentStatus() to update the notification status line
+        const val ACTION_UPDATE_STATUS  = "world.zerox1.01pilot.UPDATE_STATUS"
+        const val EXTRA_STATUS_TEXT     = "status_text"
+
         /** True while NodeService is in the foreground (set in onCreate/onDestroy). */
         @Volatile var isRunning: Boolean = false
             private set
@@ -1195,6 +1199,115 @@ kind        = "shell"
 command     = ${TOML_TQ}curl -s "${'$'}{ZX01_BRIDGE:-http://127.0.0.1:9092}/phone/notifications/history?limit=200" -H "x-bridge-token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" ${TOML_TQ}
 """.trimIndent()
 
+        val SAFETY_SKILL_TOML = """
+[skill]
+name        = "safety"
+version     = "1.0.0"
+description = "Personal safety guardian. Monitors for falls, manages emergency contacts, and fires SMS alerts via the aggregator relay when a genuine emergency is confirmed."
+author      = "0x01 World"
+tags        = ["safety", "emergency", "fall-detection", "contacts", "alerts", "health"]
+
+prompts = [${TOML_TQ}
+# Safety Guardian
+
+You are the safety guardian for your owner. You run a continuous background monitoring loop and can fire emergency SMS alerts when a real danger is confirmed.
+
+## Safety state
+
+Check `zerox1_safety_enabled` in your memory before starting any monitoring. If it is false, skip all monitoring — the owner has not opted in.
+
+## Monitoring loop
+
+1. Call `imu_fall_check` to query the motion sensor.
+   - The response includes `next_check_secs` — schedule your next check using `cron_add` with that delay.
+   - If `skipped: true`: the device is in a vehicle or high-motion state. Nothing to do.
+   - If `fall_detected: true`: proceed to the confirmation flow.
+
+2. **Confirmation flow (30-second window)**
+   - Call `phone_notify` with title "Are you OK?" and body "Fall detected — tap to confirm or say you're fine. Contacting emergency contacts in 30 seconds."
+   - Call `phone_speak` with "Fall detected. Say I'm okay to cancel emergency alert."
+   - Wait 30 seconds. If the owner responds with any "ok / fine / cancel" message, abort and log the false alarm.
+   - If no response after 30 seconds: fire the relay.
+
+3. **Emergency relay**
+   - Call `emergency_relay` with a plain-language message ("Fall detected, no response after 30 seconds").
+     The bridge reads contacts, location, and battery automatically and fires both SMS and a call-now notification.
+   - Call `phone_speak` with "Emergency alert sent."
+
+## Auto-activation
+
+Safety mode is off by default. Turn it on automatically (write `zerox1_safety_enabled = true` to memory, then schedule the monitoring loop via `cron_add`) when the owner signals a higher-risk situation:
+
+- Mentions a solo outdoor activity ("going hiking alone", "running by myself", "night walk")
+- Mentions a medical concern ("not feeling well", "dizzy", "heart is racing")
+- Explicitly asks you to watch over them ("keep an eye on me", "monitor me for a bit")
+- Location or time context is high-risk (remote area, late night, unfamiliar place)
+
+When auto-activating: tell the owner safety monitoring is now on and how to turn it off ("say 'stop safety mode' to cancel").
+
+When the owner says "stop safety mode", "I'm home", or "I'm fine": write `zerox1_safety_enabled = false` to memory and remove the monitoring cron job.
+
+## Rules
+
+- NEVER fire `emergency_relay` without the 30-second confirmation window.
+- NEVER fire more than once per hour (the aggregator enforces this server-side, but respect it here too).
+- If `emergency_contacts_read` returns an empty list, call `phone_notify` informing the owner that no emergency contacts are configured and skip the relay.
+- Fall detection sensitivity: `peak_g > 3.0` is a hard fall. Values 2.0–3.0 are ambiguous — still trigger the confirmation flow.
+${TOML_TQ}]
+
+[[tools]]
+name        = "imu_fall_check"
+description = "Run a battery-efficient fall detection check. Queries the motion activity sensor first — if in vehicle/cycling/running, returns skipped=true. Otherwise runs a 2-second accelerometer burst and returns peak_g, fall_detected, and next_check_secs (how long to wait before calling again)."
+kind        = "shell"
+command     = ${TOML_TQ}curl -sf -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/imu/fall_check"${TOML_TQ}
+
+[[tools]]
+name        = "emergency_contacts_read"
+description = "Read the list of emergency contacts configured by the owner. Returns a JSON array of {name, phone} objects."
+kind        = "shell"
+command     = ${TOML_TQ}curl -sf -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/emergency/contacts"${TOML_TQ}
+
+[[tools]]
+name        = "emergency_relay"
+description = "Fire an emergency alert via the phone bridge. The bridge handles everything: reads contacts and device data, sends SMS via the aggregator, and shows a call-now notification for the first contact. Only call this after the 30-second confirmation window."
+kind        = "shell"
+command     = ${TOML_TQ}jq -nc --arg m {message} '{"message":${'$'}m}' | curl -sf -X POST -H "Content-Type: application/json" -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/emergency/relay" -d @-${TOML_TQ}
+
+[tools.args]
+message = "Human-readable emergency message, e.g. 'Fall detected, no response after 30 seconds'"
+
+[[tools]]
+name        = "phone_location"
+description = "Get the device's current GPS coordinates."
+kind        = "shell"
+command     = ${TOML_TQ}curl -sf -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/location"${TOML_TQ}
+
+[[tools]]
+name        = "phone_battery"
+description = "Get the device's current battery level and charging state."
+kind        = "shell"
+command     = ${TOML_TQ}curl -sf -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/battery"${TOML_TQ}
+
+[[tools]]
+name        = "phone_notify"
+description = "Show a local push notification on the device."
+kind        = "shell"
+command     = ${TOML_TQ}jq -nc --arg t {title} --arg b {body} '{"title":${'$'}t,"body":${'$'}b}' | curl -sf -X POST -H "Content-Type: application/json" -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/notify" -d @-${TOML_TQ}
+
+[tools.args]
+title = "Notification title"
+body  = "Notification body text"
+
+[[tools]]
+name        = "phone_speak"
+description = "Speak text aloud using the device text-to-speech engine."
+kind        = "shell"
+command     = ${TOML_TQ}jq -nc --arg t {text} '{"text":${'$'}t}' | curl -sf -X POST -H "Content-Type: application/json" -H "X-Bridge-Token: ${'$'}{ZX01_BRIDGE_TOKEN:-}" "${'$'}{ZX01_BRIDGE_URL:-http://127.0.0.1:9092}/phone/speak" -d @-${TOML_TQ}
+
+[tools.args]
+text = "Text to speak aloud"
+""".trimIndent()
+
         val SOUL_MD = """
 # Soul of the 0x01 Mobile Agent
 
@@ -1634,6 +1747,14 @@ include_system = "true to include system apps (default: false)"
         }
     }
 
+    /** Receives ACTION_UPDATE_STATUS from NodeModule.setAgentStatus(). */
+    private val updateStatusReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context?, intent: Intent?) {
+            val text = intent?.getStringExtra(EXTRA_STATUS_TEXT) ?: return
+            updateNotification(text)
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Lifecycle
     // -------------------------------------------------------------------------
@@ -1654,9 +1775,12 @@ include_system = "true to include system apps (default: false)"
         // registerReceiver is safe on all API levels.
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(refreshNotifReceiver, android.content.IntentFilter(ACTION_REFRESH_NOTIF), RECEIVER_NOT_EXPORTED)
+            registerReceiver(updateStatusReceiver,  android.content.IntentFilter(ACTION_UPDATE_STATUS),  RECEIVER_NOT_EXPORTED)
         } else {
             @Suppress("UnspecifiedRegisterReceiverFlag")
             registerReceiver(refreshNotifReceiver, android.content.IntentFilter(ACTION_REFRESH_NOTIF))
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            registerReceiver(updateStatusReceiver,  android.content.IntentFilter(ACTION_UPDATE_STATUS))
         }
     }
 
@@ -1830,6 +1954,7 @@ include_system = "true to include system apps (default: false)"
         isRunning = false
         super.onDestroy()
         try { unregisterReceiver(refreshNotifReceiver) } catch (_: Exception) {}
+        try { unregisterReceiver(updateStatusReceiver)  } catch (_: Exception) {}
         serviceScope.cancel()
         agentProcess?.destroy()
         agentProcess = null
@@ -2339,6 +2464,11 @@ sqlite_path = "${escapeTOMLString(File(filesDir, "workspace/memory.db").absolute
         val personaObserveDir = File(skillsRoot, "persona-observe")
         personaObserveDir.mkdirs()
         File(personaObserveDir, "SKILL.toml").writeText(PERSONA_OBSERVE_SKILL_TOML)
+
+        // ── Personal safety guardian (fall detection + emergency relay) ─────
+        val safetySkillDir = File(skillsRoot, "safety")
+        safetySkillDir.mkdirs()
+        File(safetySkillDir, "SKILL.toml").writeText(SAFETY_SKILL_TOML)
 
         // ── Agent soul / persona (injected at top of system prompt) ─────────
         File(workspaceDir, "SOUL.md").writeText(SOUL_MD)

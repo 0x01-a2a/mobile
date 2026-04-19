@@ -21,9 +21,18 @@ import { DEFAULT_AGENT_ICON_URI } from '../assets/defaultAgentIcon';
 import { setLanguage } from '../i18n';
 import { use01PLGate, PRESENCE_THRESHOLD, PILOT_TOKEN_MINT } from '../hooks/use01PLGate';
 import { useTheme, PILOT_ACCENT } from '../theme/ThemeContext';
+import { useLayout } from '../hooks/useLayout';
+import { useRegionGate } from '../hooks/useRegionGate';
 
 const COLD_WALLET_KEY = 'zerox1:cold_wallet';
 const PRESENCE_ENABLED_KEY = 'zerox1:presence_enabled';
+const EMERGENCY_CONTACTS_KEY = 'zerox1:emergency_contacts';
+const SAFETY_ENABLED_KEY = 'zerox1:safety_enabled';
+
+interface EmergencyContact {
+  name: string;
+  phone: string;
+}
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
 
 // Minimum sweepable SOL — must cover fee reserve (0.01 SOL)
@@ -42,37 +51,49 @@ function isToday(tsSeconds: number): boolean {
 
 export default function YouScreen() {
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
+  const { brainAvailable } = useRegionGate();
+  const availableTabs = brainAvailable
+    ? (['Wallet', 'Brain', 'Advanced'] as SubTab[])
+    : (['Wallet', 'Advanced'] as SubTab[]);
   const [tab, setTab] = useState<SubTab>('Wallet');
   const { t } = useTranslation();
   const { status } = useNode();
   const isRunning = status === 'running';
+  const { contentMaxWidth } = useLayout();
+
+  const centerStyle = contentMaxWidth
+    ? { flex: 1, maxWidth: contentMaxWidth, alignSelf: 'center' as const, width: '100%' as const }
+    : { flex: 1 };
 
   return (
-    <View style={s.root}>
-      {/* Header */}
-      <View style={[s.header, { paddingTop: insets.top + 14 }]}>
-        <View style={s.titleRow}>
-          <Text style={s.title}>{t('you.title')}</Text>
-          <View style={[s.statusDot, { backgroundColor: isRunning ? '#22c55e' : '#d1d5db' }]} />
+    <View style={[s.root, { backgroundColor: colors.bg }]}>
+      <View style={centerStyle}>
+        {/* Header */}
+        <View style={[s.header, { paddingTop: insets.top + 14, borderBottomColor: colors.border }]}>
+          <View style={s.titleRow}>
+            <Text style={[s.title, { color: colors.text }]}>{t('you.title')}</Text>
+            <View style={[s.statusDot, { backgroundColor: isRunning ? colors.green : colors.dim }]} />
+          </View>
+          <View style={s.segmented}>
+            {availableTabs.map(tabKey => (
+              <TouchableOpacity
+                key={tabKey}
+                style={[s.segment, tab === tabKey && s.segmentActive]}
+                onPress={() => setTab(tabKey)}
+              >
+                <Text style={[s.segmentText, tab === tabKey && s.segmentTextActive]}>
+                  {tabKey}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
-        <View style={s.segmented}>
-          {(['Wallet', 'Brain', 'Advanced'] as SubTab[]).map(tabKey => (
-            <TouchableOpacity
-              key={tabKey}
-              style={[s.segment, tab === tabKey && s.segmentActive]}
-              onPress={() => setTab(tabKey)}
-            >
-              <Text style={[s.segmentText, tab === tabKey && s.segmentTextActive]}>
-                {tabKey}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
 
-      {tab === 'Wallet' && <WalletTab />}
-      {tab === 'Brain' && <BrainTab />}
-      {tab === 'Advanced' && <AdvancedTab />}
+        {tab === 'Wallet' && <WalletTab />}
+        {tab === 'Brain' && brainAvailable && <BrainTab />}
+        {tab === 'Advanced' && <AdvancedTab />}
+      </View>
     </View>
   );
 }
@@ -669,6 +690,7 @@ function PresenceCard({
   onLinkWallet: () => void;
 }) {
   const { t } = useTranslation();
+  const { colors } = useTheme();
   const { eligible, balance, loading, error, refresh } = use01PLGate([hotWallet, coldWallet]);
   const [presenceEnabled, setPresenceEnabled] = useState(false);
   const [hasOverlay, setHasOverlay] = useState(false);
@@ -765,7 +787,7 @@ function PresenceCard({
               value={presenceEnabled}
               onValueChange={handleToggle}
               disabled={toggling}
-              trackColor={{ true: '#22c55e', false: '#d1d5db' }}
+              trackColor={{ true: colors.green, false: colors.dim }}
               thumbColor="#fff"
             />
           ) : error ? (
@@ -867,6 +889,7 @@ const CAPABILITY_DESCRIPTIONS: Record<Capability, string> = {
 
 function BrainTab() {
   const { t } = useTranslation();
+  const { colors } = useTheme();
   const { status, config: nodeConfig, saveConfig, stop, start } = useNode();
   const { config, save, loading } = useAgentBrain();
   const isRunning = status === 'running';
@@ -925,9 +948,9 @@ function BrainTab() {
       };
       await save(next);
 
-      if (isRunning) {
+      if (isRunning && nodeConfig) {
         try { await stop(); } catch { /* ignore */ }
-        try { await start(nodeConfig!); } catch { /* ignore */ }
+        try { await start(nodeConfig); } catch { /* ignore */ }
       }
     } catch (e: any) {
       Alert.alert(t('common.error'), e?.message ?? t('you.saveError'));
@@ -974,7 +997,7 @@ function BrainTab() {
           <Switch
             value={autoAccept}
             onValueChange={setAutoAccept}
-            trackColor={{ true: '#22c55e', false: '#d1d5db' }}
+            trackColor={{ true: colors.green, false: colors.dim }}
             thumbColor="#fff"
           />
         </View>
@@ -1040,7 +1063,7 @@ function BrainTab() {
                   <Switch
                     value={draftCaps.includes(cap)}
                     onValueChange={() => handleDraftToggle(cap)}
-                    trackColor={{ true: '#22c55e', false: '#d1d5db' }}
+                    trackColor={{ true: colors.green, false: colors.dim }}
                     thumbColor="#fff"
                   />
                 </View>
@@ -1217,8 +1240,96 @@ const SIGN_OUT_KEYS = [
   'zerox1:task_log',
 ];
 
+function PermissionsSection() {
+  const { colors } = useTheme();
+  const [caps, setCaps] = useState<Record<string, boolean>>({});
+  const [perms, setPerms] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    NodeModule.getBridgeCapabilities().then(setCaps).catch(() => {});
+    NodeModule.checkPermissions().then(setPerms).catch(() => {});
+  }, []);
+
+  const groupEnabled = useCallback((def: CapDef) =>
+    def.caps.every(c => caps[c] !== false), [caps]);
+
+  const groupPermStatus = useCallback((def: CapDef): 'granted' | 'denied' | 'partial' | 'special' => {
+    if (def.special) return 'special';
+    if (def.permKeys.length === 0) return 'granted';
+    const granted = def.permKeys.filter(k => perms[k]);
+    if (granted.length === def.permKeys.length) return 'granted';
+    if (granted.length === 0) return 'denied';
+    return 'partial';
+  }, [perms]);
+
+  const handleCapToggle = useCallback(async (def: CapDef, val: boolean) => {
+    const next = { ...caps };
+    for (const c of def.caps) {
+      next[c] = val;
+      try { await NodeModule.setBridgeCapability(c, val); } catch { /* ignore */ }
+    }
+    setCaps(next);
+  }, [caps]);
+
+  const handlePermTap = useCallback(async (def: CapDef) => {
+    if (def.special) { Linking.openSettings(); return; }
+    const denied = def.permKeys.filter(k => !perms[k]);
+    if (denied.length === 0) { Linking.openSettings(); return; }
+    try {
+      await NodeModule.requestPermission(denied[0]);
+      NodeModule.checkPermissions().then(setPerms).catch(() => {});
+    } catch { Linking.openSettings(); }
+  }, [perms]);
+
+  return (
+    <>
+      <Text style={s.settingsSectionLabel}>DATA ACCESS</Text>
+      <Text style={s.permSectionHint}>
+        Control what your agent can access on this device. Toggle off to revoke access without changing OS permissions.
+      </Text>
+      <View style={s.settingsCard}>
+        {CAP_GROUPS.map((def, i) => {
+          const enabled = groupEnabled(def);
+          const status = groupPermStatus(def);
+          const dotColor = status === 'granted' ? colors.green
+            : status === 'partial' ? '#f59e0b'
+            : status === 'special' ? colors.sub
+            : colors.red;
+          const statusLabel = status === 'granted' ? 'Allowed'
+            : status === 'partial' ? 'Partial'
+            : status === 'special' ? 'System'
+            : 'Denied';
+          return (
+            <View key={def.label}>
+              {i > 0 && <View style={s.settingsCardDivider} />}
+              <View style={s.capRow}>
+                <Switch
+                  value={enabled}
+                  onValueChange={val => handleCapToggle(def, val)}
+                  trackColor={{ true: colors.green, false: colors.dim }}
+                  thumbColor="#fff"
+                  style={s.capSwitch}
+                />
+                <View style={s.capInfo}>
+                  <Text style={[s.settingsLabel, !enabled && s.capLabelOff]}>{def.label}</Text>
+                  <Text style={s.settingsHint}>{def.hint}</Text>
+                </View>
+                <TouchableOpacity style={s.permRight} onPress={() => handlePermTap(def)}>
+                  <View style={[s.permDot, { backgroundColor: dotColor }]} />
+                  <Text style={s.permLabel}>{statusLabel}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          );
+        })}
+      </View>
+    </>
+  );
+}
+
 function AdvancedTab() {
   const { t, i18n } = useTranslation();
+  const { colors } = useTheme();
   const currentLang = i18n.language;
   const signOut = useSignOut();
   const { config, saveConfig, autoStart, setAutoStart, backgroundNode, setBackgroundNode, status, stop, start } = useNode();
@@ -1271,6 +1382,62 @@ function AdvancedTab() {
 
   const handleLanguageChange = useCallback(async (lang: 'en' | 'zh-CN') => {
     await setLanguage(lang);
+  }, []);
+
+  // ── Safety / Emergency contacts ───────────────────────────────────────────
+  const [safetyEnabled, setSafetyEnabled] = useState(false);
+  const [emergencyContacts, setEmergencyContacts] = useState<EmergencyContact[]>([
+    { name: '', phone: '' },
+    { name: '', phone: '' },
+    { name: '', phone: '' },
+  ]);
+  const [safetySaving, setSafetySaving] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [enabledRaw, contactsRaw] = await AsyncStorage.multiGet([
+          SAFETY_ENABLED_KEY, EMERGENCY_CONTACTS_KEY,
+        ]);
+        setSafetyEnabled(enabledRaw[1] === 'true');
+        if (contactsRaw[1]) {
+          const parsed: EmergencyContact[] = JSON.parse(contactsRaw[1]);
+          const padded = [...parsed];
+          while (padded.length < 3) padded.push({ name: '', phone: '' });
+          setEmergencyContacts(padded.slice(0, 3));
+        }
+      } catch { /* ignore */ }
+    })();
+  }, []);
+
+  const handleSaveSafety = useCallback(async () => {
+    setSafetySaving(true);
+    try {
+      const filled = emergencyContacts.filter(c => c.phone.trim().length > 0);
+      // Validate phone numbers: must be E.164 format (+<country><number>, 8-15 digits).
+      const e164 = /^\+[1-9]\d{6,14}$/;
+      const invalid = filled.filter(c => !e164.test(c.phone.trim()));
+      if (invalid.length > 0) {
+        Alert.alert(
+          'Invalid phone number',
+          `Phone numbers must be in E.164 format (e.g. +12125551234). Fix: ${invalid.map(c => c.name || c.phone).join(', ')}`,
+        );
+        return;
+      }
+      await AsyncStorage.multiSet([
+        [SAFETY_ENABLED_KEY, String(safetyEnabled)],
+        [EMERGENCY_CONTACTS_KEY, JSON.stringify(filled)],
+      ]);
+      await NodeModule.saveEmergencyContacts(JSON.stringify(filled));
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'Failed to save');
+    } finally {
+      setSafetySaving(false);
+    }
+  }, [safetyEnabled, emergencyContacts]);
+
+  const updateContact = useCallback((idx: number, field: keyof EmergencyContact, val: string) => {
+    setEmergencyContacts(prev => prev.map((c, i) => i === idx ? { ...c, [field]: val } : c));
   }, []);
 
   const applyAndRestart = useCallback(async (updated: typeof config) => {
@@ -1347,7 +1514,7 @@ function AdvancedTab() {
               onPress={handleSaveIdentity}
               disabled={identitySaving}
             >
-              <Text style={[s.settingsLabel, { color: '#22c55e' }]}>
+              <Text style={[s.settingsLabel, { color: colors.green }]}>
                 {identitySaving ? t('you.saving') : t('you.save')}
               </Text>
             </TouchableOpacity>
@@ -1386,7 +1553,7 @@ function AdvancedTab() {
           <Switch
             value={autoStart}
             onValueChange={handleAutoStart}
-            trackColor={{ true: '#22c55e', false: '#d1d5db' }}
+            trackColor={{ true: colors.green, false: colors.dim }}
             thumbColor="#fff"
           />
         </View>
@@ -1399,7 +1566,7 @@ function AdvancedTab() {
           <Switch
             value={backgroundNode}
             onValueChange={handleBackgroundNode}
-            trackColor={{ true: '#22c55e', false: '#d1d5db' }}
+            trackColor={{ true: colors.green, false: colors.dim }}
             thumbColor="#fff"
           />
         </View>
@@ -1409,6 +1576,67 @@ function AdvancedTab() {
           <Text style={s.settingsValueMuted}>coming soon</Text>
         </View>
       </View>
+
+      {/* Safety */}
+      <Text style={s.settingsSectionLabel}>SAFETY</Text>
+      <View style={s.settingsCard}>
+        <View style={s.settingsRow}>
+          <View>
+            <Text style={s.settingsLabel}>Fall detection</Text>
+            <Text style={s.settingsHint}>Agent monitors for falls and alerts contacts</Text>
+          </View>
+          <Switch
+            value={safetyEnabled}
+            onValueChange={setSafetyEnabled}
+            trackColor={{ true: colors.green, false: colors.dim }}
+            thumbColor="#fff"
+          />
+        </View>
+        <View style={s.settingsCardDivider} />
+        <View style={[s.settingsRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 2 }]}>
+          <Text style={[s.settingsLabel, { marginBottom: 8 }]}>Emergency contacts</Text>
+          {emergencyContacts.map((contact, idx) => (
+            <View key={idx} style={s.emergencyContactRow}>
+              <TextInput
+                style={s.emergencyContactName}
+                value={contact.name}
+                onChangeText={v => updateContact(idx, 'name', v)}
+                placeholder={`Contact ${idx + 1} name`}
+                placeholderTextColor="#9ca3af"
+                maxLength={40}
+                returnKeyType="next"
+              />
+              <TextInput
+                style={s.emergencyContactPhone}
+                value={contact.phone}
+                onChangeText={v => updateContact(idx, 'phone', v)}
+                placeholder="+1 555 000 0000"
+                placeholderTextColor="#9ca3af"
+                keyboardType="phone-pad"
+                maxLength={20}
+                returnKeyType="done"
+              />
+            </View>
+          ))}
+          <Text style={s.settingsHint}>
+            30-second confirmation window before alert fires.
+            {'\n'}Contacts receive SMS even if they don't have 01 Pilot.
+          </Text>
+        </View>
+        <View style={s.settingsCardDivider} />
+        <TouchableOpacity
+          style={[s.settingsRow, { justifyContent: 'center' }]}
+          onPress={handleSaveSafety}
+          disabled={safetySaving}
+        >
+          <Text style={[s.settingsLabel, { color: colors.green }]}>
+            {safetySaving ? 'Saving…' : 'Save safety settings'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Data access / permissions */}
+      <PermissionsSection />
 
       {/* Skills */}
       <SkillsSection />
@@ -1581,12 +1809,11 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
   applyAndRestart: (cfg: any) => Promise<void>;
 }) {
   const { t } = useTranslation();
+  const { colors } = useTheme();
   const { config: brain, save: saveBrain } = useAgentBrain();
   const [relayAddr, setRelayAddr] = useState(config?.relayAddr ?? '');
   const [rpcUrl, setRpcUrl] = useState(config?.rpcUrl ?? '');
   const [brainEnabled, setBrainEnabled] = useState(brain?.enabled ?? false);
-  const [caps, setCaps] = useState<Record<string, boolean>>({});
-  const [perms, setPerms] = useState<Record<string, boolean>>({});
 
   // LLM config state
   const [llmProvider, setLlmProvider] = useState<LlmProvider>(brain?.provider ?? 'openai');
@@ -1613,8 +1840,6 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
     setReplicateApiKey('');
     setLlmBaseUrl(brain?.customBaseUrl ?? '');
     setLlmModel(brain?.customModel ?? '');
-    NodeModule.getBridgeCapabilities().then(setCaps).catch(() => {});
-    NodeModule.checkPermissions().then(setPerms).catch(() => {});
   }, [visible, config?.relayAddr, config?.rpcUrl, brain?.enabled, brain?.provider, brain?.customBaseUrl, brain?.customModel]);
 
   const handleSaveLlm = useCallback(async () => {
@@ -1673,41 +1898,6 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
     }
   }, [brain, saveBrain, replicateApiKey, config, applyAndRestart]);
 
-  /** Returns true if ALL caps in the group are enabled */
-  const groupEnabled = useCallback((def: CapDef) =>
-    def.caps.every(c => caps[c] !== false), [caps]);
-
-  /** Returns 'granted' | 'denied' | 'partial' | 'special' for a group */
-  const groupPermStatus = useCallback((def: CapDef): 'granted' | 'denied' | 'partial' | 'special' => {
-    if (def.special) return 'special';
-    if (def.permKeys.length === 0) return 'granted';
-    const granted = def.permKeys.filter(k => perms[k]);
-    if (granted.length === def.permKeys.length) return 'granted';
-    if (granted.length === 0) return 'denied';
-    return 'partial';
-  }, [perms]);
-
-  const handleCapToggle = useCallback(async (def: CapDef, val: boolean) => {
-    const next = { ...caps };
-    for (const c of def.caps) {
-      next[c] = val;
-      try { await NodeModule.setBridgeCapability(c, val); } catch { /* ignore */ }
-    }
-    setCaps(next);
-  }, [caps]);
-
-  const handlePermTap = useCallback(async (def: CapDef) => {
-    if (def.special) { Linking.openSettings(); return; }
-    // Try to request the first ungranted permission
-    const denied = def.permKeys.filter(k => !perms[k]);
-    if (denied.length === 0) { Linking.openSettings(); return; }
-    try {
-      await NodeModule.requestPermission(denied[0]);
-      // Re-check after request
-      NodeModule.checkPermissions().then(setPerms).catch(() => {});
-    } catch { Linking.openSettings(); }
-  }, [perms]);
-
   const handleBrainToggle = useCallback(async (val: boolean) => {
     setBrainEnabled(val);
     if (brain && saveBrain) await saveBrain({ ...brain, enabled: val });
@@ -1743,7 +1933,7 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
                 <Text style={s.settingsHint}>AI autonomously takes and completes jobs</Text>
               </View>
               <Switch value={brainEnabled} onValueChange={handleBrainToggle}
-                trackColor={{ true: '#22c55e', false: '#d1d5db' }} thumbColor="#fff" />
+                trackColor={{ true: colors.green, false: colors.dim }} thumbColor="#fff" />
             </View>
           </View>
 
@@ -1887,49 +2077,6 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
             >
               <Text style={s.saveBtnText}>{replicateSaving ? 'Saving…' : 'Save Replicate'}</Text>
             </TouchableOpacity>
-          </View>
-
-          {/* Phone access — all bridge capabilities */}
-          <Text style={s.settingsSectionLabel}>PHONE ACCESS</Text>
-          <Text style={s.permSectionHint}>
-            Control exactly what your agent can access on this device. Toggle off to revoke access without changing OS permissions.
-          </Text>
-          <View style={s.settingsCard}>
-            {CAP_GROUPS.map((def, i) => {
-              const enabled = groupEnabled(def);
-              const status = groupPermStatus(def);
-              const dotColor = status === 'granted' ? '#22c55e'
-                : status === 'partial' ? '#f59e0b'
-                : status === 'special' ? '#9ca3af'
-                : '#ef4444';
-              const statusLabel = status === 'granted' ? 'Allowed'
-                : status === 'partial' ? 'Partial'
-                : status === 'special' ? 'System'
-                : 'Denied';
-
-              return (
-                <View key={def.label}>
-                  {i > 0 && <View style={s.settingsCardDivider} />}
-                  <View style={s.capRow}>
-                    <Switch
-                      value={enabled}
-                      onValueChange={val => handleCapToggle(def, val)}
-                      trackColor={{ true: '#22c55e', false: '#d1d5db' }}
-                      thumbColor="#fff"
-                      style={s.capSwitch}
-                    />
-                    <View style={s.capInfo}>
-                      <Text style={[s.settingsLabel, !enabled && s.capLabelOff]}>{def.label}</Text>
-                      <Text style={s.settingsHint}>{def.hint}</Text>
-                    </View>
-                    <TouchableOpacity style={s.permRight} onPress={() => handlePermTap(def)}>
-                      <View style={[s.permDot, { backgroundColor: dotColor }]} />
-                      <Text style={s.permLabel}>{statusLabel}</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              );
-            })}
           </View>
 
           {/* Network */}
@@ -2119,6 +2266,9 @@ const s = StyleSheet.create({
   settingsValue: { fontSize: 11, color: '#9ca3af' },
   settingsValueMuted: { fontSize: 11, color: '#9ca3af' },
   signOutText: { fontSize: 11, color: '#ef4444', fontWeight: '500' },
+  emergencyContactRow: { flexDirection: 'row', gap: 8, width: '100%', marginBottom: 6 },
+  emergencyContactName: { flex: 1, fontSize: 11, color: '#111', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 7, paddingHorizontal: 10, paddingVertical: 7 },
+  emergencyContactPhone: { flex: 1, fontSize: 11, color: '#111', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 7, paddingHorizontal: 10, paddingVertical: 7 },
 
   avatarPickerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 },
   settingsAvatarCircle: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#f0fdf4', borderWidth: 1, borderColor: '#bbf7d0', overflow: 'hidden' },

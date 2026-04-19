@@ -68,9 +68,7 @@
 	<key>NSContactsUsageDescription</key>
 	<string>ZeroClaw can read your contacts to help with messaging and lookup tasks.</string>
 	<key>NSHealthShareUsageDescription</key>
-	<string>ZeroClaw can read your health data (steps, heart rate) for health-aware tasks.</string>
-	<key>NSHealthUpdateUsageDescription</key>
-	<string>ZeroClaw can log health data on your behalf.</string>
+	<string>ZeroClaw reads steps, heart rate, and activity data to help schedule tasks and adapt to your physical state.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Required for mesh node communication on the local network.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
@@ -79,15 +77,13 @@
 	<string>ZeroClaw can access your location for location-aware tasks.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>ZeroClaw can record audio for transcription and voice tasks.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>ZeroClaw can read motion and activity data to support movement-aware tasks and phone sensor features.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>ZeroClaw can save photos to your library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>ZeroClaw can access your photo library for media tasks.</string>
-	<key>NSRemindersUsageDescription</key>
-	<string>ZeroClaw can read and create reminders for task management.</string>
-	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>ZeroClaw can transcribe speech for voice-based tasks.</string>
-	<key>NSSupportsLiveActivities</key>
+<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>NSSupportsLiveActivitiesFrequentUpdates</key>
 	<true/>
@@ -105,7 +101,6 @@
 		<string>audio</string>
 		<string>fetch</string>
 		<string>processing</string>
-		<string>location</string>
 		<string>remote-notification</string>
 	</array>
 	<key>UILaunchStoryboardName</key>

@@ -10,8 +10,15 @@ name: Android Release Build
 #                   Distributed as APK — no store policy restrictions apply.
 #
 #   dappstore     — Solana ecosystem app stores (e.g. Solana dApp Store)
-#                   Drops call screening + screen capture (store policy).
-#                   Keeps camera, microphone, notifications, accessibility.
+#                   Solana dApp Store policy does NOT prohibit notification
+#                   listener, accessibility, camera, or microphone — only
+#                   illegal activity, malware, and data abuse are banned.
+#                   Drops: SMS, call log, call screening (requires default
+#                   phone/dialer app), activity recognition, Bluetooth,
+#                   package usage stats, OTA installer.
+#                   Keeps: camera, microphone, notifications, notification
+#                   listener, accessibility, health connect, location, contacts.
+#                   Adds: SeedVault integration (Seeker/Saga hardware keys).
 #                   Distributed as APK.
 #
 #   googleplay    — Google Play Store
@@ -121,8 +128,10 @@ jobs:
           VERSION_NAME: ${{ steps.version.outputs.name }}
 
       # ── Solana dApp Store APK ─────────────────────────────────────────────────
-      # Camera/mic/notifications kept. Call screening + screen capture removed
-      # to satisfy dApp Store policy. APK format (not AAB).
+      # Camera/mic/notifications/accessibility all kept (dApp Store policy does
+      # not prohibit these — only illegal activity, malware, data abuse).
+      # Call screening removed (requires being default phone app, unrelated to
+      # store policy). APK format (not AAB).
       - name: Build dApp Store APK
         run: ./gradlew assembleDappstoreRelease --stacktrace
         working-directory: android
@@ -171,3 +180,24 @@ jobs:
             android/app/build/outputs/apk/dappstore/release/app-dappstore-release.apk
             android/app/build/outputs/bundle/googleplayRelease/app-googleplay-release.aab
           generate_release_notes: true
+
+      # ── Solana dApp Store publish ─────────────────────────────────────────────
+      # Uses @solana-mobile/dapp-store-cli v0.16+ (portal-backed).
+      #
+      # ONE-TIME MANUAL SETUP (do this once via the portal UI, not CI):
+      #   1. Go to https://publish.solanamobile.com
+      #   2. Register as a publisher, create the app, upload screenshots/icon
+      #   3. Copy your API key from the portal dashboard
+      #   4. Add it as GitHub secret: DAPP_STORE_API_KEY
+      #
+      # After that, every tagged release publishes automatically via this step.
+      # The portal decides whether this is a new release or an update.
+      - name: Publish to Solana dApp Store
+        if: startsWith(github.ref, 'refs/tags/') && env.DAPP_STORE_API_KEY != ''
+        env:
+          DAPP_STORE_API_KEY: ${{ secrets.DAPP_STORE_API_KEY }}
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+        run: |
+          npx --yes @solana-mobile/dapp-store-cli@latest \
+            --apk-file android/app/build/outputs/apk/dappstore/release/app-dappstore-release.apk \
+            --whats-new "$(sed -n '/new_in_version/,/saga_features/p' dapp-store/config.yaml | grep -v 'new_in_version\|saga_features' | sed 's/^ *//' | tr -d '\n' | cut -c1-500)"

@@ -33,7 +33,8 @@ enum LiveActivityBridge {
                     currentTask:  detail ?? current.currentTask,
                     earnedToday:  current.earnedToday,
                     isActive:     true,
-                    pendingCount: current.pendingCount + 1
+                    pendingCount: current.pendingCount + 1,
+                    audioMuted:   current.audioMuted
                 )
                 await activity.update(.init(state: updated, staleDate: nil))
             }

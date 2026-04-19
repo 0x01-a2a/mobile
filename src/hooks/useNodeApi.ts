@@ -477,8 +477,29 @@ export function useInbox(
     reconnectDelay.current = 1_000; // reset backoff on enabled change
     reconnectAttemptsRef.current = 0;
     reconnect();
+
+    // Reset the backoff counter and reconnect immediately when the app
+    // returns to the foreground. Without this, 20 failed attempts during
+    // the idle-stop window exhaust the counter and permanently stop
+    // reconnecting even after the node has restarted.
+    const appStateSub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        if (reconnectDelay.current < 0 && mountedRef.current) {
+          // Was in give-up state — reset and retry.
+          reconnectDelay.current = 1_000;
+          reconnectAttemptsRef.current = 0;
+          if (reconnectTimerRef.current !== null) {
+            clearTimeout(reconnectTimerRef.current);
+            reconnectTimerRef.current = null;
+          }
+          reconnect();
+        }
+      }
+    });
+
     return () => {
       mountedRef.current = false;
+      appStateSub.remove();
       // M-1: Cancel any pending reconnect timer before closing the socket.
       if (reconnectTimerRef.current !== null) {
         clearTimeout(reconnectTimerRef.current);
@@ -611,6 +632,8 @@ export function useActivityFeed(limit = 50) {
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectDelay = useRef(1_000);
+  const mountedRef = useRef(true);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchInitial = useCallback(async () => {
     try {
@@ -620,6 +643,7 @@ export function useActivityFeed(limit = 50) {
   }, [limit]);
 
   const reconnect = useCallback(() => {
+    if (!mountedRef.current) return;
     try {
       const ws = new WebSocket(`${AGGREGATOR_WS}/ws/activity`);
       ws.onopen = () => { reconnectDelay.current = 1_000; };
@@ -633,18 +657,38 @@ export function useActivityFeed(limit = 50) {
         } catch { /* malformed */ }
       };
       ws.onclose = () => {
+        if (!mountedRef.current) return;
         const delay = reconnectDelay.current;
         reconnectDelay.current = Math.min(delay * 2, 30_000);
-        setTimeout(reconnect, delay);
+        reconnectTimerRef.current = setTimeout(reconnect, delay);
       };
       wsRef.current = ws;
     } catch { /* network not ready */ }
   }, []);
 
   useEffect(() => {
+    mountedRef.current = true;
     fetchInitial();
     reconnect();
+
+    // Re-fetch and reconnect WS when app returns to foreground.
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active' && mountedRef.current) {
+        fetchInitial();
+        if (!wsRef.current || wsRef.current.readyState === WebSocket.CLOSED) {
+          reconnectDelay.current = 1_000;
+          reconnect();
+        }
+      }
+    });
+
     return () => {
+      mountedRef.current = false;
+      sub.remove();
+      if (reconnectTimerRef.current !== null) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
       wsRef.current?.close();
       wsRef.current = null;
     };

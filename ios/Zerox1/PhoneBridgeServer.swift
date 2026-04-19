@@ -9,6 +9,9 @@ import Photos
 import CoreTelephony
 import CoreBluetooth
 import UIKit
+import AudioToolbox
+import UserNotifications
+import CryptoKit
 import os.log
 #if canImport(HealthKit)
 import HealthKit
@@ -26,13 +29,24 @@ final class PhoneBridgeServer: NSObject {
     private var bridgeToken: String = ""
     private let activityLogLock = NSLock()
     private var _activityLog: [[String: String]] = []
-    private var _capabilities: [String: Bool] = [
+    private static let capDefaults: [String: Bool] = [
         "location": true, "contacts": true, "calendar": true,
         "camera": true, "microphone": true, "media": true,
         "health": true, "notifications_read": true, "motion": true,
         "battery": true, "clinical_records": false,
         "tts": true, "live_activity": true, "wearables": false,
     ]
+    private var _capabilities: [String: Bool] = {
+        var result = capDefaults
+        let ud = UserDefaults.standard
+        for key in capDefaults.keys {
+            let udKey = "zerox1_cap_\(key)"
+            if ud.object(forKey: udKey) != nil {
+                result[key] = ud.bool(forKey: udKey)
+            }
+        }
+        return result
+    }()
     private let locationManager = CLLocationManager()
     private var lastLocation: CLLocation?
     #if canImport(HealthKit)
@@ -60,6 +74,12 @@ final class PhoneBridgeServer: NSObject {
 
     // L-3: Barometer concurrency guard
     private var barometerBusy = false
+
+    // IMU concurrency guard
+    private var imuBusy = false
+
+    // CMMotionManager for IMU access
+    private let motionManager = CMMotionManager()
 
     // CBCentralManager retained to keep BT auth state accessible
     private var cbManager: CBCentralManager?
@@ -96,6 +116,7 @@ final class PhoneBridgeServer: NSObject {
 
     func setCapability(_ cap: String, enabled: Bool) {
         _capabilities[cap] = enabled
+        UserDefaults.standard.set(enabled, forKey: "zerox1_cap_\(cap)")
     }
 
     func activityLog(limit: Int) -> String {
@@ -828,6 +849,109 @@ final class PhoneBridgeServer: NSObject {
             }
             readHealthUnified(conn: conn, queryString: queryString)
         #endif
+
+        // ── Context aggregate ────────────────────────────────────────────────
+        case "/phone/context":
+            phoneContext(conn: conn)
+
+        // ── Clipboard ────────────────────────────────────────────────────────
+        case "/phone/clipboard":
+            phoneClipboard(conn: conn, method: method, body: body)
+
+        // ── Vibrate ──────────────────────────────────────────────────────────
+        case "/phone/vibrate":
+            guard method == "POST" else {
+                sendResponse(conn: conn, status: 405, body: #"{"error":"method not allowed"}"#); return
+            }
+            AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+            logActivity(capability: "tts", action: "vibrate", outcome: "ok")
+            sendJSON(conn: conn, obj: ["vibrated": true])
+
+        // ── Schedule local notification ──────────────────────────────────────
+        case "/phone/notify":
+            guard method == "POST" else {
+                sendResponse(conn: conn, status: 405, body: #"{"error":"method not allowed"}"#); return
+            }
+            guard _capabilities["notifications_read"] == true else {
+                sendJSON(conn: conn, obj: ["error": "capability disabled"], status: 403); return
+            }
+            scheduleLocalNotification(conn: conn, body: body)
+
+        // ── Dismiss notifications ────────────────────────────────────────────
+        case "/phone/notifications/dismiss":
+            guard method == "POST" else {
+                sendResponse(conn: conn, status: 405, body: #"{"error":"method not allowed"}"#); return
+            }
+            guard _capabilities["notifications_read"] == true else {
+                sendJSON(conn: conn, obj: ["error": "capability disabled"], status: 403); return
+            }
+            dismissNotifications(conn: conn, body: body)
+
+        // ── IMU snapshot ─────────────────────────────────────────────────────
+        case "/phone/imu":
+            guard _capabilities["motion"] == true else {
+                sendJSON(conn: conn, obj: ["error": "capability disabled"], status: 403); return
+            }
+            readImuSnapshot(conn: conn)
+
+        // ── IMU record ───────────────────────────────────────────────────────
+        case "/phone/imu/record":
+            guard method == "POST" else {
+                sendResponse(conn: conn, status: 405, body: #"{"error":"method not allowed"}"#); return
+            }
+            guard _capabilities["motion"] == true else {
+                sendJSON(conn: conn, obj: ["error": "capability disabled"], status: 403); return
+            }
+            recordImu(conn: conn, body: body)
+
+        // ── Emergency relay ──────────────────────────────────────────────────
+        // POST — fire emergency alert to contacts via aggregator SMS relay.
+        // Reads emergency contacts and agent_id from UserDefaults automatically.
+        // The ZeroClaw safety skill calls this after the 30-second confirmation
+        // window expires with no cancel tap.
+        case "/phone/emergency/relay":
+            guard method == "POST" else {
+                sendResponse(conn: conn, status: 405, body: #"{"error":"method not allowed"}"#); return
+            }
+            fireEmergencyRelay(conn: conn, body: body)
+
+        // ── Emergency contacts read ──────────────────────────────────────────
+        case "/phone/emergency/contacts":
+            let contactsJson = UserDefaults.standard.string(forKey: "zerox1_emergency_contacts") ?? "[]"
+            let safetyEnabled = UserDefaults.standard.bool(forKey: "zerox1_safety_enabled")
+            sendJSON(conn: conn, obj: [
+                "contacts":        contactsJson,
+                "safety_enabled":  safetyEnabled,
+            ])
+
+        // ── Fall check (battery-efficient) ──────────────────────────────────
+        // Does NOT run the accelerometer if the motion activity manager reports
+        // the user is running, cycling, or in a vehicle — situations where
+        // continuous IMU would drain battery and produce false positives.
+        // Returns next_check_secs so the caller can back off adaptively.
+        case "/phone/imu/fall_check":
+            guard _capabilities["motion"] == true else {
+                sendJSON(conn: conn, obj: ["error": "capability disabled"], status: 403); return
+            }
+            fallCheck(conn: conn)
+
+        // ── Permissions summary ──────────────────────────────────────────────
+        case "/phone/permissions":
+            readPermissions(conn: conn)
+
+        // ── Audio profile ────────────────────────────────────────────────────
+        case "/phone/audio/profile":
+            if method == "POST" {
+                setAudioProfile(conn: conn, body: body)
+            } else {
+                readAudioProfile(conn: conn)
+            }
+
+        // ── Activity log ─────────────────────────────────────────────────────
+        case "/phone/activity_log":
+            let qp = queryParams(queryString)
+            let logLimit = min(Int(qp["limit"] ?? "50") ?? 50, 200)
+            sendResponse(conn: conn, status: 200, body: activityLog(limit: logLimit))
 
         default:
             // Dynamic PATCH routes for contacts and calendar updates
@@ -1905,6 +2029,609 @@ final class PhoneBridgeServer: NSObject {
         ])
     }
 
+    // MARK: - Context aggregate
+
+    private func phoneContext(conn: NWConnection) {
+        let device = UIDevice.current
+        device.isBatteryMonitoringEnabled = true
+        let tz = TimeZone.current
+        let monitor = NWPathMonitor()
+        let sema = DispatchSemaphore(value: 0)
+        var wifi = false; var cellular = false; var connected = false
+        monitor.pathUpdateHandler = { path in
+            connected = path.status == .satisfied
+            wifi      = path.usesInterfaceType(.wifi)
+            cellular  = path.usesInterfaceType(.cellular)
+            sema.signal()
+        }
+        monitor.start(queue: .global())
+        _ = sema.wait(timeout: .now() + 2)
+        monitor.cancel()
+        let result: [String: Any] = [
+            "model":           device.model,
+            "name":            device.name,
+            "system_version":  device.systemVersion,
+            "battery_level":   device.batteryLevel >= 0 ? Int(device.batteryLevel * 100) : -1,
+            "charging":        device.batteryState == .charging || device.batteryState == .full,
+            "platform":        "ios",
+            "connected":       connected,
+            "wifi":            wifi,
+            "cellular":        cellular,
+            "timezone_id":     tz.identifier,
+            "utc_offset_secs": tz.secondsFromGMT(),
+        ]
+        logActivity(capability: "battery", action: "read_context", outcome: "ok")
+        sendJSON(conn: conn, obj: result)
+    }
+
+    // MARK: - Clipboard
+
+    private func phoneClipboard(conn: NWConnection, method: String, body: String) {
+        if method == "POST" {
+            guard let data = body.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let text = json["text"] as? String else {
+                sendJSON(conn: conn, obj: ["error": "missing required field: text"]); return
+            }
+            DispatchQueue.main.async {
+                UIPasteboard.general.string = String(text.prefix(100_000))
+                self.logActivity(capability: "tts", action: "clipboard_write", outcome: "ok")
+                self.sendJSON(conn: conn, obj: ["ok": true])
+            }
+        } else {
+            DispatchQueue.main.async {
+                let text = UIPasteboard.general.string ?? ""
+                self.logActivity(capability: "tts", action: "clipboard_read",
+                                 outcome: "\(text.count) chars")
+                self.sendJSON(conn: conn, obj: ["text": text, "has_content": !text.isEmpty])
+            }
+        }
+    }
+
+    // MARK: - Local notification
+
+    private func scheduleLocalNotification(conn: NWConnection, body: String) {
+        guard let data = body.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            sendJSON(conn: conn, obj: ["error": "invalid JSON body"]); return
+        }
+        let title      = String((json["title"] as? String ?? "").prefix(200))
+        let bodyText   = String((json["body"]  as? String ?? "").prefix(4000))
+        let delaySecs  = max(1.0, min(Double(json["delay_secs"] as? Int ?? 1), 3600.0))
+        let identifier = json["id"] as? String ?? UUID().uuidString
+
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body  = bodyText
+        content.sound = .default
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: delaySecs, repeats: false)
+        let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
+        UNUserNotificationCenter.current().add(request) { [weak self] error in
+            guard let self else { return }
+            if let error {
+                sendJSON(conn: conn, obj: ["error": error.localizedDescription])
+            } else {
+                logActivity(capability: "notifications", action: "schedule", outcome: identifier)
+                sendJSON(conn: conn, obj: ["ok": true, "id": identifier])
+            }
+        }
+    }
+
+    // MARK: - Dismiss notifications
+
+    private func dismissNotifications(conn: NWConnection, body: String) {
+        let json = (body.data(using: .utf8).flatMap {
+            try? JSONSerialization.jsonObject(with: $0) as? [String: Any]
+        }) ?? [:]
+        let ids = Array((json["ids"] as? [String] ?? []).prefix(50))
+        let center = UNUserNotificationCenter.current()
+        if ids.isEmpty {
+            center.removeAllPendingNotificationRequests()
+            center.removeAllDeliveredNotifications()
+            logActivity(capability: "notifications", action: "dismiss_all", outcome: "ok")
+            sendJSON(conn: conn, obj: ["ok": true, "removed": "all"])
+        } else {
+            center.removePendingNotificationRequests(withIdentifiers: ids)
+            center.removeDeliveredNotifications(withIdentifiers: ids)
+            logActivity(capability: "notifications", action: "dismiss",
+                        outcome: "\(ids.count) ids")
+            sendJSON(conn: conn, obj: ["ok": true, "removed": ids.count])
+        }
+    }
+
+    // MARK: - IMU snapshot
+
+    private func readImuSnapshot(conn: NWConnection) {
+        guard !imuBusy else {
+            sendJSON(conn: conn, obj: ["error": "imu busy, try again"], status: 429); return
+        }
+        guard motionManager.isAccelerometerAvailable else {
+            sendJSON(conn: conn, obj: ["error": "accelerometer not available on this device"]); return
+        }
+        imuBusy = true
+
+        var accelX = 0.0, accelY = 0.0, accelZ = 0.0
+        var gyroX  = 0.0, gyroY  = 0.0, gyroZ  = 0.0
+        var gotAccel = false, gotGyro = false
+        let lock = NSLock()
+        let sema = DispatchSemaphore(value: 0)
+        let updateInterval = 1.0 / 50.0
+
+        func checkDone() {
+            lock.lock(); let done = gotAccel && gotGyro; lock.unlock()
+            if done { sema.signal() }
+        }
+
+        motionManager.accelerometerUpdateInterval = updateInterval
+        motionManager.startAccelerometerUpdates(to: .main) { [weak self] data, _ in
+            guard let self, let data else { return }
+            motionManager.stopAccelerometerUpdates()
+            lock.lock()
+            accelX = data.acceleration.x; accelY = data.acceleration.y; accelZ = data.acceleration.z
+            gotAccel = true
+            lock.unlock()
+            checkDone()
+        }
+
+        if motionManager.isGyroAvailable {
+            motionManager.gyroUpdateInterval = updateInterval
+            motionManager.startGyroUpdates(to: .main) { [weak self] data, _ in
+                guard let self, let data else { return }
+                motionManager.stopGyroUpdates()
+                lock.lock()
+                gyroX = data.rotationRate.x; gyroY = data.rotationRate.y; gyroZ = data.rotationRate.z
+                gotGyro = true
+                lock.unlock()
+                checkDone()
+            }
+        } else {
+            lock.lock(); gotGyro = true; lock.unlock()
+            checkDone()
+        }
+
+        DispatchQueue.global().async { [weak self] in
+            guard let self else { return }
+            _ = sema.wait(timeout: .now() + 3)
+            imuBusy = false
+            logActivity(capability: "motion", action: "read_imu", outcome: "ok")
+            sendJSON(conn: conn, obj: [
+                "accel_x": accelX, "accel_y": accelY, "accel_z": accelZ,
+                "gyro_x":  gyroX,  "gyro_y":  gyroY,  "gyro_z":  gyroZ,
+                "timestamp": Date().timeIntervalSince1970,
+            ])
+        }
+    }
+
+    // MARK: - IMU record
+
+    private func recordImu(conn: NWConnection, body: String) {
+        let json = (body.data(using: .utf8).flatMap {
+            try? JSONSerialization.jsonObject(with: $0) as? [String: Any]
+        }) ?? [:]
+        let durationSecs = min(max(Double(json["duration_secs"] as? Int ?? 2), 0.5), 10.0)
+        let hz           = min(max(Double(json["hz"] as? Int ?? 10), 1.0), 50.0)
+
+        guard !imuBusy else {
+            sendJSON(conn: conn, obj: ["error": "imu busy, try again"], status: 429); return
+        }
+        guard motionManager.isAccelerometerAvailable else {
+            sendJSON(conn: conn, obj: ["error": "accelerometer not available on this device"]); return
+        }
+        imuBusy = true
+
+        var samples: [[String: Double]] = []
+        let lock     = NSLock()
+        let interval = 1.0 / hz
+
+        motionManager.accelerometerUpdateInterval = interval
+        motionManager.startAccelerometerUpdates(to: OperationQueue()) { data, _ in
+            guard let data else { return }
+            let sample: [String: Double] = [
+                "t": data.timestamp, "ax": data.acceleration.x,
+                "ay": data.acceleration.y, "az": data.acceleration.z,
+            ]
+            lock.lock(); samples.append(sample); lock.unlock()
+        }
+
+        DispatchQueue.global().asyncAfter(deadline: .now() + durationSecs) { [weak self] in
+            guard let self else { return }
+            motionManager.stopAccelerometerUpdates()
+            imuBusy = false
+            lock.lock(); let result = samples; lock.unlock()
+            logActivity(capability: "motion", action: "record_imu",
+                        outcome: "\(result.count) samples")
+            sendJSON(conn: conn, obj: [
+                "samples":       result,
+                "count":         result.count,
+                "duration_secs": durationSecs,
+                "hz":            hz,
+            ])
+        }
+    }
+
+    // MARK: - Emergency relay
+
+    /// Called by the ZeroClaw safety skill after the 30-second confirmation window.
+    /// Packages location, health, battery, reads stored contacts and agent_id, then
+    /// fires a POST to the aggregator emergency relay endpoint.
+    /// The aggregator sends Twilio SMS to each contact.
+    private func fireEmergencyRelay(conn: NWConnection, body: String) {
+        let json = (body.data(using: .utf8).flatMap {
+            try? JSONSerialization.jsonObject(with: $0) as? [String: Any]
+        }) ?? [:]
+
+        let message = String((json["message"] as? String ?? "Emergency: your contact may need help.").prefix(500))
+
+        // Read contacts and agent_id from UserDefaults (written by Settings UI)
+        let contactsRaw = UserDefaults.standard.string(forKey: "zerox1_emergency_contacts") ?? "[]"
+        let agentId     = UserDefaults.standard.string(forKey: "zerox1_agent_id") ?? ""
+
+        guard !agentId.isEmpty else {
+            sendJSON(conn: conn, obj: ["error": "agent_id not available — node not running"], status: 503)
+            return
+        }
+
+        guard let contactsData = contactsRaw.data(using: .utf8),
+              let contacts = try? JSONSerialization.jsonObject(with: contactsData) as? [[String: String]],
+              !contacts.isEmpty else {
+            sendJSON(conn: conn, obj: ["error": "no emergency contacts configured"], status: 400)
+            return
+        }
+
+        // Package device snapshot
+        UIDevice.current.isBatteryMonitoringEnabled = true
+        var payload: [String: Any] = [
+            "agent_id":  agentId,
+            "message":   message,
+            "contacts":  contacts,
+            "battery":   [
+                // Send as fraction 0.0–1.0; aggregator multiplies by 100 to get %.
+                "level":    UIDevice.current.batteryLevel >= 0 ? Double(UIDevice.current.batteryLevel) : -1.0,
+                "charging": UIDevice.current.batteryState == .charging || UIDevice.current.batteryState == .full,
+            ],
+            "timestamp": Date().timeIntervalSince1970,
+            "platform":  "ios",
+        ]
+
+        if let loc = lastLocation {
+            payload["location"] = [
+                "lat":       loc.coordinate.latitude,
+                "lon":       loc.coordinate.longitude,
+                "accuracy":  loc.horizontalAccuracy,
+                "timestamp": loc.timestamp.timeIntervalSince1970,
+            ]
+        }
+
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: payload) else {
+            sendJSON(conn: conn, obj: ["error": "failed to serialize payload"], status: 500)
+            return
+        }
+
+        let aggregatorUrl = "https://api.0x01.world/emergency/relay"
+        guard let url = URL(string: aggregatorUrl) else {
+            sendJSON(conn: conn, obj: ["error": "invalid aggregator url"], status: 500)
+            return
+        }
+
+        // Require the identity key — without it the aggregator will reject with 401
+        // and no SMS will be sent. Fail fast here with a clear error.
+        guard let keyB58 = KeychainHelper.load(key: "identity_key"),
+              let sigHex = ed25519SignBridge(data: bodyData, base58Key: keyB58) else {
+            os_log(.error, "[EmergencyRelay] identity key missing or signing failed — cannot authenticate relay")
+            sendJSON(conn: conn, obj: [
+                "ok":    false,
+                "error": "identity_key not found in Keychain — node must be started before emergency relay",
+            ], status: 500)
+            return
+        }
+
+        var req = URLRequest(url: url, timeoutInterval: 15)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue(sigHex, forHTTPHeaderField: "X-Agent-Signature")
+        req.httpBody = bodyData
+
+        logActivity(capability: "tts", action: "emergency_relay",
+                    outcome: "\(contacts.count) contacts, \(message.prefix(40))")
+
+        let bridgeConn = conn
+        let capturedContacts = contacts
+        let capturedCount = contacts.count
+
+        URLSession.shared.dataTask(with: req) { [weak self] data, response, error in
+            guard let self else { return }
+            let httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
+            let relayOk = error == nil && (200...299).contains(httpStatus)
+
+            if let error {
+                os_log(.error, "[EmergencyRelay] relay failed: %{public}@", error.localizedDescription)
+                sendJSON(conn: bridgeConn, obj: [
+                    "ok":    false,
+                    "error": error.localizedDescription,
+                ])
+                return
+            }
+
+            sendJSON(conn: bridgeConn, obj: [
+                "ok":                relayOk,
+                "contacts_notified": capturedCount,
+                "aggregator_status": httpStatus,
+            ])
+
+            guard relayOk else {
+                os_log(.error, "[EmergencyRelay] aggregator returned %d — SMS not sent", httpStatus)
+                return
+            }
+
+            // Schedule the call-UI notification only after the relay succeeds so the
+            // body accurately reflects that SMS was sent. The call button remains the
+            // primary action; SMS is the background fallback.
+            let firstContact = capturedContacts.first
+            let firstName = firstContact?["name"] ?? "your contact"
+            let firstPhone = firstContact?["phone"] ?? ""
+
+            if !firstPhone.isEmpty {
+                let content = UNMutableNotificationContent()
+                content.title = "Emergency Alert Sent"
+                content.body = "SMS sent to \(capturedCount) contact\(capturedCount == 1 ? "" : "s"). Tap to call \(firstName) now."
+                content.sound = UNNotificationSound.default
+                content.categoryIdentifier = "EMERGENCY_CALL"
+                content.userInfo = [
+                    "emergency_phone": firstPhone,
+                    "emergency_name":  firstName,
+                ]
+                let notifRequest = UNNotificationRequest(
+                    identifier: "zerox1.emergency.call.\(Int(Date().timeIntervalSince1970))",
+                    content: content,
+                    trigger: nil
+                )
+                UNUserNotificationCenter.current().add(notifRequest) { error in
+                    if let error {
+                        os_log(.error, "[EmergencyRelay] call-UI notification failed: %{public}@",
+                               error.localizedDescription)
+                    }
+                }
+            }
+
+            // TTS confirmation on the main thread
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                guard let self else { return }
+                let spoken = "Emergency alert sent to \(capturedCount) contact\(capturedCount == 1 ? "" : "s")."
+                let utterance = AVSpeechUtterance(string: spoken)
+                utterance.rate = AVSpeechUtteranceDefaultSpeechRate
+                if speechSynthesizer.isSpeaking { speechSynthesizer.stopSpeaking(at: .immediate) }
+                speechSynthesizer.speak(utterance)
+            }
+        }.resume()
+    }
+
+    // MARK: - Fall check (battery-efficient IMU burst)
+
+    /// Battery-efficient fall detection check for the ZeroClaw safety skill.
+    ///
+    /// Design:
+    ///   1. Query CMMotionActivityManager for the most recent activity.
+    ///      If the user is running, cycling, or in a vehicle → return immediately
+    ///      with fall_detected=false and a long next_check_secs (60s).  No IMU
+    ///      hardware is activated — zero extra battery draw.
+    ///   2. If stationary or walking → run a 2-second accelerometer burst at 50 Hz.
+    ///      Compute the peak resultant acceleration (in g).
+    ///   3. A peak > 3g is a candidate fall.  Return the result plus a short
+    ///      next_check_secs (10s) so the caller knows to check again soon.
+    ///
+    /// Response fields:
+    ///   fall_detected   bool    — peak_g exceeded the 3g threshold
+    ///   peak_g          Double  — highest resultant acceleration seen in the burst
+    ///   activity        String  — stationary|walking|running|cycling|automotive|unknown
+    ///   skipped         bool    — true if IMU was not run (high-motion activity gated it)
+    ///   next_check_secs Int     — suggested interval before calling again
+    private func fallCheck(conn: NWConnection) {
+        guard !imuBusy else {
+            sendJSON(conn: conn, obj: ["error": "imu busy, try again"], status: 429); return
+        }
+
+        // Step 1 — query activity manager first to gate the IMU burst.
+        guard CMMotionActivityManager.isActivityAvailable() else {
+            // No activity manager (iPod touch etc.) — fall through to raw burst.
+            runFallBurst(conn: conn, activity: "unknown")
+            return
+        }
+
+        let actStart = Date(timeIntervalSinceNow: -5)
+        motionActivityManager.queryActivityStarting(from: actStart, to: Date(), to: .main) { [weak self] activities, _ in
+            guard let self else { return }
+            let activity = activities?.last
+            let label: String
+            let highMotion: Bool
+            if let a = activity {
+                if      a.automotive { label = "automotive"; highMotion = true  }
+                else if a.cycling    { label = "cycling";    highMotion = true  }
+                else if a.running    { label = "running";    highMotion = true  }
+                else if a.walking    { label = "walking";    highMotion = false }
+                else                 { label = "stationary"; highMotion = false }
+            } else {
+                label = "unknown"; highMotion = false
+            }
+
+            if highMotion {
+                // High-motion: skip the IMU entirely — fall detection is meaningless
+                // and continuous accelerometer use would drain battery fast.
+                logActivity(capability: "motion", action: "fall_check",
+                            outcome: "skipped (\(label))")
+                sendJSON(conn: conn, obj: [
+                    "fall_detected":   false,
+                    "peak_g":          0.0,
+                    "activity":        label,
+                    "skipped":         true,
+                    "next_check_secs": 60,
+                ])
+            } else {
+                runFallBurst(conn: conn, activity: label)
+            }
+        }
+    }
+
+    /// Runs a 2-second 50 Hz accelerometer burst and checks for peak > 3g.
+    private func runFallBurst(conn: NWConnection, activity: String) {
+        guard motionManager.isAccelerometerAvailable else {
+            sendJSON(conn: conn, obj: [
+                "fall_detected": false, "peak_g": 0.0,
+                "activity": activity, "skipped": true,
+                "next_check_secs": 30,
+            ]); return
+        }
+        imuBusy = true
+
+        var peakG: Double = 0.0
+        let lock = NSLock()
+        motionManager.accelerometerUpdateInterval = 1.0 / 50.0
+        motionManager.startAccelerometerUpdates(to: OperationQueue()) { data, _ in
+            guard let data else { return }
+            let g = sqrt(
+                data.acceleration.x * data.acceleration.x +
+                data.acceleration.y * data.acceleration.y +
+                data.acceleration.z * data.acceleration.z
+            )
+            lock.lock(); if g > peakG { peakG = g }; lock.unlock()
+        }
+
+        DispatchQueue.global().asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            guard let self else { return }
+            motionManager.stopAccelerometerUpdates()
+            imuBusy = false
+
+            lock.lock(); let peak = peakG; lock.unlock()
+            let fallDetected = peak > 3.0
+            // Back off longer if nothing detected; check sooner after a candidate.
+            let nextCheck = fallDetected ? 5 : 10
+            logActivity(capability: "motion", action: "fall_check",
+                        outcome: fallDetected ? "candidate (peak \(String(format:"%.2f",peak))g)" : "clear")
+            sendJSON(conn: conn, obj: [
+                "fall_detected":   fallDetected,
+                "peak_g":          peak,
+                "activity":        activity,
+                "skipped":         false,
+                "next_check_secs": nextCheck,
+            ])
+        }
+    }
+
+    // MARK: - Permissions summary
+
+    private func readPermissions(conn: NWConnection) {
+        var result: [String: String] = [:]
+
+        switch CLLocationManager.authorizationStatus() {
+        case .authorizedAlways:       result["location"] = "authorized_always"
+        case .authorizedWhenInUse:    result["location"] = "authorized_when_in_use"
+        case .denied:                 result["location"] = "denied"
+        case .restricted:             result["location"] = "restricted"
+        case .notDetermined:          result["location"] = "not_determined"
+        @unknown default:             result["location"] = "unknown"
+        }
+
+        switch CNContactStore.authorizationStatus(for: .contacts) {
+        case .authorized:    result["contacts"] = "authorized"
+        case .denied:        result["contacts"] = "denied"
+        case .restricted:    result["contacts"] = "restricted"
+        case .notDetermined: result["contacts"] = "not_determined"
+        @unknown default:    result["contacts"] = "unknown"
+        }
+
+        switch EKEventStore.authorizationStatus(for: .event) {
+        case .authorized:    result["calendar"] = "authorized"
+        case .denied:        result["calendar"] = "denied"
+        case .restricted:    result["calendar"] = "restricted"
+        case .notDetermined: result["calendar"] = "not_determined"
+        default:             result["calendar"] = "authorized"
+        }
+
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:    result["camera"] = "authorized"
+        case .denied:        result["camera"] = "denied"
+        case .restricted:    result["camera"] = "restricted"
+        case .notDetermined: result["camera"] = "not_determined"
+        @unknown default:    result["camera"] = "unknown"
+        }
+
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized:    result["microphone"] = "authorized"
+        case .denied:        result["microphone"] = "denied"
+        case .restricted:    result["microphone"] = "restricted"
+        case .notDetermined: result["microphone"] = "not_determined"
+        @unknown default:    result["microphone"] = "unknown"
+        }
+
+        switch PHPhotoLibrary.authorizationStatus(for: .readWrite) {
+        case .authorized:    result["photos"] = "authorized"
+        case .limited:       result["photos"] = "limited"
+        case .denied:        result["photos"] = "denied"
+        case .restricted:    result["photos"] = "restricted"
+        case .notDetermined: result["photos"] = "not_determined"
+        @unknown default:    result["photos"] = "unknown"
+        }
+
+        result["motion"] = CMMotionActivityManager.isActivityAvailable() ? "available" : "unavailable"
+
+        let notifSema = DispatchSemaphore(value: 0)
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            switch settings.authorizationStatus {
+            case .authorized:    result["notifications"] = "authorized"
+            case .provisional:   result["notifications"] = "provisional"
+            case .ephemeral:     result["notifications"] = "ephemeral"
+            case .denied:        result["notifications"] = "denied"
+            case .notDetermined: result["notifications"] = "not_determined"
+            @unknown default:    result["notifications"] = "unknown"
+            }
+            notifSema.signal()
+        }
+        _ = notifSema.wait(timeout: .now() + 3)
+
+        logActivity(capability: "battery", action: "read_permissions", outcome: "ok")
+        sendJSON(conn: conn, obj: result)
+    }
+
+    // MARK: - Audio profile
+
+    private func readAudioProfile(conn: NWConnection) {
+        let session = AVAudioSession.sharedInstance()
+        let outputs = session.currentRoute.outputs.map { $0.portType.rawValue }
+        let inputs  = session.currentRoute.inputs.map  { $0.portType.rawValue }
+        sendJSON(conn: conn, obj: [
+            "category":      session.category.rawValue,
+            "mode":          session.mode.rawValue,
+            "output_routes": outputs,
+            "input_routes":  inputs,
+            "output_volume": session.outputVolume,
+        ])
+    }
+
+    private func setAudioProfile(conn: NWConnection, body: String) {
+        guard let data = body.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let rawCategory = json["category"] as? String else {
+            sendJSON(conn: conn, obj: ["error": "missing required field: category"]); return
+        }
+        let category: AVAudioSession.Category
+        switch rawCategory {
+        case "ambient":       category = .ambient
+        case "soloAmbient":   category = .soloAmbient
+        case "playback":      category = .playback
+        case "record":        category = .record
+        case "playAndRecord": category = .playAndRecord
+        case "multiRoute":    category = .multiRoute
+        default:
+            sendJSON(conn: conn, obj: ["error": "unknown category: \(rawCategory)"]); return
+        }
+        do {
+            try AVAudioSession.sharedInstance().setCategory(category)
+            logActivity(capability: "tts", action: "set_audio_profile", outcome: rawCategory)
+            sendJSON(conn: conn, obj: ["ok": true, "category": rawCategory])
+        } catch {
+            sendJSON(conn: conn, obj: ["error": error.localizedDescription])
+        }
+    }
+
     // MARK: - HTTP helpers
 
     private func sendJSON(conn: NWConnection, obj: Any, status: Int = 200) {
@@ -1972,6 +2699,35 @@ private class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegate {
                      didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
         completion(error == nil ? photo.fileDataRepresentation() : nil)
     }
+}
+
+// MARK: - Ed25519 signing helper (emergency relay auth)
+
+/// Sign `data` with the agent Ed25519 identity key stored as base58 (seed bytes).
+/// Returns 64-byte signature as lowercase hex, or nil on any error.
+private func ed25519SignBridge(data: Data, base58Key: String) -> String? {
+    guard let keyBytes = base58DecodeBridge(base58Key), keyBytes.count >= 32 else { return nil }
+    let seed = Data(keyBytes.prefix(32))
+    guard let privateKey = try? Curve25519.Signing.PrivateKey(rawRepresentation: seed) else { return nil }
+    guard let sig = try? privateKey.signature(for: data) else { return nil }
+    return sig.map { String(format: "%02x", $0) }.joined()
+}
+
+private func base58DecodeBridge(_ s: String) -> [UInt8]? {
+    let alphabet = Array("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
+    var result = [UInt8]()
+    for char in s {
+        guard let idx = alphabet.firstIndex(of: char) else { return nil }
+        var carry = idx
+        for i in stride(from: result.count - 1, through: 0, by: -1) {
+            carry += 58 * Int(result[i])
+            result[i] = UInt8(carry & 0xff)
+            carry >>= 8
+        }
+        while carry > 0 { result.insert(UInt8(carry & 0xff), at: 0); carry >>= 8 }
+    }
+    let leadingZeros = s.prefix(while: { $0 == "1" }).count
+    return Array(repeating: 0, count: leadingZeros) + result.drop(while: { $0 == 0 })
 }
 
 // MARK: - Timing-safe comparison
