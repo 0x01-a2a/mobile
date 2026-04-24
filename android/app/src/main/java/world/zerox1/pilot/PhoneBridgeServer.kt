@@ -266,10 +266,15 @@ class PhoneBridgeServer(
     }
 
     // ── Capability gate ──────────────────────────────────────────────────────
-    // SharedPreferences key: bridge_cap_<name> → Boolean (default true)
+    // SharedPreferences key: bridge_cap_<name> → Boolean
+    // Most caps default ON; screen action caps default OFF (require explicit opt-in).
+    private val capDefaultOff = setOf(
+        "screen_act", "screen_global_nav", "screen_autonomy",
+        "screen_capture", "sms_send", "calls",
+    )
     private fun isCapEnabled(cap: String): Boolean =
         context.getSharedPreferences("zerox1_bridge", android.content.Context.MODE_PRIVATE)
-            .getBoolean("bridge_cap_$cap", true)
+            .getBoolean("bridge_cap_$cap", cap !in capDefaultOff)
 
     private fun capDisabled(cap: String): BridgeResponse =
         BridgeResponse(

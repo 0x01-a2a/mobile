@@ -739,6 +739,20 @@ class NodeModule: RCTEventEmitter {
         }
     }
 
+    // MARK: - Diagnostics
+
+    /// Returns the path to the zeroclaw agent log file so the JS layer can
+    /// open a UIActivityViewController and let the user share it with the team.
+    @objc func getLogFilePath(_ resolve: @escaping RCTPromiseResolveBlock,
+                               rejecter reject: @escaping RCTPromiseRejectBlock) {
+        let logPath = NodeService.shared.logFilePath
+        if let logPath, FileManager.default.fileExists(atPath: logPath) {
+            resolve(logPath)
+        } else {
+            reject("NOT_FOUND", "Log file not found — start the node first", nil)
+        }
+    }
+
     // MARK: - Event emission
 
     func emitNodeStatus(_ status: String, detail: String = "") {

@@ -2531,3 +2531,69 @@ export function useAgentSearch(capability: string): {
 
   return { results, loading };
 }
+
+const WALLET_REGISTERED_KEY = 'zerox1:hot_wallet_registered';
+
+/**
+ * Registers the agent's hot wallet with the aggregator once per install.
+ * The hot wallet IS the agent identity key — the node signs the agent_id bytes
+ * with that same key, proving ownership without any user interaction.
+ * Fires silently after the node is running; skipped if already registered.
+ */
+export function useHotWalletRegistration() {
+  const identity = useIdentity();
+
+  useEffect(() => {
+    if (!identity?.agent_id) return;
+    const agentIdHex = identity.agent_id;
+
+    (async () => {
+      // Only register once per device install.
+      const done = await AsyncStorage.getItem(WALLET_REGISTERED_KEY).catch(() => null);
+      if (done === agentIdHex) return;
+
+      try {
+        let authToken: string | null = null;
+        try {
+          const auth = await NodeModule.getLocalAuthConfig();
+          authToken = auth?.nodeApiToken ?? null;
+        } catch { /* ok */ }
+        const authHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (authToken) authHeaders.Authorization = `Bearer ${authToken}`;
+
+        // Sign the agent_id bytes with the identity key.
+        const signRes = await fetch('http://127.0.0.1:9090/identity/sign', {
+          method: 'POST',
+          headers: authHeaders,
+          body: JSON.stringify({ bytes_hex: agentIdHex }),
+        });
+        if (!signRes.ok) return;
+
+        const { signature_hex }: { signature_hex: string } = await signRes.json();
+
+        // Derive base58 wallet address from agent_id hex.
+        const { PublicKey } = require('@solana/web3.js');
+        const bytes = Uint8Array.from(
+          (agentIdHex.match(/.{1,2}/g) ?? []).map((b: string) => parseInt(b, 16))
+        );
+        const walletAddress = new PublicKey(bytes).toBase58();
+
+        // Convert hex signature to base64.
+        const sigBytes = new Uint8Array(
+          (signature_hex.match(/.{1,2}/g) ?? []).map((b: string) => parseInt(b, 16))
+        );
+        const sigB64 = btoa(String.fromCharCode(...sigBytes));
+
+        const regRes = await fetch(`${AGGREGATOR_API}/wallets/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ agent_id: agentIdHex, wallet_address: walletAddress, signature: sigB64 }),
+        });
+
+        if (regRes.ok) {
+          await AsyncStorage.setItem(WALLET_REGISTERED_KEY, agentIdHex).catch(() => {});
+        }
+      } catch { /* non-fatal — will retry on next app launch */ }
+    })();
+  }, [identity?.agent_id]);
+}

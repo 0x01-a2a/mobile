@@ -1344,6 +1344,27 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
+  - react-native-get-random-values (2.0.0):
+    - hermes-engine
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - Yoga
   - react-native-image-picker (7.2.3):
     - hermes-engine
     - RCTRequired
@@ -1808,6 +1829,8 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
+  - RNInAppBrowser (3.7.1):
+    - React-Core
   - RNKeychain (9.2.3):
     - hermes-engine
     - RCTRequired
@@ -1937,6 +1960,7 @@ DEPENDENCIES:
   - React-Mapbuffer (from `../node_modules/react-native/ReactCommon`)
   - React-microtasksnativemodule (from `../node_modules/react-native/ReactCommon/react/nativemodule/microtasks`)
   - "react-native-cameraroll (from `../node_modules/@react-native-camera-roll/camera-roll`)"
+  - react-native-get-random-values (from `../node_modules/react-native-get-random-values`)
   - react-native-image-picker (from `../node_modules/react-native-image-picker`)
   - react-native-safe-area-context (from `../node_modules/react-native-safe-area-context`)
   - React-NativeModulesApple (from `../node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios`)
@@ -1974,6 +1998,7 @@ DEPENDENCIES:
   - ReactCommon/turbomodule/core (from `../node_modules/react-native/ReactCommon`)
   - ReactNativeDependencies (from `../node_modules/react-native/third-party-podspecs/ReactNativeDependencies.podspec`)
   - "RNCAsyncStorage (from `../node_modules/@react-native-async-storage/async-storage`)"
+  - RNInAppBrowser (from `../node_modules/react-native-inappbrowser-reborn`)
   - RNKeychain (from `../node_modules/react-native-keychain`)
   - RNLocalize (from `../node_modules/react-native-localize`)
   - RNScreens (from `../node_modules/react-native-screens`)
@@ -2057,6 +2082,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native/ReactCommon/react/nativemodule/microtasks"
   react-native-cameraroll:
     :path: "../node_modules/@react-native-camera-roll/camera-roll"
+  react-native-get-random-values:
+    :path: "../node_modules/react-native-get-random-values"
   react-native-image-picker:
     :path: "../node_modules/react-native-image-picker"
   react-native-safe-area-context:
@@ -2131,6 +2158,8 @@ EXTERNAL SOURCES:
     :podspec: "../node_modules/react-native/third-party-podspecs/ReactNativeDependencies.podspec"
   RNCAsyncStorage:
     :path: "../node_modules/@react-native-async-storage/async-storage"
+  RNInAppBrowser:
+    :path: "../node_modules/react-native-inappbrowser-reborn"
   RNKeychain:
     :path: "../node_modules/react-native-keychain"
   RNLocalize:
@@ -2179,6 +2208,7 @@ SPEC CHECKSUMS:
   React-Mapbuffer: db4fdead4595291ce09d3b6fb332da3085bb7bd5
   React-microtasksnativemodule: ec679e33d41dde7d1850ca1ce62d864f970ababe
   react-native-cameraroll: 27dedd2af005aacb4bbe1c4ff9b65655bf4b00b9
+  react-native-get-random-values: bd4970c519998029bbcfec2c90b32efd59e07ad0
   react-native-image-picker: bcb1ae12a594f18e2604cc1aff0e5f4aa950afbe
   react-native-safe-area-context: 9e5bc71daf3e49d12563467aa3f38d3229eed544
   React-NativeModulesApple: 8e6a2e2e6a1959606a81a691a9584d4511a2bb7f
@@ -2216,11 +2246,12 @@ SPEC CHECKSUMS:
   ReactCommon: 8ebf17c6da0fef2671cdcc5e066e45536ad9c290
   ReactNativeDependencies: 62e57613642e453ddf5e7a629c28a77b3b1a7d99
   RNCAsyncStorage: 189d312758a651e91e1d77785f68a3a0ad417e8f
+  RNInAppBrowser: b53e6f6072c931115bc22ac9dc9510ac2cbea62d
   RNKeychain: ea0a8d2f098549aff74439095d32adb57bb75940
   RNLocalize: f58affe87ebc5d779d8c314b79bb7d348d74bf82
   RNScreens: 8c846783cda52889bbf9c69e71ff0f2ed1187743
   Yoga: c84a6dfdb732a17dd27222bde408d14cf46f8db9
 
-PODFILE CHECKSUM: ac528a3a13f56d78dd650226d83b39f24c5c1ef2
+PODFILE CHECKSUM: b3b0978a1afb6e6cfd6b08e02000c504ace13404
 
 COCOAPODS: 1.15.2

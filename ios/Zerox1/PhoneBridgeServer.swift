@@ -217,16 +217,17 @@ final class PhoneBridgeServer: NSObject {
             }
         }
 
-        // Auth check — constant-time comparison to prevent timing-based token oracle attacks.
-        // M-5: Use prefix strip instead of replacingOccurrences to avoid partial-match injection.
-        let authLine = lines.first(where: { $0.lowercased().hasPrefix("authorization:") }) ?? ""
-        let prefix = "authorization: bearer "
-        let lowerLine = authLine.lowercased()
+        // Auth check — accept X-Bridge-Token (zeroclaw) or Authorization: Bearer (legacy).
+        // Constant-time comparison to prevent timing-based token oracle attacks.
         let token: String
-        if lowerLine.hasPrefix(prefix) {
-            token = String(authLine.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
+        if let bridgeLine = lines.first(where: { $0.lowercased().hasPrefix("x-bridge-token:") }) {
+            token = String(bridgeLine.dropFirst("x-bridge-token:".count)).trimmingCharacters(in: .whitespaces)
         } else {
-            token = ""
+            let authLine = lines.first(where: { $0.lowercased().hasPrefix("authorization:") }) ?? ""
+            let prefix = "authorization: bearer "
+            token = authLine.lowercased().hasPrefix(prefix)
+                ? String(authLine.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
+                : ""
         }
         guard timingSafeEqual(token, bridgeToken) else {
             sendResponse(conn: conn, status: 401, body: #"{"error":"unauthorized"}"#)
@@ -292,27 +293,36 @@ final class PhoneBridgeServer: NSObject {
                 return
             }
             let qp = queryParams(queryString)
-            // H-4: Pagination support
             let limit = min(Int(qp["limit"] ?? "100") ?? 100, 500)
             let offset = Int(qp["offset"] ?? "0") ?? 0
             let store = CNContactStore()
-            let keys = [CNContactGivenNameKey, CNContactFamilyNameKey,
-                        CNContactPhoneNumbersKey, CNContactEmailAddressesKey] as [CNKeyDescriptor]
-            let req = CNContactFetchRequest(keysToFetch: keys)
-            var contacts: [[String: Any]] = []
-            var idx = 0
-            try? store.enumerateContacts(with: req) { contact, stop in
-                if contacts.count >= limit { stop.pointee = true; return }
-                if idx < offset { idx += 1; return }
-                contacts.append([
-                    "name": "\(contact.givenName) \(contact.familyName)".trimmingCharacters(in: .whitespaces),
-                    "phones": contact.phoneNumbers.map { $0.value.stringValue },
-                    "emails": contact.emailAddresses.map { $0.value as String },
-                ])
-                idx += 1
+            // Always call requestAccess first — on iOS 18 calling enumerateContacts
+            // without it blocks the calling thread waiting for a main-thread auth dialog,
+            // causing deadlock even when OS permission is already granted.
+            store.requestAccess(for: .contacts) { [weak self] granted, _ in
+                guard let self else { return }
+                guard granted else {
+                    self.sendJSON(conn: conn, obj: ["error": "contacts not authorized"], status: 403)
+                    return
+                }
+                let keys = [CNContactGivenNameKey, CNContactFamilyNameKey,
+                            CNContactPhoneNumbersKey, CNContactEmailAddressesKey] as [CNKeyDescriptor]
+                let req = CNContactFetchRequest(keysToFetch: keys)
+                var contacts: [[String: Any]] = []
+                var idx = 0
+                try? store.enumerateContacts(with: req) { contact, stop in
+                    if contacts.count >= limit { stop.pointee = true; return }
+                    if idx < offset { idx += 1; return }
+                    contacts.append([
+                        "name": "\(contact.givenName) \(contact.familyName)".trimmingCharacters(in: .whitespaces),
+                        "phones": contact.phoneNumbers.map { $0.value.stringValue },
+                        "emails": contact.emailAddresses.map { $0.value as String },
+                    ])
+                    idx += 1
+                }
+                self.logActivity(capability: "contacts", action: "read", outcome: "\(contacts.count) contacts")
+                self.sendJSON(conn: conn, obj: ["contacts": contacts, "count": contacts.count, "limit": limit, "offset": offset])
             }
-            logActivity(capability: "contacts", action: "read", outcome: "\(contacts.count) contacts")
-            sendJSON(conn: conn, obj: ["contacts": contacts, "count": contacts.count, "limit": limit, "offset": offset])
 
         // ── Calendar ────────────────────────────────────────────────────────
         case "/calendar":
@@ -321,42 +331,54 @@ final class PhoneBridgeServer: NSObject {
                 return
             }
             let ekStore = EKEventStore()
-            let start = Date()
-            let end = Calendar.current.date(byAdding: .day, value: 7, to: start)!
-            let pred = ekStore.predicateForEvents(withStart: start, end: end, calendars: nil)
-            let events = ekStore.events(matching: pred).prefix(50).map { ev -> [String: Any] in
-                [
+            let calRequestAccess: (@escaping (Bool, Error?) -> Void) -> Void
+            if #available(iOS 17.0, *) {
+                calRequestAccess = { h in ekStore.requestFullAccessToEvents(completion: h) }
+            } else {
+                calRequestAccess = { h in ekStore.requestAccess(to: .event, completion: h) }
+            }
+            calRequestAccess { [weak self] granted, _ in
+                guard let self else { return }
+                guard granted else {
+                    self.sendJSON(conn: conn, obj: ["error": "calendar access not granted"], status: 403)
+                    return
+                }
+                let start = Date()
+                let end = Calendar.current.date(byAdding: .day, value: 7, to: start)!
+                let pred = ekStore.predicateForEvents(withStart: start, end: end, calendars: nil)
+                let events = ekStore.events(matching: pred).prefix(50).map { ev -> [String: Any] in [
                     "title": ev.title ?? "",
                     "start": ev.startDate.timeIntervalSince1970,
                     "end": ev.endDate.timeIntervalSince1970,
                     "location": ev.location ?? "",
                     "notes": ev.notes ?? "",
-                ]
+                ]}
+                self.logActivity(capability: "calendar", action: "read", outcome: "\(events.count) events")
+                self.sendJSON(conn: conn, obj: ["events": Array(events)])
             }
-            logActivity(capability: "calendar", action: "read", outcome: "\(events.count) events")
-            sendJSON(conn: conn, obj: ["events": Array(events)])
 
         // ── Battery ─────────────────────────────────────────────────────────
         case "/battery":
-            // L-1: Capability gate
             guard _capabilities["battery"] == true else {
                 sendJSON(conn: conn, obj: ["error": "capability disabled"], status: 403)
                 return
             }
-            // L-1: 60-second cache
             if let cached = lastBatteryReading, Date().timeIntervalSince(lastBatteryReadingTime) < 60 {
                 sendJSON(conn: conn, obj: cached)
             } else {
-                UIDevice.current.isBatteryMonitoringEnabled = true
-                let level = UIDevice.current.batteryLevel
-                let charging = UIDevice.current.batteryState == .charging || UIDevice.current.batteryState == .full
-                let reading: [String: Any] = [
-                    "level": level >= 0 ? Int(level * 100) : -1,
-                    "charging": charging,
-                ]
-                lastBatteryReading = reading
-                lastBatteryReadingTime = Date()
-                sendJSON(conn: conn, obj: reading)
+                // UIDevice must be accessed on the main thread.
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    UIDevice.current.isBatteryMonitoringEnabled = true
+                    let level = UIDevice.current.batteryLevel
+                    let charging = UIDevice.current.batteryState == .charging || UIDevice.current.batteryState == .full
+                    let reading: [String: Any] = ["level": level >= 0 ? Int(level * 100) : -1, "charging": charging]
+                    DispatchQueue.global(qos: .utility).async {
+                        self.lastBatteryReading = reading
+                        self.lastBatteryReadingTime = Date()
+                        self.sendJSON(conn: conn, obj: reading)
+                    }
+                }
             }
 
         // ── Health (HealthKit) ───────────────────────────────────────────────
@@ -559,35 +581,42 @@ final class PhoneBridgeServer: NSObject {
                 let limit = min(Int(qp["limit"] ?? "100") ?? 100, 500)
                 let offset = Int(qp["offset"] ?? "0") ?? 0
                 let store = CNContactStore()
-                let keys = [CNContactGivenNameKey, CNContactFamilyNameKey,
-                            CNContactPhoneNumbersKey, CNContactEmailAddressesKey,
-                            CNContactIdentifierKey] as [CNKeyDescriptor]
-                let req = CNContactFetchRequest(keysToFetch: keys)
-                var contacts: [[String: Any]] = []
-                var idx = 0
-                try? store.enumerateContacts(with: req) { contact, stop in
-                    if contacts.count >= limit { stop.pointee = true; return }
-                    let name = "\(contact.givenName) \(contact.familyName)"
-                        .trimmingCharacters(in: .whitespaces)
-                    if !query.isEmpty {
-                        let q = query.lowercased()
-                        let matches = name.lowercased().contains(q)
-                            || contact.phoneNumbers.contains { $0.value.stringValue.contains(q) }
-                            || contact.emailAddresses.contains { ($0.value as String).lowercased().contains(q) }
-                        if !matches { return }
+                store.requestAccess(for: .contacts) { [weak self] granted, _ in
+                    guard let self else { return }
+                    guard granted else {
+                        self.sendJSON(conn: conn, obj: ["error": "contacts not authorized"], status: 403)
+                        return
                     }
-                    if idx < offset { idx += 1; return }
-                    contacts.append([
-                        "id": contact.identifier,
-                        "name": name,
-                        "phones": contact.phoneNumbers.map { $0.value.stringValue },
-                        "emails": contact.emailAddresses.map { $0.value as String },
-                    ])
-                    idx += 1
+                    let keys = [CNContactGivenNameKey, CNContactFamilyNameKey,
+                                CNContactPhoneNumbersKey, CNContactEmailAddressesKey,
+                                CNContactIdentifierKey] as [CNKeyDescriptor]
+                    let req = CNContactFetchRequest(keysToFetch: keys)
+                    var contacts: [[String: Any]] = []
+                    var idx = 0
+                    try? store.enumerateContacts(with: req) { contact, stop in
+                        if contacts.count >= limit { stop.pointee = true; return }
+                        let name = "\(contact.givenName) \(contact.familyName)"
+                            .trimmingCharacters(in: .whitespaces)
+                        if !query.isEmpty {
+                            let q = query.lowercased()
+                            let matches = name.lowercased().contains(q)
+                                || contact.phoneNumbers.contains { $0.value.stringValue.contains(q) }
+                                || contact.emailAddresses.contains { ($0.value as String).lowercased().contains(q) }
+                            if !matches { return }
+                        }
+                        if idx < offset { idx += 1; return }
+                        contacts.append([
+                            "id": contact.identifier,
+                            "name": name,
+                            "phones": contact.phoneNumbers.map { $0.value.stringValue },
+                            "emails": contact.emailAddresses.map { $0.value as String },
+                        ])
+                        idx += 1
+                    }
+                    self.logActivity(capability: "contacts", action: "read", outcome: "\(contacts.count) contacts")
+                    self.sendJSON(conn: conn, obj: ["contacts": contacts, "count": contacts.count,
+                                                   "limit": limit, "offset": offset])
                 }
-                logActivity(capability: "contacts", action: "read", outcome: "\(contacts.count) contacts")
-                sendJSON(conn: conn, obj: ["contacts": contacts, "count": contacts.count,
-                                          "limit": limit, "offset": offset])
             }
 
         case "/phone/calendar":
@@ -600,20 +629,33 @@ final class PhoneBridgeServer: NSObject {
                 let qp = queryParams(queryString)
                 let days = min(max(Int(qp["days"] ?? "7") ?? 7, 1), 90)
                 let ekStore = EKEventStore()
-                let start = Date()
-                let end = Calendar.current.date(byAdding: .day, value: days, to: start)!
-                let pred = ekStore.predicateForEvents(withStart: start, end: end, calendars: nil)
-                let events = ekStore.events(matching: pred).prefix(100).map { ev -> [String: Any] in [
-                    "id":       ev.eventIdentifier ?? "",
-                    "title":    ev.title ?? "",
-                    "start":    ev.startDate.timeIntervalSince1970,
-                    "end":      ev.endDate.timeIntervalSince1970,
-                    "location": ev.location ?? "",
-                    "notes":    ev.notes ?? "",
-                    "all_day":  ev.isAllDay,
-                ]}
-                logActivity(capability: "calendar", action: "read", outcome: "\(events.count) events")
-                sendJSON(conn: conn, obj: ["events": Array(events)])
+                let calReqAccess: (@escaping (Bool, Error?) -> Void) -> Void
+                if #available(iOS 17.0, *) {
+                    calReqAccess = { h in ekStore.requestFullAccessToEvents(completion: h) }
+                } else {
+                    calReqAccess = { h in ekStore.requestAccess(to: .event, completion: h) }
+                }
+                calReqAccess { [weak self] granted, _ in
+                    guard let self else { return }
+                    guard granted else {
+                        self.sendJSON(conn: conn, obj: ["error": "calendar access not granted"], status: 403)
+                        return
+                    }
+                    let start = Date()
+                    let end = Calendar.current.date(byAdding: .day, value: days, to: start)!
+                    let pred = ekStore.predicateForEvents(withStart: start, end: end, calendars: nil)
+                    let events = ekStore.events(matching: pred).prefix(100).map { ev -> [String: Any] in [
+                        "id":       ev.eventIdentifier ?? "",
+                        "title":    ev.title ?? "",
+                        "start":    ev.startDate.timeIntervalSince1970,
+                        "end":      ev.endDate.timeIntervalSince1970,
+                        "location": ev.location ?? "",
+                        "notes":    ev.notes ?? "",
+                        "all_day":  ev.isAllDay,
+                    ]}
+                    self.logActivity(capability: "calendar", action: "read", outcome: "\(events.count) events")
+                    self.sendJSON(conn: conn, obj: ["events": Array(events)])
+                }
             }
 
         case "/phone/battery":
@@ -623,15 +665,20 @@ final class PhoneBridgeServer: NSObject {
             if let cached = lastBatteryReading, Date().timeIntervalSince(lastBatteryReadingTime) < 60 {
                 sendJSON(conn: conn, obj: cached)
             } else {
-                UIDevice.current.isBatteryMonitoringEnabled = true
-                let level = UIDevice.current.batteryLevel
-                let charging = UIDevice.current.batteryState == .charging
-                    || UIDevice.current.batteryState == .full
-                let reading: [String: Any] = ["level": level >= 0 ? Int(level * 100) : -1,
-                                              "charging": charging]
-                lastBatteryReading = reading
-                lastBatteryReadingTime = Date()
-                sendJSON(conn: conn, obj: reading)
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    UIDevice.current.isBatteryMonitoringEnabled = true
+                    let level = UIDevice.current.batteryLevel
+                    let charging = UIDevice.current.batteryState == .charging
+                        || UIDevice.current.batteryState == .full
+                    let reading: [String: Any] = ["level": level >= 0 ? Int(level * 100) : -1,
+                                                  "charging": charging]
+                    DispatchQueue.global(qos: .utility).async {
+                        self.lastBatteryReading = reading
+                        self.lastBatteryReadingTime = Date()
+                        self.sendJSON(conn: conn, obj: reading)
+                    }
+                }
             }
 
         case "/phone/device":
@@ -764,20 +811,27 @@ final class PhoneBridgeServer: NSObject {
             guard _capabilities["notifications_read"] == true else {
                 sendJSON(conn: conn, obj: ["error": "capability disabled"], status: 403); return
             }
-            UNUserNotificationCenter.current().getPendingNotificationRequests { [weak self] requests in
+            let notifQp = queryParams(queryString)
+            let notifLimit = min(Int(notifQp["limit"] ?? "50") ?? 50, 200)
+            // Return delivered notifications (visible in Notification Center).
+            // getPendingNotificationRequests returns only future-scheduled local notifications
+            // (almost always empty) — not useful. getDeliveredNotifications returns what the
+            // user actually sees. Note: iOS only exposes notifications sent by this app.
+            // Callbacks from both APIs fire on the main queue; dispatch off it so we don't
+            // block UI and to keep response latency predictable.
+            UNUserNotificationCenter.current().getDeliveredNotifications { [weak self] notifications in
                 guard let self else { return }
-                let items = requests.prefix(50).map { req -> [String: Any] in
-                    var item: [String: Any] = ["id": req.identifier,
-                                               "title": req.content.title,
-                                               "body":  req.content.body]
-                    if let t = req.trigger as? UNTimeIntervalNotificationTrigger {
-                        item["fires_in_secs"] = t.timeInterval
-                    }
-                    return item
+                DispatchQueue.global(qos: .utility).async {
+                    let items = notifications.prefix(notifLimit).map { n -> [String: Any] in [
+                        "id":           n.request.identifier,
+                        "title":        n.request.content.title,
+                        "body":         n.request.content.body,
+                        "delivered_at": ISO8601DateFormatter().string(from: n.date),
+                    ]}
+                    self.logActivity(capability: "notifications", action: "list_delivered",
+                                     outcome: "\(items.count)")
+                    self.sendJSON(conn: conn, obj: ["notifications": Array(items), "count": items.count])
                 }
-                logActivity(capability: "notifications", action: "list_pending",
-                            outcome: "\(items.count)")
-                sendJSON(conn: conn, obj: ["notifications": Array(items), "count": items.count])
             }
 
         case "/phone/notifications/history":
@@ -788,15 +842,17 @@ final class PhoneBridgeServer: NSObject {
             let histLimit = min(Int(histQp["limit"] ?? "50") ?? 50, 200)
             UNUserNotificationCenter.current().getDeliveredNotifications { [weak self] notifications in
                 guard let self else { return }
-                let items = notifications.prefix(histLimit).map { n -> [String: Any] in [
-                    "id":           n.request.identifier,
-                    "title":        n.request.content.title,
-                    "body":         n.request.content.body,
-                    "delivered_at": ISO8601DateFormatter().string(from: n.date),
-                ]}
-                logActivity(capability: "notifications", action: "list_delivered",
-                            outcome: "\(items.count)")
-                sendJSON(conn: conn, obj: ["notifications": Array(items), "count": items.count])
+                DispatchQueue.global(qos: .utility).async {
+                    let items = notifications.prefix(histLimit).map { n -> [String: Any] in [
+                        "id":           n.request.identifier,
+                        "title":        n.request.content.title,
+                        "body":         n.request.content.body,
+                        "delivered_at": ISO8601DateFormatter().string(from: n.date),
+                    ]}
+                    self.logActivity(capability: "notifications", action: "list_delivered",
+                                     outcome: "\(items.count)")
+                    self.sendJSON(conn: conn, obj: ["notifications": Array(items), "count": items.count])
+                }
             }
 
         case "/phone/wearables/scan":
@@ -814,7 +870,7 @@ final class PhoneBridgeServer: NSObject {
                          body: #"{"error":"BLE characteristic read not supported via bridge"}"#)
 
         // ── Camera ──────────────────────────────────────────────────────────
-        case "/phone/camera":
+        case "/phone/camera", "/phone/camera/capture":
             guard method == "POST" else {
                 sendResponse(conn: conn, status: 405, body: #"{"error":"method not allowed"}"#); return
             }
@@ -827,7 +883,7 @@ final class PhoneBridgeServer: NSObject {
             capturePhoto(conn: conn, body: body)
 
         // ── Microphone ───────────────────────────────────────────────────────
-        case "/phone/microphone/record":
+        case "/phone/microphone/record", "/phone/audio/record":
             guard method == "POST" else {
                 sendResponse(conn: conn, status: 405, body: #"{"error":"method not allowed"}"#); return
             }
@@ -954,8 +1010,8 @@ final class PhoneBridgeServer: NSObject {
             sendResponse(conn: conn, status: 200, body: activityLog(limit: logLimit))
 
         default:
-            // Dynamic PATCH routes for contacts and calendar updates
-            if path.hasPrefix("/phone/contacts/") && method == "PATCH" {
+            // Dynamic PATCH/PUT routes for contacts and calendar updates
+            if path.hasPrefix("/phone/contacts/") && (method == "PATCH" || method == "PUT") {
                 guard _capabilities["contacts"] == true else {
                     sendJSON(conn: conn, obj: ["error": "capability disabled"], status: 403)
                     return
@@ -963,7 +1019,7 @@ final class PhoneBridgeServer: NSObject {
                 let contactId = String(path.dropFirst("/phone/contacts/".count))
                     .removingPercentEncoding ?? ""
                 updateContact(conn: conn, contactId: contactId, body: body)
-            } else if path.hasPrefix("/phone/calendar/") && method == "PATCH" {
+            } else if path.hasPrefix("/phone/calendar/") && (method == "PATCH" || method == "PUT") {
                 guard _capabilities["calendar"] == true else {
                     sendJSON(conn: conn, obj: ["error": "capability disabled"], status: 403)
                     return

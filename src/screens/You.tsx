@@ -12,19 +12,26 @@ import { useNode } from '../hooks/useNode';
 import { NodeModule } from '../native/NodeModule';
 import { useAgentBrain, saveLlmApiKey, saveFalApiKey, saveReplicateApiKey, ALL_CAPABILITIES } from '../hooks/useAgentBrain';
 import {
-  useHotKeyBalance, useTaskLog, sweepSol,
+  useHotKeyBalance, useHotWalletRegistration, useIdentity, useTaskLog, sweepSol,
   useSkills, skillInstallUrl, skillRemove, useSolPrice, useDexPrices,
+  AGGREGATOR_API,
   type Skill,
 } from '../hooks/useNodeApi';
 import { useSignOut } from '../../App';
 import { DEFAULT_AGENT_ICON_URI } from '../assets/defaultAgentIcon';
 import { setLanguage } from '../i18n';
+import {
+  buildConnectUrl, buildSignMessageUrl,
+  setPendingConnectCb, setPendingSignMessageCb,
+  handleIncomingUrl,
+} from '../utils/phantomDeepLink';
 import { use01PLGate, PRESENCE_THRESHOLD, PILOT_TOKEN_MINT } from '../hooks/use01PLGate';
 import { useTheme, PILOT_ACCENT } from '../theme/ThemeContext';
 import { useLayout } from '../hooks/useLayout';
 import { useRegionGate } from '../hooks/useRegionGate';
 
 const COLD_WALLET_KEY = 'zerox1:cold_wallet';
+const COLD_WALLET_REGISTERED_KEY = 'zerox1:cold_wallet_registered';
 const PRESENCE_ENABLED_KEY = 'zerox1:presence_enabled';
 const EMERGENCY_CONTACTS_KEY = 'zerox1:emergency_contacts';
 const SAFETY_ENABLED_KEY = 'zerox1:safety_enabled';
@@ -103,105 +110,84 @@ export default function YouScreen() {
 function WalletTab() {
   const { t } = useTranslation();
   const { tokens, solanaAddress, loading } = useHotKeyBalance();
+  useHotWalletRegistration();
+  const identity = useIdentity();
   const { entries: taskEntries } = useTaskLog();
   const [coldWallet, setColdWallet] = useState<string | null>(null);
+  const [coldWalletRegistered, setColdWalletRegistered] = useState<string | null>(null);
   const [historyVisible, setHistoryVisible] = useState(false);
   const [sweeping, setSweeping] = useState(false);
   const [linkWalletVisible, setLinkWalletVisible] = useState(false);
-  const [walletInput, setWalletInput] = useState('');
 
   useEffect(() => {
-    AsyncStorage.getItem(COLD_WALLET_KEY).then(v => setColdWallet(v));
+    Promise.all([
+      AsyncStorage.getItem(COLD_WALLET_KEY),
+      AsyncStorage.getItem(COLD_WALLET_REGISTERED_KEY),
+    ]).then(([wallet, registered]) => {
+      setColdWallet(wallet);
+      setColdWalletRegistered(registered);
+    });
   }, []);
 
+  // Direct Phantom deeplink — app↔app, no browser hop.
+  // Step 1: connect (get pubKey + session).
+  // Step 2: signMessage (wallet signs agent_id bytes to prove ownership).
+  // Step 3: register with aggregator, then save locally.
+  const handleOpenPhantom = useCallback(() => {
+    const agentIdHex = identity?.agent_id ?? null;
+    const connectUrl = buildConnectUrl('phantom-connect');
 
+    const connectSub = Linking.addEventListener('url', ({ url: incoming }: { url: string }) => {
+      if (!incoming.includes('phantom-connect')) return;
+      connectSub.remove();
+      handleIncomingUrl(incoming);
+    });
 
-  // Two-step wallet linking: 'address' → enter address, 'verify' → sign challenge
-  const [linkStep, setLinkStep] = useState<'address' | 'verify'>('address');
-  const [verifyChallenge, setVerifyChallenge] = useState('');
-  const [sigInput, setSigInput] = useState('');
-  const [verifying, setVerifying] = useState(false);
-  const [copiedChallenge, setCopiedChallenge] = useState(false);
+    setPendingConnectCb(async (pubKey) => {
+      if (!pubKey) return;
 
-  const handleNextStep = useCallback(() => {
-    const addr = walletInput.trim();
-    if (!addr) return;
-    const { PublicKey } = require('@solana/web3.js');
-    try { new PublicKey(addr); } catch {
-      Alert.alert('Invalid address', 'Please enter a valid Solana wallet address.');
-      return;
-    }
-    const nonce = Array.from({ length: 8 }, () =>
-      Math.floor(Math.random() * 256).toString(16).padStart(2, '0'),
-    ).join('');
-    setVerifyChallenge(`01pilot wallet verification: ${nonce}`);
-    setSigInput('');
-    setLinkStep('verify');
-  }, [walletInput]);
-
-  const handleCopyChallenge = useCallback(() => {
-    require('react-native').Clipboard.setString(verifyChallenge);
-    setCopiedChallenge(true);
-    setTimeout(() => setCopiedChallenge(false), 2000);
-  }, [verifyChallenge]);
-
-  const handleVerifyAndLink = useCallback(async () => {
-    if (!walletInput.trim() || !sigInput.trim() || !verifyChallenge) return;
-    setVerifying(true);
-    try {
-      const { ed25519 } = require('@noble/curves/ed25519');
-      const bs58 = require('bs58');
-      const pubKeyBytes: Uint8Array = bs58.decode(walletInput.trim());
-      const sigBytes: Uint8Array = bs58.decode(sigInput.trim());
-      const msgBytes = new TextEncoder().encode(verifyChallenge);
-      const valid = ed25519.verify(sigBytes, msgBytes, pubKeyBytes);
-      if (!valid) {
-        Alert.alert(t('you.verifyFailed'), t('you.verifyFailedBody'));
-        return;
-      }
-      await AsyncStorage.setItem(COLD_WALLET_KEY, walletInput.trim());
-      setColdWallet(walletInput.trim());
-      setWalletInput('');
-      setSigInput('');
-      setVerifyChallenge('');
-      setLinkStep('address');
+      // Save the wallet address immediately so the UI updates.
+      await AsyncStorage.setItem(COLD_WALLET_KEY, pubKey);
+      setColdWallet(pubKey);
       setLinkWalletVisible(false);
-    } catch (e: any) {
-      Alert.alert(t('you.verifyFailed'), e?.message ?? t('you.verifyFailedBody'));
-    } finally {
-      setVerifying(false);
-    }
-  }, [walletInput, sigInput, verifyChallenge, t]);
 
-  const [phantomConnecting, setPhantomConnecting] = useState(false);
+      // Step 2: if we have the agent_id, ask Phantom to sign it to prove ownership.
+      if (!agentIdHex) return;
+      try {
+        const agentIdBytes = Uint8Array.from(
+          (agentIdHex.match(/.{1,2}/g) ?? []).map((b: string) => parseInt(b, 16))
+        );
+        const signUrl = buildSignMessageUrl(agentIdBytes, 'phantom-sign-message');
 
-  const handleOpenPhantom = useCallback(async () => {
-    setPhantomConnecting(true);
-    try {
-      const { transact } = require('@solana-mobile/mobile-wallet-adapter-protocol-web3js');
-      // MWA authorize requires the user to physically unlock their wallet — that IS ownership proof.
-      // Save directly; no additional challenge-signing needed for MWA path.
-      const address: string = await transact(async (wallet: any) => {
-        const { accounts } = await wallet.authorize({
-          cluster: 'mainnet-beta',
-          identity: { name: '01 Pilot', uri: 'https://0x01.world' },
+        const signSub = Linking.addEventListener('url', ({ url: incoming }: { url: string }) => {
+          if (!incoming.includes('phantom-sign-message')) return;
+          signSub.remove();
+          handleIncomingUrl(incoming);
         });
-        const { PublicKey } = require('@solana/web3.js');
-        const addrBytes = new Uint8Array([...atob(accounts[0].address)].map(c => c.charCodeAt(0)));
-        return new PublicKey(addrBytes).toBase58();
-      });
-      await AsyncStorage.setItem(COLD_WALLET_KEY, address);
-      setColdWallet(address);
-      setLinkWalletVisible(false);
-    } catch (e: any) {
-      const msg: string = e?.message ?? '';
-      if (msg.includes('No wallet') || msg.includes('not found') || msg.includes('SolanaMobileWalletAdapterWalletNotInstalledError')) {
-        Alert.alert(t('you.phantomNotInstalled'), t('you.phantomInstallHint'));
-      }
-    } finally {
-      setPhantomConnecting(false);
-    }
-  }, [t]);
+
+        setPendingSignMessageCb(async (sigBytes) => {
+          if (!sigBytes) return;
+          try {
+            // Convert signature bytes to base64.
+            const sigB64 = btoa(String.fromCharCode(...sigBytes));
+            const res = await fetch(`${AGGREGATOR_API}/wallets/register`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ agent_id: agentIdHex, wallet_address: pubKey, signature: sigB64 }),
+            });
+            if (res.ok) {
+              await AsyncStorage.setItem(COLD_WALLET_REGISTERED_KEY, pubKey).catch(() => {});
+              setColdWalletRegistered(pubKey);
+            }
+          } catch { /* non-fatal */ }
+        });
+
+        Linking.openURL(signUrl);
+      } catch { /* non-fatal — Phantom session may not be ready */ }
+    });
+
+    Linking.openURL(connectUrl);
+  }, [identity?.agent_id]);
 
   const handleUnlinkWallet = useCallback(() => {
     Alert.alert(t('you.unlinkColdWallet'), t('you.unlinkConfirm'), [
@@ -337,7 +323,9 @@ function WalletTab() {
         {/* Your Personal Wallet */}
         <TouchableOpacity
           style={s.addressRow}
-          onPress={coldWallet ? handleUnlinkWallet : () => setLinkWalletVisible(true)}
+          onPress={coldWallet
+            ? (coldWalletRegistered === coldWallet ? handleUnlinkWallet : () => setLinkWalletVisible(true))
+            : () => setLinkWalletVisible(true)}
         >
           <View>
             <Text style={s.addressLabel}>{t('you.personalWalletTitle')}</Text>
@@ -345,10 +333,13 @@ function WalletTab() {
           </View>
           {coldWallet ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <View style={s.greenDot} />
+              <View style={coldWalletRegistered === coldWallet ? s.greenDot : s.amberDot} />
               <Text style={s.addressValue}>
                 {`${coldWallet.slice(0, 4)}…${coldWallet.slice(-4)}`}
               </Text>
+              {coldWalletRegistered !== coldWallet && (
+                <Text style={{ fontSize: 10, color: '#d97706' }}>verify</Text>
+              )}
             </View>
           ) : (
             <Text style={[s.addressValueMuted, { color: '#374151' }]}>{t('you.linkWallet')}</Text>
@@ -406,116 +397,25 @@ function WalletTab() {
         <PresenceCard hotWallet={solanaAddress ?? null} coldWallet={coldWallet} onLinkWallet={() => setLinkWalletVisible(true)} />
       )}
 
-      {/* Link wallet modal */}
-      <Modal visible={linkWalletVisible} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => { setLinkWalletVisible(false); setLinkStep('address'); setWalletInput(''); setSigInput(''); }}>
+      {/* Link wallet modal — opens connect.html in browser; address returned via deeplink */}
+      <Modal visible={linkWalletVisible} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setLinkWalletVisible(false)}>
         <View style={s.modalRoot}>
           <View style={s.modalHeader}>
-            <Text style={s.modalTitle}>
-              {linkStep === 'address' ? t('you.linkColdWallet') : t('you.verifyOwnershipTitle')}
-            </Text>
-            <TouchableOpacity onPress={() => { setLinkWalletVisible(false); setLinkStep('address'); setWalletInput(''); setSigInput(''); }}>
+            <Text style={s.modalTitle}>{t('you.linkColdWallet')}</Text>
+            <TouchableOpacity onPress={() => setLinkWalletVisible(false)}>
               <Text style={s.modalClose}>✕</Text>
             </TouchableOpacity>
           </View>
-
-          {linkStep === 'address' ? (
-            <View style={{ padding: 16, gap: 14 }}>
-              <Text style={s.settingsHint}>{t('you.coldWalletHint')}</Text>
-
-              {/* Wallet app option — MWA authorize proves ownership; save directly */}
-              {Platform.OS === 'android' && (
-                <>
-                  <TouchableOpacity
-                    style={[s.walletOptionBtn, phantomConnecting && s.btnDisabled]}
-                    onPress={handleOpenPhantom}
-                    disabled={phantomConnecting}
-                  >
-                    <View>
-                      <Text style={s.walletOptionLabel}>
-                        {phantomConnecting ? t('you.connecting') : t('you.openPhantom')}
-                      </Text>
-                      <Text style={s.settingsHint}>{t('you.connectHint')}</Text>
-                    </View>
-                    <Text style={s.settingsValue}>{phantomConnecting ? '…' : '↗'}</Text>
-                  </TouchableOpacity>
-
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <View style={{ flex: 1, height: 1, backgroundColor: '#f3f4f6' }} />
-                    <Text style={{ fontSize: 9, color: '#9ca3af' }}>OR</Text>
-                    <View style={{ flex: 1, height: 1, backgroundColor: '#f3f4f6' }} />
-                  </View>
-                </>
-              )}
-
-              {/* Address input */}
-              <View style={{ gap: 8 }}>
-                <Text style={s.settingsLabel}>{t('you.pasteAddress')}</Text>
-                <TextInput
-                  style={s.advancedInput}
-                  value={walletInput}
-                  onChangeText={setWalletInput}
-                  placeholder={t('you.walletInputPlaceholder')}
-                  placeholderTextColor="#d1d5db"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
+          <View style={{ padding: 16, gap: 12 }}>
+            <Text style={s.settingsHint}>{t('you.coldWalletHint')}</Text>
+            <TouchableOpacity style={s.walletOptionBtn} onPress={handleOpenPhantom}>
+              <View>
+                <Text style={s.walletOptionLabel}>Phantom</Text>
+                <Text style={s.settingsHint}>{t('you.connectHint')}</Text>
               </View>
-
-              <TouchableOpacity
-                style={[s.saveBtn, !walletInput.trim() && s.btnDisabled]}
-                onPress={handleNextStep}
-                disabled={!walletInput.trim()}
-              >
-                <Text style={s.saveBtnText}>{t('you.nextBtn')}</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <View style={{ padding: 16, gap: 14 }}>
-              <Text style={s.settingsHint}>{t('you.verifyOwnershipHint')}</Text>
-
-              {/* Challenge box */}
-              <View style={{ backgroundColor: '#f9fafb', borderRadius: 8, padding: 12, gap: 8 }}>
-                <Text style={{ fontSize: 11, color: '#6b7280', fontFamily: 'monospace' }} selectable>
-                  {verifyChallenge}
-                </Text>
-                <TouchableOpacity onPress={handleCopyChallenge}>
-                  <Text style={{ fontSize: 12, color: copiedChallenge ? '#10b981' : '#6366f1' }}>
-                    {copiedChallenge ? t('you.copied') : t('you.copyChallenge')}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Signature input */}
-              <View style={{ gap: 8 }}>
-                <Text style={s.settingsLabel}>Signature</Text>
-                <TextInput
-                  style={s.advancedInput}
-                  value={sigInput}
-                  onChangeText={setSigInput}
-                  placeholder={t('you.signaturePlaceholder')}
-                  placeholderTextColor="#d1d5db"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
-              </View>
-
-              <TouchableOpacity
-                style={[s.saveBtn, (!sigInput.trim() || verifying) && s.btnDisabled]}
-                onPress={handleVerifyAndLink}
-                disabled={!sigInput.trim() || verifying}
-              >
-                <Text style={s.saveBtnText}>
-                  {verifying ? t('you.verifying') : t('you.verifyAndLink')}
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity onPress={() => { setLinkStep('address'); setSigInput(''); }}>
-                <Text style={{ fontSize: 12, color: '#9ca3af', textAlign: 'center' }}>
-                  {t('you.backToAddress')}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          )}
+              <Text style={s.settingsValue}>↗</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </Modal>
 
@@ -1237,6 +1137,7 @@ const SIGN_OUT_KEYS = [
   'zerox1:hosted_token',
   'zerox1:hosted_agent_id',
   'zerox1:cold_wallet',
+  'zerox1:cold_wallet_registered',
   'zerox1:task_log',
 ];
 
@@ -1429,6 +1330,7 @@ function AdvancedTab() {
         [EMERGENCY_CONTACTS_KEY, JSON.stringify(filled)],
       ]);
       await NodeModule.saveEmergencyContacts(JSON.stringify(filled));
+      await NodeModule.setSafetyEnabled(safetyEnabled);
     } catch (e: any) {
       Alert.alert('Error', e?.message ?? 'Failed to save');
     } finally {
@@ -1697,7 +1599,6 @@ const CAP_GROUPS_ANDROID: CapDef[] = [
 ];
 
 const CAP_GROUPS_IOS: CapDef[] = [
-  { label: 'Notifications',     hint: 'Deliver & categorise notifications',           caps: ['notifications_read'],                     permKeys: ['notifications_read'] },
   { label: 'Contacts',          hint: 'Read & write address book',                    caps: ['contacts'],                               permKeys: ['contacts'] },
   { label: 'Location',          hint: 'GPS coordinates for context',                  caps: ['location'],                               permKeys: ['location'] },
   { label: 'Calendar',          hint: 'Read & create calendar events',                caps: ['calendar'],                               permKeys: ['calendar'] },
@@ -1706,11 +1607,9 @@ const CAP_GROUPS_IOS: CapDef[] = [
   { label: 'Photos',            hint: 'Access photo library',                         caps: ['media'],                                  permKeys: ['photos'] },
   { label: 'Motion & activity', hint: 'Accelerometer, gyro, step detection',          caps: ['motion'],                                 permKeys: ['motion'] },
   { label: 'Health data',       hint: 'Steps, heart rate, sleep, workouts via HealthKit', caps: ['health'],                             permKeys: ['health'] },
-  { label: 'Clinical records',  hint: 'Read medical records from Health app',         caps: ['health','clinical_records'],              permKeys: ['health'] },
   { label: 'Barometer',         hint: 'Atmospheric pressure for environment context', caps: ['motion'],                                 permKeys: [] },
   { label: 'Wearables (BLE)',   hint: 'Connect to Bluetooth health devices',          caps: ['wearables'],                              permKeys: ['bluetooth'] },
   { label: 'Speech synthesis',  hint: 'Speak responses aloud via TTS',               caps: ['tts'],                                    permKeys: [] },
-  { label: 'Live Activities',   hint: 'Show agent status on Lock Screen & Dynamic Island', caps: ['live_activity'],                     permKeys: [] },
 ];
 
 const CAP_GROUPS: CapDef[] = Platform.OS === 'ios' ? CAP_GROUPS_IOS : CAP_GROUPS_ANDROID;
@@ -1723,6 +1622,19 @@ function AboutSection() {
   const [downloading, setDownloading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [updateInfo, setUpdateInfo] = useState<import('../native/NodeModule').UpdateInfo | null>(null);
+  const [sharingLogs, setSharingLogs] = useState(false);
+
+  const handleShareLogs = useCallback(async () => {
+    setSharingLogs(true);
+    try {
+      const path = await NodeModule.getLogFilePath();
+      await Share.share({ url: `file://${path}`, title: '01 Pilot Diagnostic Logs' });
+    } catch (e: any) {
+      Alert.alert('Logs unavailable', e?.message ?? 'Could not find log file. Start the node first.');
+    } finally {
+      setSharingLogs(false);
+    }
+  }, []);
 
   const handleCheckUpdate = useCallback(async () => {
     setChecking(true);
@@ -1797,6 +1709,16 @@ function AboutSection() {
           <Text style={s.settingsLabel}>{t('you.checkForUpdate')}</Text>
           <Text style={[s.settingsValue, checking && { color: '#9ca3af' }]}>{checking ? 'Checking…' : '↻'}</Text>
         </TouchableOpacity>
+      )}
+
+      {Platform.OS === 'ios' && (
+        <>
+          <View style={s.settingsCardDivider} />
+          <TouchableOpacity style={s.settingsRow} onPress={handleShareLogs} disabled={sharingLogs}>
+            <Text style={s.settingsLabel}>Share Diagnostic Logs</Text>
+            <Text style={[s.settingsValue, sharingLogs && { color: '#9ca3af' }]}>{sharingLogs ? '…' : '↑'}</Text>
+          </TouchableOpacity>
+        </>
       )}
     </View>
   );
@@ -2194,6 +2116,7 @@ const s = StyleSheet.create({
   addressValue: { fontSize: 9, color: '#374151', fontFamily: 'monospace' },
   addressValueMuted: { fontSize: 9, color: '#9ca3af' },
   greenDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#22c55e' },
+  amberDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#d97706' },
   walletDescText: { fontSize: 11, color: '#9ca3af', marginTop: 2 },
 
   walletActions: { flexDirection: 'row', gap: 6, paddingHorizontal: 16, marginBottom: 4 },

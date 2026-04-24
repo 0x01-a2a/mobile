@@ -221,6 +221,14 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
 extension AppDelegate {
 
     /// Store the APNs device token so the aggregator can send wake pushes.
+    // Forward deep-link URLs (e.g. zerox1://phantom-connect?...) to React Native's
+    // Linking module so JS listeners receive them when returning from Phantom.
+    func application(_ application: UIApplication,
+                     open url: URL,
+                     options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
+        return RCTLinkingManager.application(application, open: url, options: options)
+    }
+
     func application(_ application: UIApplication,
                      didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         let hex = deviceToken.map { String(format: "%02x", $0) }.joined()

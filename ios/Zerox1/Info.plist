@@ -69,6 +69,8 @@
 	<string>ZeroClaw can read your contacts to help with messaging and lookup tasks.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>ZeroClaw reads steps, heart rate, and activity data to help schedule tasks and adapt to your physical state.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>ZeroClaw can log workouts and activity data when you ask it to.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Required for mesh node communication on the local network.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>

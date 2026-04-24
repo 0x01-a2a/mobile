@@ -4,14 +4,11 @@
  * Steps:
  *   0 — Welcome
  *   1 — Agent name & avatar
- *   2 — LLM provider selection
- *   3 — API key entry
- *   5 — Token choice (optional token launch)
- *   6 — Launch (node start + optional token + key backup)
+ *   2 — Token choice (optional token launch)
+ *   3 — Launch (node start + optional token + key backup)
  */
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLayout } from '../hooks/useLayout';
-import { useRegionGate } from '../hooks/useRegionGate';
 import { useTranslation } from 'react-i18next';
 import React, { useState, useEffect } from 'react';
 import {
@@ -36,10 +33,6 @@ import { DEFAULT_AGENT_ICON_B64, DEFAULT_AGENT_ICON_URI } from '../assets/defaul
 import {
   AgentBrainConfig,
   ALL_CAPABILITIES,
-  LlmProvider,
-  ProviderInfo,
-  PROVIDERS,
-  saveLlmApiKey,
 } from '../hooks/useAgentBrain';
 import { AGGREGATOR_API } from '../hooks/useNodeApi';
 import { useTheme } from '../theme/ThemeContext';
@@ -357,33 +350,37 @@ function WelcomeStep({
         </View>
       )}
 
-      {/* Primary: prove ownership via Phantom MWA */}
-      <TouchableOpacity
-        onPress={handleConnectPhantom}
-        disabled={!termsOk || mwaLoading}
-        style={{
-          backgroundColor: termsOk ? '#7c3aed' : '#e5e7eb',
-          borderRadius: 10,
-          paddingVertical: 14,
-          alignItems: 'center',
-          marginBottom: 10,
-        }}>
-        <Text style={{ fontSize: 15, fontWeight: '700', color: termsOk ? '#fff' : '#9ca3af' }}>
-          {mwaLoading ? 'Opening Phantom…' : walletLinked ? 'Reconnect Phantom →' : 'Connect Phantom →'}
-        </Text>
-      </TouchableOpacity>
+      {/* Connect Phantom — hidden once wallet is already linked */}
+      {!walletLinked && (
+        <TouchableOpacity
+          onPress={handleConnectPhantom}
+          disabled={!termsOk || mwaLoading}
+          style={{
+            backgroundColor: termsOk ? '#7c3aed' : '#e5e7eb',
+            borderRadius: 10,
+            paddingVertical: 14,
+            alignItems: 'center',
+            marginBottom: 10,
+          }}>
+          <Text style={{ fontSize: 15, fontWeight: '700', color: termsOk ? '#fff' : '#9ca3af' }}>
+            {mwaLoading ? 'Opening Phantom…' : 'Connect Phantom →'}
+          </Text>
+        </TouchableOpacity>
+      )}
 
       {/* Paste fallback — collapsed by default */}
-      <TouchableOpacity onPress={() => setShowPaste(v => !v)} style={{ alignItems: 'center', marginBottom: 8 }}>
-        <Text style={{ fontSize: 12, color: '#6b7280', textDecorationLine: 'underline' }}>
-          {showPaste ? 'Hide manual entry' : 'Paste address manually instead'}
-        </Text>
-      </TouchableOpacity>
+      {!walletLinked && (
+        <TouchableOpacity onPress={() => setShowPaste(v => !v)} style={{ alignItems: 'center', marginBottom: 8 }}>
+          <Text style={{ fontSize: 12, color: '#6b7280', textDecorationLine: 'underline' }}>
+            {showPaste ? 'Hide manual entry' : 'Paste address manually instead'}
+          </Text>
+        </TouchableOpacity>
+      )}
 
-      {showPaste && (
+      {showPaste && !walletLinked && (
         <View style={{ marginBottom: 16 }}>
           <TextInput
-            style={[s.textInput, walletLinked && { borderColor: C.greenBorder }]}
+            style={s.textInput}
             value={phantomWallet}
             onChangeText={onChangePhantomWallet}
             placeholder={t('onboarding.ownerWalletPlaceholder')}
@@ -392,11 +389,6 @@ function WelcomeStep({
             autoCorrect={false}
             returnKeyType="done"
           />
-          {walletLinked && (
-            <Text style={[s.inputHint, { color: C.green }]}>
-              {t('onboarding.ownerWalletEnabled')}
-            </Text>
-          )}
           <Text style={{ fontSize: 10, color: '#f59e0b', marginTop: 4 }}>
             Pasting an address does not prove ownership. Connect Phantom for cryptographic proof.
           </Text>
@@ -404,7 +396,7 @@ function WelcomeStep({
       )}
 
       <PrimaryBtn
-        label={walletLinked ? t('onboarding.setupAgent') : t('onboarding.setupAgent')}
+        label={walletLinked ? 'Continue →' : t('onboarding.setupAgent')}
         onPress={termsOk ? onEnable : () => Alert.alert('Agreement required', 'Please tick both boxes to continue.')}
         disabled={!termsOk}
       />
@@ -439,7 +431,7 @@ function NameStep({
 }) {
   const { t } = useTranslation();
   return (
-    <StepShell step={1}>
+    <StepShell step={1} total={3}>
       <BackBtn onPress={onBack} />
       <Heading label={t('onboarding.nameYourAgent')} />
       <Sub>{t('onboarding.nameDesc')}</Sub>
@@ -487,184 +479,13 @@ function NameStep({
         }}
         disabled={agentName.trim().length < 2}
       />
-      <GhostBtn label={t('onboarding.skip')} onPress={onSkip} />
+      <GhostBtn label="Skip, continue without a name" onPress={onSkip} />
     </StepShell>
   );
 }
 
 // ============================================================================
-// Step 2 — Provider selection
-// ============================================================================
-
-function ProviderStep({
-  provider,
-  customModel,
-  onSelect,
-  onChangeModel,
-  onBack,
-  onNext,
-}: {
-  provider: LlmProvider;
-  customModel: string;
-  onSelect: (p: LlmProvider) => void;
-  onChangeModel: (v: string) => void;
-  onBack: () => void;
-  onNext: () => void;
-}) {
-  const { t } = useTranslation();
-  const { isTablet, isWide, width: screenWidth } = useLayout();
-  const providerInfo = PROVIDERS.find(p => p.key === provider)!;
-  const cardWidth = isWide ? '30%' : isTablet ? '47%' : screenWidth < 360 ? '100%' : '47%';
-
-  return (
-    <StepShell step={2}>
-      <BackBtn onPress={onBack} />
-      <Heading label={t('onboarding.chooseLlm')} />
-      <Sub>
-        Your agent uses a fast model for decisions. All inference goes directly
-        from your device to the provider — not through 01 servers.
-      </Sub>
-      <Text style={{ fontSize: 12, color: '#6b7280', marginTop: -20, marginBottom: 16 }}>
-        Pick your AI engine — powers your agent's reasoning. You can change this anytime.
-      </Text>
-
-      <View style={s.providerGrid}>
-        {PROVIDERS.map((p: ProviderInfo) => (
-          <TouchableOpacity
-            key={p.key}
-            style={[s.providerCard, { width: cardWidth as any }, provider === p.key && s.providerCardActive]}
-            onPress={() => onSelect(p.key)}
-            activeOpacity={0.8}
-          >
-            <Text style={[s.providerLabel, provider === p.key && s.providerLabelActive]}>
-              {p.label}
-            </Text>
-            <Text style={s.providerModel}>{p.model}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      <Text style={s.inputLabel}>MODEL OVERRIDE (optional)</Text>
-      <TextInput
-        style={[s.textInput, { marginBottom: 6 }]}
-        value={customModel}
-        onChangeText={onChangeModel}
-        placeholder={providerInfo.model}
-        placeholderTextColor={C.hint}
-        autoCapitalize="none"
-        autoCorrect={false}
-        spellCheck={false}
-      />
-      <Text style={s.inputHint}>Get a key at {providerInfo.hint}</Text>
-
-      <PrimaryBtn label={t('onboarding.continueBtn')} onPress={onNext} />
-    </StepShell>
-  );
-}
-
-// ============================================================================
-// Step 3 — API key
-// ============================================================================
-
-function KeyStep({
-  provider,
-  apiKey,
-  customBaseUrl,
-  customModel,
-  onChangeKey,
-  onChangeUrl,
-  onChangeModel,
-  onBack,
-  onNext,
-  saving,
-}: {
-  provider: LlmProvider;
-  apiKey: string;
-  customBaseUrl: string;
-  customModel: string;
-  onChangeKey: (v: string) => void;
-  onChangeUrl: (v: string) => void;
-  onChangeModel: (v: string) => void;
-  onBack: () => void;
-  onNext: () => void;
-  saving?: boolean;
-}) {
-  const { t } = useTranslation();
-  const providerInfo = PROVIDERS.find(p => p.key === provider)!;
-
-  const handleNext = () => {
-    if (!apiKey.trim()) {
-      Alert.alert(t('onboarding.apiKeyRequired'), t('onboarding.apiKeyRequiredBody'));
-      return;
-    }
-    onNext();
-  };
-
-  return (
-    <StepShell step={3}>
-      <BackBtn onPress={onBack} />
-      <Heading label={`${providerInfo.label} API key`} />
-      <Sub>
-        Stored in your device keychain — hardware-protected. Never uploaded to
-        01 servers.
-      </Sub>
-
-      <Text style={s.inputLabel}>{t('onboarding.apiKeyLabel')}</Text>
-      <TextInput
-        style={[s.textInput, { fontFamily: 'monospace', fontSize: 13 }]}
-        value={apiKey}
-        onChangeText={onChangeKey}
-        placeholder="sk-..."
-        placeholderTextColor={C.hint}
-        secureTextEntry
-        autoCapitalize="none"
-        autoCorrect={false}
-        spellCheck={false}
-      />
-      <Text style={{ fontSize: 11, color: '#6b7280', marginBottom: 12, marginTop: -4 }}>
-        🔒 Stored securely on your device. Never shared.
-      </Text>
-
-      {provider === 'custom' && (
-        <>
-          <Text style={[s.inputLabel, { marginTop: 12 }]}>{t('settings.baseUrl')}</Text>
-          <TextInput
-            style={s.textInput}
-            value={customBaseUrl}
-            onChangeText={onChangeUrl}
-            placeholder={t('settings.baseUrlPlaceholder')}
-            placeholderTextColor={C.hint}
-            autoCapitalize="none"
-            autoCorrect={false}
-            spellCheck={false}
-          />
-          <Text style={[s.inputLabel, { marginTop: 12 }]}>{t('settings.model')}</Text>
-          <TextInput
-            style={s.textInput}
-            value={customModel}
-            onChangeText={onChangeModel}
-            placeholder={t('settings.modelPlaceholder')}
-            placeholderTextColor={C.hint}
-            autoCapitalize="none"
-            autoCorrect={false}
-            spellCheck={false}
-          />
-        </>
-      )}
-
-      <Text style={s.inputHint}>Get yours at {providerInfo.hint}</Text>
-
-      <PrimaryBtn
-        label={saving ? 'Setting up…' : 'Finish setup →'}
-        onPress={handleNext}
-        disabled={!apiKey.trim() || saving}
-      />
-    </StepShell>
-  );
-}
-
-// ============================================================================
-// Step 5 — Token choice
+// Step 2 — Token choice
 // ============================================================================
 
 function TokenChoiceStep({
@@ -811,7 +632,7 @@ function TokenChoiceStep({
   const codeStatusIcon = codeChecking ? '…' : codeValid === true ? '✓' : codeValid === false ? '✗' : '';
 
   return (
-    <StepShell step={4} total={4}>
+    <StepShell step={2} total={3}>
       <BackBtn onPress={onBack} />
       <Heading label="Launch your agent token?" />
       <Sub>
@@ -861,6 +682,22 @@ function TokenChoiceStep({
         </View>
       )}
 
+      <View style={{
+        backgroundColor: '#eff6ff',
+        borderWidth: 1,
+        borderColor: '#bfdbfe',
+        borderRadius: 10,
+        padding: 12,
+        marginBottom: 20,
+      }}>
+        <Text style={{ fontSize: 9, color: '#9ca3af', letterSpacing: 0.5, marginBottom: 6 }}>
+          AI MODEL
+        </Text>
+        <Text style={{ fontSize: 12, color: '#374151', lineHeight: 18 }}>
+          Your agent runs on <Text style={{ fontWeight: '600' }}>Gemini 3 Flash</Text>, provided free by the 01 network. No API key needed. Hold 5,000 $01PL to unlock unlimited daily usage.
+        </Text>
+      </View>
+
       <View style={{ gap: 10, marginBottom: 28 }}>
         {[
           { icon: '◈', title: 'Economy utility', body: 'Requesters buy your token to signal hiring intent. Token price reflects your reputation and demand. Trading fees go straight to your wallet.' },
@@ -877,8 +714,13 @@ function TokenChoiceStep({
         ))}
       </View>
 
+      {gated && !canLaunchFree && (
+        <Text style={{ fontSize: 12, color: '#6b7280', textAlign: 'center', marginBottom: 10 }}>
+          Enter a valid gift code above to launch for free.
+        </Text>
+      )}
       <PrimaryBtn
-        label={canLaunchFree ? 'Launch my token →' : 'Launch my token →'}
+        label="Launch my token →"
         onPress={() => canLaunchFree ? onLaunch(gated ? giftCode.trim() : undefined) : undefined}
         disabled={!canLaunchFree}
       />
@@ -901,7 +743,7 @@ function TokenChoiceStep({
         </TouchableOpacity>
       )}
 
-      <GhostBtn label="Skip — I'll launch later" onPress={onSkip} />
+      <GhostBtn label="Skip, launch later from settings" onPress={onSkip} />
     </StepShell>
   );
 }
@@ -920,19 +762,10 @@ export function OnboardingScreen({
   const { colors } = useTheme();
   const { isTablet, isWide, contentHPad, width: screenWidth } = useLayout();
   const s = useStyles(colors, isTablet, isWide, screenWidth);
-  const { brainAvailable } = useRegionGate();
-  // In regions where the AI brain is unavailable, skip provider/key steps (2 & 3)
-  // and go directly from name → token launch.
-  const nextAfterName = brainAvailable ? 2 : 5;
   const [step, setStep] = useState(0);
   const [phantomWallet, setPhantomWallet] = useState('');
   const [agentName, setAgentName] = useState('');
   const [agentAvatar, setAgentAvatar] = useState('');
-  const [provider, setProvider] = useState<LlmProvider>('anthropic');
-  const [apiKey, setApiKey] = useState('');
-  const [customBaseUrl, setCustomBaseUrl] = useState('');
-  const [customModel, setCustomModel] = useState('');
-  const [saving, setSaving] = useState(false);
   const [savedConfig, setSavedConfig] = useState<AgentBrainConfig | null>(null);
   const [launchToken, setLaunchToken] = useState(false);
   const [launchGiftCode, setLaunchGiftCode] = useState('');
@@ -952,9 +785,6 @@ export function OnboardingScreen({
     return () => sub.remove();
   }, []);
 
-  // Ref lock to prevent double-tap on the LLM key save button.
-  const finishingRef = React.useRef(false);
-
   // Load partial onboarding state on mount
   useEffect(() => {
     (async () => {
@@ -962,15 +792,12 @@ export function OnboardingScreen({
         const raw = await AsyncStorage.getItem(ONBOARDING_STATE_KEY);
         if (raw) {
           const saved = JSON.parse(raw);
-          // Never restore to step 6 (LaunchSuccessStep) — savedConfig is not
-          // persisted, so restoring to 6 would crash on the null assertion.
+          // Never restore to step 3 (LaunchSuccessStep) — savedConfig is not
+          // persisted, so restoring to 3 would crash on the null assertion.
           // Clamp to the last data-entry step so the user re-commits cleanly.
-          if (typeof saved.step === 'number') setStep(Math.min(saved.step, 5));
+          if (typeof saved.step === 'number') setStep(Math.min(saved.step, 2));
           if (saved.agentName) setAgentName(saved.agentName);
           if (saved.agentAvatar) setAgentAvatar(saved.agentAvatar);
-          if (saved.provider) setProvider(saved.provider);
-          if (saved.customBaseUrl) setCustomBaseUrl(saved.customBaseUrl);
-          if (saved.customModel) setCustomModel(saved.customModel);
         }
       } catch (e) {
         console.warn('Failed to load onboarding state:', e);
@@ -980,10 +807,10 @@ export function OnboardingScreen({
 
   // Persist partial state on every change
   useEffect(() => {
-    const state = { step, agentName, agentAvatar, provider, customBaseUrl, customModel };
+    const state = { step, agentName, agentAvatar };
     AsyncStorage.setItem(ONBOARDING_STATE_KEY, JSON.stringify(state))
       .catch(e => console.warn('Failed to save onboarding state:', e));
-  }, [step, agentName, agentAvatar, provider, customBaseUrl, customModel]);
+  }, [step, agentName, agentAvatar]);
 
   const handleSkip = async () => {
     await AsyncStorage.removeItem(ONBOARDING_STATE_KEY);
@@ -991,10 +818,7 @@ export function OnboardingScreen({
     onDone(null);
   };
 
-  const handleFinish = async () => {
-    if (finishingRef.current) return; // prevent double-tap
-    finishingRef.current = true;
-    setSaving(true);
+  const handleNameNext = async () => {
     try {
       if (agentName.trim() || agentAvatar) {
         const raw = await AsyncStorage.getItem(NODE_CONFIG_KEY);
@@ -1009,31 +833,25 @@ export function OnboardingScreen({
           }),
         );
       }
-
       await AsyncStorage.setItem('zerox1:auto_start', 'true');
-      await saveLlmApiKey(apiKey.trim());
-
       const config: AgentBrainConfig = {
-        enabled: true,
-        provider,
+        enabled: false,
+        provider: 'openai',
         capabilities: ALL_CAPABILITIES,
         minFeeUsdc: 5,
         minReputation: 50,
         autoAccept: false,
         maxActionsPerHour: 100,
         maxCostPerDayCents: 1000,
-        apiKeySet: true,
-        customBaseUrl: customBaseUrl.trim() || '',
-        customModel: customModel.trim() || '',
+        apiKeySet: false,
+        customBaseUrl: '',
+        customModel: '',
       };
       await AsyncStorage.setItem('zerox1:agent_brain', JSON.stringify(config));
       setSavedConfig(config);
-      setStep(5); // Go to token choice first
+      setStep(2);
     } catch (e: any) {
       Alert.alert('Error', e?.message ?? 'Failed to save config.');
-    } finally {
-      setSaving(false);
-      finishingRef.current = false;
     }
   };
 
@@ -1051,7 +869,7 @@ export function OnboardingScreen({
           onSkip={async () => {
             const addr = phantomWallet.trim();
             if (addr) await AsyncStorage.setItem('zerox1:linked_wallet', addr).catch(() => {});
-            handleSkip();
+            setStep(1);
           }}
         />
       );
@@ -1063,85 +881,15 @@ export function OnboardingScreen({
           onChangeName={setAgentName}
           onChangeAvatar={setAgentAvatar}
           onBack={() => setStep(0)}
-          onNext={async () => {
-            if (!brainAvailable && !savedConfig) {
-              // Brain steps are skipped in gated regions. Set a minimal config so
-              // LaunchSuccessStep (step 6) has a non-null config to work with.
-              const cfg: AgentBrainConfig = {
-                enabled: false,
-                provider: 'openai',
-                capabilities: [],
-                minFeeUsdc: 5,
-                minReputation: 50,
-                autoAccept: false,
-                maxActionsPerHour: 100,
-                maxCostPerDayCents: 1000,
-                apiKeySet: false,
-                customBaseUrl: '',
-                customModel: '',
-              };
-              await AsyncStorage.setItem('zerox1:auto_start', 'true');
-              await AsyncStorage.setItem('zerox1:agent_brain', JSON.stringify(cfg));
-              setSavedConfig(cfg);
-            }
-            setStep(nextAfterName);
-          }}
-          onSkip={async () => {
-            if (!brainAvailable && !savedConfig) {
-              // Same minimal-config path as onNext so LaunchSuccessStep never
-              // receives a null config regardless of which path the user takes.
-              const cfg: AgentBrainConfig = {
-                enabled: false,
-                provider: 'openai',
-                capabilities: [],
-                minFeeUsdc: 5,
-                minReputation: 50,
-                autoAccept: false,
-                maxActionsPerHour: 100,
-                maxCostPerDayCents: 1000,
-                apiKeySet: false,
-                customBaseUrl: '',
-                customModel: '',
-              };
-              await AsyncStorage.setItem('zerox1:auto_start', 'true');
-              await AsyncStorage.setItem('zerox1:agent_brain', JSON.stringify(cfg));
-              setSavedConfig(cfg);
-            }
-            setStep(nextAfterName);
-          }}
+          onNext={handleNameNext}
+          onSkip={handleNameNext}
         />
       );
     case 2:
       return (
-        <ProviderStep
-          provider={provider}
-          customModel={customModel}
-          onSelect={setProvider}
-          onChangeModel={setCustomModel}
-          onBack={() => setStep(1)}
-          onNext={() => setStep(3)}
-        />
-      );
-    case 3:
-      return (
-        <KeyStep
-          provider={provider}
-          apiKey={apiKey}
-          customBaseUrl={customBaseUrl}
-          customModel={customModel}
-          onChangeKey={setApiKey}
-          onChangeUrl={setCustomBaseUrl}
-          onChangeModel={setCustomModel}
-          onBack={() => setStep(2)}
-          onNext={handleFinish}
-          saving={saving}
-        />
-      );
-    case 5:
-      return (
         <TokenChoiceStep
           agentName={agentName}
-          onBack={() => setStep(brainAvailable ? 3 : 1)}
+          onBack={() => setStep(1)}
           onLaunch={(giftCode, paymentTxid) => {
             setLaunchToken(true);
             setLaunchGiftCode(giftCode ?? '');
@@ -1150,18 +898,18 @@ export function OnboardingScreen({
             // If the app is killed mid-launch the node is still running, and the
             // user will land on the main app rather than re-entering onboarding.
             markOnboardingDone().catch(() => {});
-            setStep(6);
+            setStep(3);
           }}
           onSkip={() => {
             setLaunchToken(false);
             setLaunchGiftCode('');
             setLaunchPaymentTxid('');
             markOnboardingDone().catch(() => {});
-            setStep(6);
+            setStep(3);
           }}
         />
       );
-    case 6:
+    case 3:
       return (
         <LaunchSuccessStep
           agentName={agentName}
@@ -1179,7 +927,7 @@ export function OnboardingScreen({
 }
 
 // ============================================================================
-// Step 6 — Launch Success
+// Step 3 — Launch Success
 // ============================================================================
 
 function deriveSymbol(name: string): string {
@@ -1226,7 +974,7 @@ function LaunchSuccessStep({
   // Phase indicators for the launch sequence
   type PhaseStatus = 'pending' | 'in-progress' | 'done' | 'error';
   const [phaseStatuses, setPhaseStatuses] = useState<PhaseStatus[]>(['in-progress', 'pending', 'pending']);
-  const phaseLabels = ['REST API ready', 'Identity confirmed', 'Token launched'];
+  const phaseLabels = ['Starting your agent…', 'Agent identity ready', 'Launching token on Bags.fm…'];
 
   const runLaunchSequence = async (cancelled: () => boolean) => {
     try {
@@ -1307,6 +1055,36 @@ function LaunchSuccessStep({
           if (!cancelled()) setSecretKeyB58(keyData.secret_key_b58);
         }
       } catch { /* non-fatal */ }
+
+      if (cancelled()) return;
+
+      // Register hot wallet ownership with the aggregator (silent, non-blocking).
+      // The hot wallet IS the agent identity key — sign the agent_id bytes with
+      // that same key so the aggregator can verify ownership without a round-trip.
+      if (agentIdHex && walletAddr) {
+        try {
+          const signRes = await fetch('http://127.0.0.1:9090/identity/sign', {
+            method: 'POST',
+            headers: authHeaders,
+            body: JSON.stringify({ bytes_hex: agentIdHex }),
+          });
+          if (signRes.ok) {
+            const { signature_hex }: { signature_hex: string } = await signRes.json();
+            // Convert hex signature to base64 (aggregator expects base64).
+            const sigBytes = new Uint8Array((signature_hex.match(/.{1,2}/g)!).map((b: string) => parseInt(b, 16)));
+            const sigB64 = btoa(String.fromCharCode(...sigBytes));
+            await fetch(`${AGGREGATOR_API}/wallets/register`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                agent_id: agentIdHex,
+                wallet_address: walletAddr,
+                signature: sigB64,
+              }),
+            }).catch(() => { /* non-fatal — can retry later */ });
+          }
+        } catch { /* non-fatal */ }
+      }
 
       if (cancelled()) return;
 
@@ -1589,7 +1367,7 @@ function LaunchSuccessStep({
   const isLoading = phase === 'starting' || phase === 'launching';
 
   return (
-    <StepShell step={4} total={4}>
+    <StepShell step={0} total={3}>
       <Heading label="Agent launched" />
 
       {isLoading && (
@@ -1826,10 +1604,16 @@ function LaunchSuccessStep({
         )}
       </View>
 
+      {/* Key must be revealed (and ideally copied) before proceeding — prevents accidental loss */}
+      {secretKeyB58 && !keyCopied && phase === 'done' && (
+        <Text style={{ fontSize: 12, color: C.orange, textAlign: 'center', marginBottom: 10 }}>
+          Copy your secret key before continuing — it cannot be recovered if lost.
+        </Text>
+      )}
       <PrimaryBtn
         label="Enter the mesh →"
         onPress={handleDone}
-        disabled={isLoading}
+        disabled={isLoading || (!!secretKeyB58 && !keyCopied && phase === 'done')}
       />
     </StepShell>
   );

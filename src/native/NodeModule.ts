@@ -448,6 +448,17 @@ export const NodeModule = {
    */
   getRegion: (): Promise<{ region: string; brainAvailable: boolean }> =>
     ZeroxNodeModule.getRegion(),
+
+  /**
+   * Returns the absolute path to the zeroclaw agent log file.
+   * iOS only — use with react-native-share or UIActivityViewController to
+   * let the user share the log file with the support team.
+   * Rejects with NOT_FOUND if no log file exists yet (node not started).
+   */
+  getLogFilePath: (): Promise<string> =>
+    Platform.OS === 'ios'
+      ? ZeroxNodeModule.getLogFilePath()
+      : Promise.reject(new Error('getLogFilePath is iOS only')),
 };
 
 // Temporary iOS bridge instrumentation to diagnose stale native module builds.

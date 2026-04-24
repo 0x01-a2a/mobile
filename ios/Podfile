@@ -8,12 +8,7 @@ require Pod::Executable.execute_command('node', ['-p',
 platform :ios, min_ios_version_supported
 prepare_react_native_project!
 
-# App Store validation is currently failing because the prebuilt React Native
-# / Hermes frameworks are being archived without matching dSYMs. For release
-# archives, prefer local builds so Xcode produces symbols alongside the
-# frameworks instead of depending on remote artifact dSYM packaging.
 ENV['RCT_USE_PREBUILT_RNCORE'] = '0'
-ENV['RCT_BUILD_HERMES_FROM_SOURCE'] = 'true'
 
 linkage = ENV['USE_FRAMEWORKS']
 if linkage != nil
@@ -37,19 +32,124 @@ target 'Zerox1' do
       :mac_catalyst_enabled => false,
       # :ccache_enabled => true
     )
-    # Xcode 26 enforces non-modular includes as errors — disable for all pods
+    # Xcode 26 enforces non-modular includes as errors — disable for all pods.
+    # Pin IPHONEOS_DEPLOYMENT_TARGET so hermesvm.framework Info.plist gets a
+    # non-empty MinimumOSVersion, which App Store validation requires.
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |config|
         config.build_settings['CLANG_WARN_NON_MODULAR_INCLUDE_IN_FRAMEWORK_MODULE'] = 'NO'
+        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.0'
       end
     end
 
+    # CMake 4.x is incompatible with the Hermes CMakeLists on Xcode 26
+    # (CMAKE_APPLE_ARCH_SYSROOTS duplicate entry bug). The "Build Hermes"
+    # scripts that hermes-engine generates invoke CMake to build the simulator
+    # hermesvm slice. Since the simulator slice is already present from a
+    # previous successful build, we just need to touch the declared output file
+    # so Xcode's up-to-date check skips the script on every subsequent build.
+    hermes_root  = File.join(installer.sandbox.root, 'hermes-engine')
+    sim_api_bin  = File.join(hermes_root, 'build/iphonesimulator/API/hermes/hermesvm.framework/hermesvm')
+    sim_lib_bin  = File.join(hermes_root, 'build/iphonesimulator/lib/hermesvm.framework/hermesvm')
+    sim_lib_info = File.join(hermes_root, 'build/iphonesimulator/lib/hermesvm.framework/Info.plist')
+    sim_api_dir  = File.dirname(sim_api_bin)
+
+    if File.exist?(sim_lib_bin) && !File.exist?(sim_api_bin)
+      FileUtils.mkdir_p(sim_api_dir)
+      FileUtils.cp(sim_lib_bin, sim_api_bin)
+      FileUtils.cp(sim_lib_info, File.join(sim_api_dir, 'Info.plist')) if File.exist?(sim_lib_info)
+    end
+    FileUtils.touch(sim_api_bin) if File.exist?(sim_api_bin)
+
+    # CocoaPods currently hardcodes Hermes search paths in a way that can pick
+    # the wrong slice when using dynamic frameworks. Rewrite the generated
+    # xcconfigs so simulator builds search the simulator slice first, while
+    # device builds keep using the iphoneos framework.
+    hermes_ios_dir = '${PODS_ROOT}/hermes-engine/destroot/Library/Frameworks/ios'
+    hermes_sim_dir = '${PODS_ROOT}/hermes-engine/destroot/Library/Frameworks/hermesvm.xcframework/ios-arm64_x86_64-simulator'
+
+    Dir.glob(File.join(installer.sandbox.root, 'Target Support Files', '**', '*.xcconfig')).each do |xcconfig_path|
+      next unless File.file?(xcconfig_path)
+
+      content = File.read(xcconfig_path)
+      generic = "\"#{hermes_sim_dir}\" \"#{hermes_ios_dir}\""
+      fallback = "\"#{hermes_ios_dir}\""
+      updated = content.gsub(generic, fallback)
+
+      base_line = %(FRAMEWORK_SEARCH_PATHS = $(inherited) "#{hermes_ios_dir}")
+      sim_line = %(FRAMEWORK_SEARCH_PATHS[sdk=iphonesimulator*] = $(inherited) "#{hermes_sim_dir}" "#{hermes_ios_dir}")
+      device_line = %(FRAMEWORK_SEARCH_PATHS[sdk=iphoneos*] = $(inherited) "#{hermes_ios_dir}")
+
+      if updated.include?(base_line)
+        updated = updated.sub(base_line, "#{base_line}\n#{sim_line}\n#{device_line}")
+      elsif updated.include?("\"#{hermes_ios_dir}\"") && !updated.include?('FRAMEWORK_SEARCH_PATHS[sdk=iphonesimulator*]')
+        updated = updated.gsub(/^(FRAMEWORK_SEARCH_PATHS = .*"#{Regexp.escape(hermes_ios_dir)}".*)$/) do |line|
+          "#{line}\n#{sim_line}\n#{device_line}"
+        end
+      end
+
+      File.write(xcconfig_path, updated) if updated != content
+    end
+
+    frameworks_script = File.join(installer.sandbox.root, 'Target Support Files', 'Pods-Zerox1', 'Pods-Zerox1-frameworks.sh')
+    if File.exist?(frameworks_script)
+      content = File.read(frameworks_script)
+      original = 'install_framework "${PODS_ROOT}/hermes-engine/destroot/Library/Frameworks/ios/hermesvm.framework"'
+      replacement = <<~'SCRIPT'.strip
+        if [[ "${PLATFORM_NAME}" == *simulator* ]]; then
+          install_framework "${PODS_ROOT}/hermes-engine/destroot/Library/Frameworks/hermesvm.xcframework/ios-arm64_x86_64-simulator/hermesvm.framework"
+        else
+          install_framework "${PODS_ROOT}/hermes-engine/destroot/Library/Frameworks/ios/hermesvm.framework"
+        fi
+      SCRIPT
+
+      updated = content.gsub(original, replacement)
+      File.write(frameworks_script, updated) if updated != content
+    end
+
+    installer.pods_project.save
+
     # App Store validation requires MinimumOSVersion in every embedded framework
-    # Info.plist. The prebuilt hermesvm.framework ships without it — patch all
-    # copies that CocoaPods installs so archives pass validation.
-    Dir.glob("#{installer.sandbox.root}/**/hermesvm.framework/Info.plist").each do |plist|
-      system('/usr/libexec/PlistBuddy', '-c', 'Add :MinimumOSVersion string 16.0', plist, err: '/dev/null')
-      system('/usr/libexec/PlistBuddy', '-c', 'Set :MinimumOSVersion 16.0', plist)
+    # Info.plist. hermesvm.framework ships without it (both destroot and build
+    # subdirs). Patch every copy found under the hermes-engine pod directory
+    # so archives pass validation. Use a broad search root because hermes is
+    # built from source and places frameworks in build/ after pod install runs.
+    hermes_root = File.join(installer.sandbox.root, 'hermes-engine')
+    Dir.glob("#{hermes_root}/**/hermesvm.framework/Info.plist").each do |plist|
+      result = `/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' '#{plist}' 2>/dev/null`.strip
+      if result.empty?
+        system('/usr/libexec/PlistBuddy', '-c', 'Add :MinimumOSVersion string 16.0', plist)
+      else
+        system('/usr/libexec/PlistBuddy', '-c', 'Set :MinimumOSVersion 16.0', plist)
+      end
+    end
+
+    # The above patch covers Pods source files, but when hermes is built from
+    # source the CMake build regenerates the hermesvm Info.plist during each
+    # xcodebuild archive, overwriting our changes. Add a Run Script build phase
+    # to the main target that patches the plist inside the .app bundle after
+    # the Embed Frameworks phase — this runs on every build regardless of
+    # whether hermes was rebuilt.
+    user_project = installer.aggregate_targets.first.user_project
+    main_target = user_project.targets.find { |t| t.name == 'Zerox1' }
+    if main_target
+      phase_name = 'Patch hermesvm MinimumOSVersion'
+      existing = main_target.shell_script_build_phases.find { |p| p.name == phase_name }
+      unless existing
+        phase = main_target.new_shell_script_build_phase(phase_name)
+        phase.shell_script = <<~'SCRIPT'
+          PLIST="${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}/hermesvm.framework/Info.plist"
+          if [ -f "$PLIST" ]; then
+            val=$(/usr/libexec/PlistBuddy -c "Print :MinimumOSVersion" "$PLIST" 2>/dev/null)
+            if [ -z "$val" ]; then
+              /usr/libexec/PlistBuddy -c "Add :MinimumOSVersion string 16.0" "$PLIST"
+            else
+              /usr/libexec/PlistBuddy -c "Set :MinimumOSVersion 16.0" "$PLIST"
+            fi
+          fi
+        SCRIPT
+      end
+      user_project.save
     end
   end
 end

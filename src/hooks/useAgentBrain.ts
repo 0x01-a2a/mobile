@@ -9,7 +9,6 @@ import { useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Keychain from 'react-native-keychain';
 import { NodeModule } from '../native/NodeModule';
-import { Platform } from 'react-native';
 
 // ============================================================================
 // Types
@@ -145,9 +144,7 @@ export async function saveFalApiKey(key: string): Promise<void> {
     service: FAL_KEYCHAIN_SERVICE,
     accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
   });
-  if (Platform.OS === 'android') {
-    await NodeModule.saveFalApiKey(key);
-  }
+  await NodeModule.saveFalApiKey(key);
 }
 
 export async function loadFalApiKey(): Promise<string | null> {
@@ -172,9 +169,7 @@ export async function saveReplicateApiKey(key: string): Promise<void> {
     service: REPLICATE_KEYCHAIN_SERVICE,
     accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
   });
-  if (Platform.OS === 'android') {
-    await NodeModule.saveReplicateApiKey(key);
-  }
+  await NodeModule.saveReplicateApiKey(key);
 }
 
 export async function loadReplicateApiKey(): Promise<string | null> {

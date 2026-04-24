@@ -11,6 +11,7 @@
  * Encryption uses NaCl box (X25519 Diffie-Hellman + XSalsa20-Poly1305).
  * Module-level state holds the ephemeral keypair and session between steps.
  */
+import 'react-native-get-random-values';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const nacl = require('tweetnacl') as typeof import('tweetnacl');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -30,8 +31,9 @@ let dappKeypair:     ReturnType<typeof nacl.box.keyPair> | null = null;
 let phantomSession:  PhantomSession | null = null;
 
 // Pending callbacks — set before opening Phantom, consumed by handleIncomingUrl
-let pendingConnectCb: ((publicKey: string | null) => void) | null = null;
-let pendingSignCb:    ((sig: string | null) => void) | null = null;
+let pendingConnectCb:      ((publicKey: string | null) => void) | null = null;
+let pendingSignCb:         ((sig: string | null) => void) | null = null;
+let pendingSignMessageCb:  ((sigBytes: Uint8Array | null) => void) | null = null;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -76,10 +78,48 @@ function decryptConnectResponse(url: string): string | null {
     const sharedSecret   = nacl.box.before(phantomPubKey, dappKeypair.secretKey);
     const decrypted      = nacl.box.open.after(bs58.decode(p.data), bs58.decode(p.nonce), sharedSecret);
     if (!decrypted) return null;
-    const payload = JSON.parse(new TextDecoder().decode(decrypted)) as { public_key: string; session: string };
-    // Persist session for signAndSend
+    const payload = JSON.parse(String.fromCharCode(...decrypted)) as { public_key: string; session: string };
     phantomSession = { dappKeypair: dappKeypair!, phantomPubKey, session: payload.session };
     return payload.public_key;
+  } catch {
+    return null;
+  }
+}
+
+// ── Sign message ──────────────────────────────────────────────────────────────
+
+/**
+ * Build the Phantom signMessage URL.
+ * Requires a prior successful connect (phantomSession must be set).
+ * `messageBytes` are the raw bytes to sign (e.g. agent_id as 32 bytes).
+ */
+export function buildSignMessageUrl(messageBytes: Uint8Array, redirectSuffix = 'phantom-sign-message'): string {
+  if (!phantomSession) throw new Error('No Phantom session — call buildConnectUrl first');
+  const { dappKeypair: kp, phantomPubKey, session } = phantomSession;
+  const nonce      = nacl.randomBytes(24);
+  const payloadStr = JSON.stringify({ message: bs58.encode(messageBytes), session, display: 'hex' });
+  const encrypted  = nacl.box(Uint8Array.from(payloadStr.split('').map(c => c.charCodeAt(0))), nonce, phantomPubKey, kp.secretKey);
+  const parts = [
+    `dapp_encryption_public_key=${encodeURIComponent(bs58.encode(kp.publicKey))}`,
+    `nonce=${encodeURIComponent(bs58.encode(nonce))}`,
+    `redirect_link=${encodeURIComponent(`zerox1://${redirectSuffix}`)}`,
+    `payload=${encodeURIComponent(bs58.encode(encrypted))}`,
+  ];
+  return `${PHANTOM_BASE}/signMessage?${parts.join('&')}`;
+}
+
+function decryptSignMessageResponse(url: string): Uint8Array | null {
+  if (!phantomSession) return null;
+  const p = parseParams(url);
+  if (p.errorCode || !p.nonce || !p.data) return null;
+  try {
+    const { dappKeypair: kp, phantomPubKey } = phantomSession;
+    const sharedSecret = nacl.box.before(phantomPubKey, kp.secretKey);
+    const decrypted    = nacl.box.open.after(bs58.decode(p.data), bs58.decode(p.nonce), sharedSecret);
+    if (!decrypted) return null;
+    const { signature } = JSON.parse(String.fromCharCode(...decrypted)) as { signature: string };
+    // Phantom returns base58-encoded signature bytes
+    return bs58.decode(signature);
   } catch {
     return null;
   }
@@ -97,7 +137,7 @@ export function buildSignAndSendUrl(serializedTx: Uint8Array, redirectSuffix = '
   const { dappKeypair: kp, phantomPubKey, session } = phantomSession;
   const nonce      = nacl.randomBytes(24);
   const payloadStr = JSON.stringify({ transaction: bs58.encode(serializedTx), session });
-  const encrypted  = nacl.box(new TextEncoder().encode(payloadStr), nonce, phantomPubKey, kp.secretKey);
+  const encrypted  = nacl.box(Uint8Array.from(payloadStr.split('').map(c => c.charCodeAt(0))), nonce, phantomPubKey, kp.secretKey);
   const parts = [
     `dapp_encryption_public_key=${encodeURIComponent(bs58.encode(kp.publicKey))}`,
     `nonce=${encodeURIComponent(bs58.encode(nonce))}`,
@@ -116,7 +156,7 @@ function decryptSignResponse(url: string): string | null {
     const sharedSecret = nacl.box.before(phantomPubKey, kp.secretKey);
     const decrypted    = nacl.box.open.after(bs58.decode(p.data), bs58.decode(p.nonce), sharedSecret);
     if (!decrypted) return null;
-    const { signature } = JSON.parse(new TextDecoder().decode(decrypted)) as { signature: string };
+    const { signature } = JSON.parse(String.fromCharCode(...decrypted)) as { signature: string };
     return signature;
   } catch {
     return null;
@@ -138,6 +178,10 @@ export function setPendingSignCb(cb: (sig: string | null) => void): void {
   pendingSignCb = cb;
 }
 
+export function setPendingSignMessageCb(cb: (sigBytes: Uint8Array | null) => void): void {
+  pendingSignMessageCb = cb;
+}
+
 /**
  * Call from a Linking.addEventListener('url') handler.
  * Returns true if the URL was a Phantom callback and was handled.
@@ -147,6 +191,12 @@ export function handleIncomingUrl(url: string): boolean {
     const publicKey = decryptConnectResponse(url);
     pendingConnectCb?.(publicKey);
     pendingConnectCb = null;
+    return true;
+  }
+  if (url.includes('phantom-sign-message')) {
+    const sigBytes = decryptSignMessageResponse(url);
+    pendingSignMessageCb?.(sigBytes);
+    pendingSignMessageCb = null;
     return true;
   }
   if (url.includes('phantom-sign')) {

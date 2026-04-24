@@ -103,7 +103,7 @@ Capability gating is enforced at two levels:
 
 The `zerox1-node` identity key (Ed25519) is generated inside the node binary on first launch. It is the agent's mesh identity and Solana hot wallet address.
 
-On Android, the LLM API key is stored in `EncryptedSharedPreferences` backed by Android Keystore. It is never written to AsyncStorage, never logged, never transmitted. The identity key is currently managed by the node binary itself.
+On Android, the identity key is managed by the node binary itself. If a user configures an optional local LLM API key (for non-proxy use), it is stored in `EncryptedSharedPreferences` backed by Android Keystore and never written to AsyncStorage, logged, or transmitted. For most agents, no local API key is needed: the 0x01 aggregator provides a Gemini 3 Flash proxy gated to 01 Pilot agents (agents with a launched Bags.fm token).
 
 Android Keystore provides hardware-backed key storage on devices with a TEE (Trusted Execution Environment). Coverage is high but not universal — some budget Android devices use a software-only Keystore. This is the key security difference from iOS, where Secure Enclave hardware backing is guaranteed on every device since 2013.
 

@@ -762,22 +762,41 @@ class NodeModule(private val ctx: ReactApplicationContext)
 
     @ReactMethod
     fun checkPermissions(promise: Promise) {
-        val perms = listOf(
+        val result = WritableNativeMap()
+
+        // Standard manifest permissions — checked via android.permission.*
+        val standardPerms = listOf(
             "READ_CONTACTS", "WRITE_CONTACTS",
             "READ_SMS", "SEND_SMS",
             "ACCESS_FINE_LOCATION",
             "READ_CALENDAR", "WRITE_CALENDAR",
-            "READ_CALL_LOG",
+            "READ_CALL_LOG", "READ_PHONE_STATE",
             "CAMERA", "RECORD_AUDIO",
             "READ_MEDIA_IMAGES",
+            "ACTIVITY_RECOGNITION",
+            "BLUETOOTH_CONNECT", "BLUETOOTH_SCAN",
+            "POST_NOTIFICATIONS",
         )
-        val result = WritableNativeMap()
-        for (name in perms) {
-            val manifest = "android.permission.$name"
-            val granted  = ContextCompat.checkSelfPermission(reactApplicationContext, manifest) ==
-                           PackageManager.PERMISSION_GRANTED
+        for (name in standardPerms) {
+            val granted = ContextCompat.checkSelfPermission(
+                reactApplicationContext, "android.permission.$name"
+            ) == PackageManager.PERMISSION_GRANTED
             result.putBoolean(name, granted)
         }
+
+        // Health Connect permissions — prefixed android.permission.health.*
+        val healthPerms = listOf(
+            "READ_STEPS", "READ_HEART_RATE", "READ_SLEEP",
+            "READ_HEART_RATE_VARIABILITY", "READ_TOTAL_CALORIES_BURNED",
+            "READ_OXYGEN_SATURATION", "READ_WEIGHT",
+        )
+        for (name in healthPerms) {
+            val granted = ContextCompat.checkSelfPermission(
+                reactApplicationContext, "android.permission.health.$name"
+            ) == PackageManager.PERMISSION_GRANTED
+            result.putBoolean("health.$name", granted)
+        }
+
         promise.resolve(result)
     }
 
@@ -860,9 +879,15 @@ class NodeModule(private val ctx: ReactApplicationContext)
                 "screen_read_tree", "screen_capture", "screen_act",
                 "screen_global_nav", "screen_vision", "screen_autonomy",
             )
+            // Caps that default OFF — require explicit user opt-in
+            val defaultOff = setOf(
+                "screen_act", "screen_global_nav", "screen_autonomy",
+                "screen_capture", "sms_send", "calls",
+            )
             val result = WritableNativeMap()
             for (cap in caps) {
-                result.putBoolean(cap, prefs.getBoolean("bridge_cap_$cap", true))
+                val default_ = cap !in defaultOff
+                result.putBoolean(cap, prefs.getBoolean("bridge_cap_$cap", default_))
             }
             promise.resolve(result)
         } catch (e: Exception) {

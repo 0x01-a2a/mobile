@@ -73,14 +73,20 @@ final class NodeService {
         isNodeRunning ? dataDir : nil
     }
 
+    /// Path to the zeroclaw agent log file, always resolved (not gated on running state).
+    var logFilePath: String? {
+        let path = dataDir.appendingPathComponent("zeroclaw_ffi.log").path
+        return FileManager.default.fileExists(atPath: path) ? path : nil
+    }
+
     private var zeroclawConfigDir: URL {
         dataDir.appendingPathComponent("zeroclaw")
     }
 
-    private func setupDirectories() throws {
+    private func setupDirectories(agentName: String) throws {
         try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: zeroclawConfigDir, withIntermediateDirectories: true)
-        try writeSoulMd()
+        try writeSoulMd(agentName: agentName)
         try writeBundledSkills()
     }
 
@@ -230,19 +236,27 @@ text = "Text to speak aloud"
         zeroclawConfigDir.appendingPathComponent("workspace")
     }
 
-    private func writeSoulMd() throws {
+    private func writeSoulMd(agentName: String) throws {
         let workspaceDir = zeroclawWorkspaceDir
         try FileManager.default.createDirectory(at: workspaceDir, withIntermediateDirectories: true)
         let soulPath = workspaceDir.appendingPathComponent("SOUL.md")
-        // Only write on first run; user or agent may have customised it.
-        guard !FileManager.default.fileExists(atPath: soulPath.path) else { return }
         guard let bundleUrl = Bundle.main.url(forResource: "SOUL", withExtension: "md"),
-              let content = try? String(contentsOf: bundleUrl, encoding: .utf8) else {
+              var content = try? String(contentsOf: bundleUrl, encoding: .utf8) else {
             os_log(.error, "[NodeService] SOUL.md not found in app bundle — skipping write")
             return
         }
+        // Inject the agent's name at the top so it is part of the system prompt.
+        let nameHeader = "Your name is \(agentName).\n\n"
+        if !content.hasPrefix("Your name is") {
+            content = nameHeader + content
+        } else {
+            // Replace stale name line on restarts.
+            if let range = content.range(of: "Your name is .*\\.\\n\\n", options: .regularExpression) {
+                content.replaceSubrange(range, with: nameHeader)
+            }
+        }
         try content.write(to: soulPath, atomically: true, encoding: .utf8)
-        os_log(.debug, "[NodeService] SOUL.md written to workspace")
+        os_log(.debug, "[NodeService] SOUL.md written to workspace for agent %{public}@", agentName)
     }
 
     private func writeZeroclawConfig(config: [String: Any]) throws -> URL {
@@ -347,7 +361,13 @@ paired_tokens = ["\(tomlEscape(gatewayToken))"]
             }
 
             do {
-                try self.setupDirectories()
+                let rawName = (config["agentName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let agentDisplayName = rawName.isEmpty ? "Agent" : rawName
+                // Persist so auto-start and background wake paths can recover the name.
+                if !rawName.isEmpty {
+                    UserDefaults.standard.set(rawName, forKey: "zerox1_agent_name")
+                }
+                try self.setupDirectories(agentName: agentDisplayName)
 
                 let token = self.generateToken()
                 self.nodeApiToken = token
@@ -515,6 +535,14 @@ paired_tokens = ["\(tomlEscape(gatewayToken))"]
                 // rather than written into the config file on disk.
                 let llmKey = KeychainHelper.load(key: "llm_api_key")
                 os_log(.error, "[NodeService] startZeroclaw — llmKey in keychain: %{public}@", llmKey != nil ? "yes" : "NO — key missing!")
+                // Media generation API keys are exposed as environment variables so the
+                // in-process zeroclaw Rust runtime can read them via std::env::var().
+                if let falKey = KeychainHelper.load(key: "fal_api_key") {
+                    setenv("FAL_API_KEY", falKey, 1)
+                }
+                if let replicateKey = KeychainHelper.load(key: "replicate_api_key") {
+                    setenv("REPLICATE_API_KEY", replicateKey, 1)
+                }
                 // In hosted mode, config["nodeApiUrl"] carries the remote host URL;
                 // in local mode fall back to the in-process node.
                 let nodeUrl = (config["nodeApiUrl"] as? String)
