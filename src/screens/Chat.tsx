@@ -906,18 +906,6 @@ export function ChatScreen() {
               >
                 <Text style={s.attachBtnText}>📎</Text>
               </TouchableOpacity>
-              {voice.available && (
-                <TouchableOpacity
-                  style={[s.attachBtn, voice.listening && { backgroundColor: colors.red + '20', borderColor: colors.red }]}
-                  onPress={voice.toggle}
-                  disabled={loading || nodeLoading}
-                  accessibilityLabel={voice.listening ? 'Stop voice input' : 'Start voice input'}
-                  accessibilityRole="button"
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Text style={[s.attachBtnText, voice.listening && { color: colors.red }]}>{voice.listening ? '◉' : '🎙'}</Text>
-                </TouchableOpacity>
-              )}
               <TextInput
                 style={s.input}
                 value={draft}
@@ -928,17 +916,37 @@ export function ChatScreen() {
                 maxLength={4000}
                 onSubmitEditing={handleSend}
                 blurOnSubmit={false}
-                editable={!loading && !nodeLoading}
+                editable={!loading && !nodeLoading && !voice.listening}
               />
+              {/* Send when there's text; mic when empty — like WhatsApp/Telegram */}
+              {(draft.trim() || pendingImage) ? (
               <TouchableOpacity
-                style={[s.sendBtn, ((!draft.trim() && !pendingImage) || loading || nodeLoading) && s.sendBtnDisabled]}
+                style={[s.sendBtn, (loading || nodeLoading) && s.sendBtnDisabled]}
                 onPress={handleSend}
-                disabled={(!draft.trim() && !pendingImage) || loading || nodeLoading}
+                disabled={loading || nodeLoading}
                 accessibilityLabel="Send message"
                 accessibilityRole="button"
               >
                 <Text style={s.sendBtnText}>{(loading || nodeLoading) ? '…' : '↑'}</Text>
               </TouchableOpacity>
+              ) : voice.available ? (
+              <TouchableOpacity
+                style={[s.sendBtn, voice.listening && { backgroundColor: colors.red }]}
+                onPress={voice.toggle}
+                disabled={loading || nodeLoading}
+                accessibilityLabel={voice.listening ? 'Stop voice input' : 'Start voice input'}
+                accessibilityRole="button"
+              >
+                <Text style={[s.sendBtnText, voice.listening && { color: colors.bg }]}>{voice.listening ? '◉' : '🎙'}</Text>
+              </TouchableOpacity>
+              ) : (
+              <TouchableOpacity
+                style={[s.sendBtn, s.sendBtnDisabled]}
+                disabled
+              >
+                <Text style={s.sendBtnText}>↑</Text>
+              </TouchableOpacity>
+              )}
             </View>
           </View>
         </>
