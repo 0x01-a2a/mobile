@@ -119,6 +119,16 @@ final class NodeService {
         try FileManager.default.createDirectory(at: podcastDir, withIntermediateDirectories: true)
         try podcastSkillToml.write(to: podcastDir.appendingPathComponent("SKILL.toml"),
                                     atomically: true, encoding: .utf8)
+
+        let memoryDir = skillsRoot.appendingPathComponent("memory-observe", isDirectory: true)
+        try FileManager.default.createDirectory(at: memoryDir, withIntermediateDirectories: true)
+        try memoryObserveSkillToml.write(to: memoryDir.appendingPathComponent("SKILL.toml"),
+                                          atomically: true, encoding: .utf8)
+
+        let personaDir = skillsRoot.appendingPathComponent("persona-observe", isDirectory: true)
+        try FileManager.default.createDirectory(at: personaDir, withIntermediateDirectories: true)
+        try personaObserveSkillToml.write(to: personaDir.appendingPathComponent("SKILL.toml"),
+                                           atomically: true, encoding: .utf8)
     }
 
     private var safetySkillToml: String {
@@ -402,6 +412,157 @@ name        = "podcast_list_episodes"
 description = "List all published podcast episodes for this agent."
 kind        = "shell"
 command     = \(tq)curl -sf "https://api.0x01.world/podcast/episodes?agent_id=${ZX01_AGENT_ID:-}" -H "Authorization: Bearer ${ZX01_TOKEN:-}" \(tq)
+"""
+    }
+
+    private var memoryObserveSkillToml: String {
+        let tq = "\"\"\""
+        return """
+[skill]
+name        = "memory-observe"
+version     = "1.0.0"
+description = "Passively observe owner behavior from phone data and conversations to update MEMORY.md — relationships, activity patterns, task preferences. Runs automatically. Never prompts the user."
+author      = "0x01 World"
+tags        = ["memory", "observation", "identity", "personal", "passive"]
+
+prompts = [\(tq)
+# Passive Memory Observation (iOS)
+
+You maintain a living MEMORY.md that models your owner from observed behavior — never by asking questions.
+
+## What you track
+
+- **Relationships**: contacts ranked by interaction frequency and recency
+- **Activity patterns**: calendar density, active hours, meeting frequency
+- **Health rhythms**: sleep patterns, activity levels, recovery trends
+- **Task preferences**: price thresholds accepted or declined, capabilities engaged
+- **Conversation topics**: what the owner talks about most, recurring interests
+
+## Data sources on iOS
+
+- Contacts (via phone bridge)
+- Calendar events (via phone bridge)
+- Health data — steps, heart rate, sleep (via phone bridge)
+- Conversation history with you (via conversation export)
+
+Note: iOS does not provide SMS, notification history from other apps, or app usage stats. Work with what is available.
+
+## Rules
+
+- NEVER ask the owner for input. Observe only.
+- Only write observations you can ground in actual data.
+- Keep entries factual and concise — no speculation.
+- Preserve existing sections when updating; only overwrite what has changed.
+- Schedule daily observation using the cron_add tool (schedule: "0 3 * * *"). Check cron_list first — only add if a job named memory_consolidate does not already exist.
+\(tq)]
+
+[[tools]]
+name        = "memory_read_current"
+description = "Read the current MEMORY.md to see what is already known before updating."
+kind        = "shell"
+command     = \(tq)curl -s "http://127.0.0.1:9090/agent/memory" -H "Authorization: Bearer ${ZX01_TOKEN:-}" \(tq)
+
+[[tools]]
+name        = "memory_write"
+description = "Overwrite MEMORY.md with updated content. Always read current content first to preserve existing observations."
+kind        = "shell"
+command     = \(tq)jq -nc --arg c {content} '{"content":$c}' | curl -s -X POST "http://127.0.0.1:9090/agent/memory/write" -H "Content-Type: application/json" -H "Authorization: Bearer ${ZX01_TOKEN:-}" -d @-\(tq)
+
+[tools.args]
+content = "Full updated MEMORY.md content as a string"
+
+[[tools]]
+name        = "observe_contacts"
+description = "Read contacts to identify known people and relationship patterns."
+kind        = "shell"
+command     = \(tq)curl -s "http://127.0.0.1:9092/phone/contacts" -H "x-bridge-token: ${ZX01_BRIDGE_TOKEN:-}" \(tq)
+
+[[tools]]
+name        = "observe_calendar"
+description = "Read calendar events to learn active hours, meeting density, and schedule patterns."
+kind        = "shell"
+command     = \(tq)curl -s "http://127.0.0.1:9092/phone/calendar?days=14" -H "x-bridge-token: ${ZX01_BRIDGE_TOKEN:-}" \(tq)
+
+[[tools]]
+name        = "observe_health"
+description = "Read health data (steps, heart rate, sleep) to understand physical patterns and energy levels."
+kind        = "shell"
+command     = \(tq)curl -s "http://127.0.0.1:9092/phone/health/summary" -H "x-bridge-token: ${ZX01_BRIDGE_TOKEN:-}" \(tq)
+
+[[tools]]
+name        = "observe_conversations"
+description = "Read recent conversation history with the owner to extract topics, interests, and preferences."
+kind        = "shell"
+command     = \(tq)curl -s "http://127.0.0.1:9090/agent/conversation/export" -H "Authorization: Bearer ${ZX01_TOKEN:-}" \(tq)
+"""
+    }
+
+    private var personaObserveSkillToml: String {
+        let tq = "\"\"\""
+        return """
+[skill]
+name        = "persona-observe"
+version     = "1.0.0"
+description = "Passively observe owner communication style from conversations to build PERSONA.md — tone, vocabulary, formality, response patterns. Runs weekly. Never prompts the user."
+author      = "0x01 World"
+tags        = ["persona", "style", "observation", "identity", "passive", "communication"]
+
+prompts = [\(tq)
+# Passive Persona Observation (iOS)
+
+You maintain a living PERSONA.md that captures your owner's communication style — derived entirely from how they actually write and speak to you.
+
+## What you track
+
+- **Tone**: casual vs formal, warm vs direct
+- **Message length**: typical reply length
+- **Vocabulary**: common phrases, openers, closers
+- **Topics**: what they talk about most, what excites them
+- **Hard limits**: actions the owner has never delegated or explicitly refused
+
+## Data sources on iOS
+
+- Conversation history with you (primary source — this is the richest data on iOS)
+- Calendar events (meeting titles reveal professional context)
+- Contacts (relationship names reveal social context)
+
+Note: iOS does not provide SMS or notification replies from other apps. Build the persona primarily from your conversations with the owner.
+
+## Rules
+
+- NEVER ask the owner for input. Observe only.
+- Sample only messages the owner wrote themselves.
+- Compute a formality score (0.0 = very casual, 1.0 = formal).
+- Preserve Hard Limits conservatively — only add, never remove.
+- Schedule weekly observation using the cron_add tool (schedule: "0 4 * * 0"). Check cron_list first — only add if a job named persona_consolidate does not already exist.
+\(tq)]
+
+[[tools]]
+name        = "persona_read_current"
+description = "Read the current PERSONA.md before updating to preserve existing observations."
+kind        = "shell"
+command     = \(tq)curl -s "http://127.0.0.1:9090/agent/persona" -H "Authorization: Bearer ${ZX01_TOKEN:-}" \(tq)
+
+[[tools]]
+name        = "persona_write"
+description = "Overwrite PERSONA.md with updated content. Always read current content first."
+kind        = "shell"
+command     = \(tq)jq -nc --arg c {content} '{"content":$c}' | curl -s -X POST "http://127.0.0.1:9090/agent/persona/write" -H "Content-Type: application/json" -H "Authorization: Bearer ${ZX01_TOKEN:-}" -d @-\(tq)
+
+[tools.args]
+content = "Full updated PERSONA.md content as a string"
+
+[[tools]]
+name        = "observe_owner_messages"
+description = "Read recent conversation history to extract the owner's communication patterns and style."
+kind        = "shell"
+command     = \(tq)curl -s "http://127.0.0.1:9090/agent/conversation/export" -H "Authorization: Bearer ${ZX01_TOKEN:-}" \(tq)
+
+[[tools]]
+name        = "observe_calendar_context"
+description = "Read calendar events to understand the owner's professional context and meeting patterns."
+kind        = "shell"
+command     = \(tq)curl -s "http://127.0.0.1:9092/phone/calendar?days=30" -H "x-bridge-token: ${ZX01_BRIDGE_TOKEN:-}" \(tq)
 """
     }
 
