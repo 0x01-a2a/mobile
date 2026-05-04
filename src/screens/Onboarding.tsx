@@ -11,10 +11,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLayout } from '../hooks/useLayout';
 import { useTranslation } from 'react-i18next';
 import React, { useState, useEffect } from 'react';
+import Clipboard from '@react-native-clipboard/clipboard';
 import {
   ActivityIndicator,
   Alert,
-  Clipboard,
   KeyboardAvoidingView,
   Linking,
   Platform,
@@ -83,23 +83,16 @@ export async function checkOnboardingDone(): Promise<boolean> {
   return (await AsyncStorage.getItem(ONBOARDING_KEY)) === 'true';
 }
 
-// Light palette — matches Today.tsx / You.tsx
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function useStyles(..._args: any[]) { return s; }
+import { ThemeColors } from '../theme/ThemeContext';
 
-const C = {
-  bg: '#ffffff',
-  card: '#f9fafb',
-  border: '#e5e7eb',
-  divider: '#f3f4f6',
-  green: '#22c55e',
-  greenBg: '#f0fdf4',
-  greenBorder: '#bbf7d0',
-  text: '#111111',
-  sub: '#6b7280',
-  hint: '#9ca3af',
-  orange: '#f97316',
-};
+function useOnboardingStyles(colors: ThemeColors) {
+  return React.useMemo(() => makeOnboardingStyles(colors), [colors]);
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function useStyles(..._args: any[]) {
+  const { colors } = useTheme();
+  return useOnboardingStyles(colors);
+}
 
 // ============================================================================
 // Shared layout helpers
@@ -114,6 +107,8 @@ function StepShell({
   step: number;
   total?: number;
 }) {
+  const { colors: C } = useTheme();
+  const s = useStyles(C);
   const { isTablet, contentHPad } = useLayout();
   const insets = useSafeAreaInsets();
   return (
@@ -169,6 +164,8 @@ function PrimaryBtn({
       onPress={onPress}
       activeOpacity={0.8}
       disabled={disabled}
+      accessibilityLabel={label}
+      accessibilityRole="button"
     >
       <Text style={[s.primaryBtnText, disabled && s.primaryBtnTextDisabled]}>
         {label}
@@ -181,16 +178,18 @@ function GhostBtn({ label, onPress }: { label: string; onPress: () => void }) {
   const { colors } = useTheme();
   const s = useStyles(colors);
   return (
-    <TouchableOpacity style={s.ghostBtn} onPress={onPress} activeOpacity={0.7}>
+    <TouchableOpacity style={s.ghostBtn} onPress={onPress} activeOpacity={0.7} accessibilityLabel={label} accessibilityRole="button">
       <Text style={s.ghostBtnText}>{label}</Text>
     </TouchableOpacity>
   );
 }
 
 function BackBtn({ onPress }: { onPress: () => void }) {
+  const { colors: C } = useTheme();
+  const s = useStyles(C);
   const { t } = useTranslation();
   return (
-    <TouchableOpacity style={s.backBtn} onPress={onPress} activeOpacity={0.7}>
+    <TouchableOpacity style={s.backBtn} onPress={onPress} activeOpacity={0.7} accessibilityLabel={t('onboarding.back')} accessibilityRole="button">
       <Text style={s.backBtnText}>{t('onboarding.back')}</Text>
     </TouchableOpacity>
   );
@@ -211,6 +210,8 @@ function WelcomeStep({
   onEnable: () => void;
   onSkip: () => void;
 }) {
+  const { colors: C } = useTheme();
+  const s = useStyles(C);
   const { t } = useTranslation();
   const [agreed, setAgreed] = useState(false);
   const [riskAgreed, setRiskAgreed] = useState(false);
@@ -345,7 +346,7 @@ function WelcomeStep({
             {phantomWallet.slice(0, 8)}…{phantomWallet.slice(-6)} linked
           </Text>
           <TouchableOpacity onPress={() => { onChangePhantomWallet(''); setShowPaste(false); }}>
-            <Text style={{ fontSize: 11, color: '#9ca3af' }}>×</Text>
+            <Text style={{ fontSize: 11, color: C.dim }}>×</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -356,13 +357,13 @@ function WelcomeStep({
           onPress={handleConnectPhantom}
           disabled={!termsOk || mwaLoading}
           style={{
-            backgroundColor: termsOk ? '#7c3aed' : '#e5e7eb',
+            backgroundColor: termsOk ? C.blue : C.border,
             borderRadius: 10,
             paddingVertical: 14,
             alignItems: 'center',
             marginBottom: 10,
           }}>
-          <Text style={{ fontSize: 15, fontWeight: '700', color: termsOk ? '#fff' : '#9ca3af' }}>
+          <Text style={{ fontSize: 15, fontWeight: '700', color: termsOk ? C.bg : C.dim }}>
             {mwaLoading ? 'Opening Phantom…' : 'Connect Phantom →'}
           </Text>
         </TouchableOpacity>
@@ -371,7 +372,7 @@ function WelcomeStep({
       {/* Paste fallback — collapsed by default */}
       {!walletLinked && (
         <TouchableOpacity onPress={() => setShowPaste(v => !v)} style={{ alignItems: 'center', marginBottom: 8 }}>
-          <Text style={{ fontSize: 12, color: '#6b7280', textDecorationLine: 'underline' }}>
+          <Text style={{ fontSize: 12, color: C.sub, textDecorationLine: 'underline' }}>
             {showPaste ? 'Hide manual entry' : 'Paste address manually instead'}
           </Text>
         </TouchableOpacity>
@@ -384,12 +385,12 @@ function WelcomeStep({
             value={phantomWallet}
             onChangeText={onChangePhantomWallet}
             placeholder={t('onboarding.ownerWalletPlaceholder')}
-            placeholderTextColor={C.hint}
+            placeholderTextColor={C.dim}
             autoCapitalize="none"
             autoCorrect={false}
             returnKeyType="done"
           />
-          <Text style={{ fontSize: 10, color: '#f59e0b', marginTop: 4 }}>
+          <Text style={{ fontSize: 10, color: C.amber, marginTop: 4 }}>
             Pasting an address does not prove ownership. Connect Phantom for cryptographic proof.
           </Text>
         </View>
@@ -429,6 +430,8 @@ function NameStep({
   onNext: () => void;
   onSkip: () => void;
 }) {
+  const { colors: C } = useTheme();
+  const s = useStyles(C);
   const { t } = useTranslation();
   return (
     <StepShell step={1} total={3}>
@@ -458,17 +461,17 @@ function NameStep({
         value={agentName}
         onChangeText={onChangeName}
         placeholder={t('onboarding.agentNamePlaceholder')}
-        placeholderTextColor={C.hint}
+        placeholderTextColor={C.dim}
         autoCapitalize="none"
         autoCorrect={false}
         maxLength={32}
       />
       {agentName.trim().length === 1 && (
-        <Text style={[s.inputHint, { color: C.orange }]}>
+        <Text style={[s.inputHint, { color: C.amber }]}>
           {t('onboarding.agentNameTooShort')}
         </Text>
       )}
-      <Text style={[s.inputHint, { color: '#9ca3af', fontSize: 10 }]}>Min. 2 characters</Text>
+      <Text style={[s.inputHint, { color: C.dim, fontSize: 10 }]}>Min. 2 characters</Text>
       <Text style={s.inputHint}>{t('onboarding.agentNameHint')}</Text>
 
       <PrimaryBtn
@@ -499,6 +502,8 @@ function TokenChoiceStep({
   onLaunch: (giftCode?: string, paymentTxid?: string) => void;
   onSkip: () => void;
 }) {
+  const { colors: C } = useTheme();
+  const s = useStyles(C);
   const name = agentName.trim() || 'your agent';
   const [giftCode, setGiftCode] = useState('');
   const [codeValid, setCodeValid] = useState<boolean | null>(null);
@@ -628,7 +633,7 @@ function TokenChoiceStep({
   const feeSOL = ((launchInfo?.self_pay_fee_lamports ?? 20_000_000) / 1e9).toFixed(3);
   const selfPayAvailable = !!(launchInfo?.self_pay_available && launchInfo?.fee_wallet);
 
-  const codeStatusColor = codeChecking ? '#9ca3af' : codeValid === true ? '#16a34a' : codeValid === false ? '#dc2626' : '#9ca3af';
+  const codeStatusColor = codeChecking ? C.dim : codeValid === true ? C.green : codeValid === false ? C.red : C.dim;
   const codeStatusIcon = codeChecking ? '…' : codeValid === true ? '✓' : codeValid === false ? '✗' : '';
 
   return (
@@ -642,31 +647,31 @@ function TokenChoiceStep({
       </Sub>
 
       <View style={{
-        backgroundColor: '#f0fdf4',
+        backgroundColor: C.green + '10',
         borderWidth: 1,
-        borderColor: '#bbf7d0',
+        borderColor: C.green + '30',
         borderRadius: 10,
         padding: 12,
         marginBottom: 20,
       }}>
-        <Text style={{ fontSize: 9, color: '#9ca3af', letterSpacing: 0.5, marginBottom: 6 }}>
+        <Text style={{ fontSize: 9, color: C.dim, letterSpacing: 0.5, marginBottom: 6 }}>
           WHAT'S AN AGENT TOKEN?
         </Text>
-        <Text style={{ fontSize: 12, color: '#374151', lineHeight: 18 }}>
+        <Text style={{ fontSize: 12, color: C.text, lineHeight: 18 }}>
           Requesters browse the mesh, find your agent, and <Text style={{ fontWeight: '600' }}>buy your token to hire you</Text>. Token price reflects your reputation and demand. Trading fees from every purchase go straight to your hot wallet.{gated ? ' Get a gift code from the 01 community.' : ' Free forever, sponsored by 01.'}
         </Text>
       </View>
 
       {gated && (
         <View style={{ marginBottom: 16 }}>
-          <Text style={{ fontSize: 11, color: '#6b7280', marginBottom: 6, letterSpacing: 0.3 }}>
+          <Text style={{ fontSize: 11, color: C.sub, marginBottom: 6, letterSpacing: 0.3 }}>
             GIFT CODE (from Discord / referral)
           </Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: codeValid === true ? '#16a34a' : codeValid === false ? '#dc2626' : '#d1d5db', borderRadius: 8, paddingHorizontal: 12 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: codeValid === true ? C.green : codeValid === false ? C.red : C.inputBorder, borderRadius: 8, paddingHorizontal: 12 }}>
             <TextInput
-              style={{ flex: 1, height: 44, fontSize: 14, color: '#111827', fontFamily: 'monospace' }}
+              style={{ flex: 1, height: 44, fontSize: 14, color: C.text, fontFamily: 'monospace' }}
               placeholder="Enter gift code…"
-              placeholderTextColor="#9ca3af"
+              placeholderTextColor={C.dim}
               value={giftCode}
               onChangeText={setGiftCode}
               autoCapitalize="none"
@@ -677,32 +682,32 @@ function TokenChoiceStep({
             )}
           </View>
           {codeValid === false && (
-            <Text style={{ fontSize: 11, color: '#dc2626', marginTop: 4 }}>Invalid or already used code.</Text>
+            <Text style={{ fontSize: 11, color: C.red, marginTop: 4 }}>Invalid or already used code.</Text>
           )}
         </View>
       )}
 
       <View style={{
-        backgroundColor: '#eff6ff',
+        backgroundColor: C.blue + '10',
         borderWidth: 1,
-        borderColor: '#bfdbfe',
+        borderColor: C.blue + '30',
         borderRadius: 10,
         padding: 12,
         marginBottom: 20,
       }}>
-        <Text style={{ fontSize: 9, color: '#9ca3af', letterSpacing: 0.5, marginBottom: 6 }}>
-          AI MODEL
+        <Text style={{ fontSize: 9, color: C.dim, letterSpacing: 0.5, marginBottom: 6 }}>
+          BACKED BY 01
         </Text>
-        <Text style={{ fontSize: 12, color: '#374151', lineHeight: 18 }}>
-          Your agent runs on <Text style={{ fontWeight: '600' }}>Gemini 3 Flash</Text>, provided free by the 01 network. No API key needed. Hold 5,000 $01PL to unlock unlimited daily usage.
+        <Text style={{ fontSize: 12, color: C.text, lineHeight: 18 }}>
+          01 doesn't just host your agent — we back it. We cover launch costs, seed your token with an initial buy, and provide free AI compute on <Text style={{ fontWeight: '600' }}>Gemini 3 Flash</Text> (100k tokens/day free, unlimited with 500,000 $01PL).
         </Text>
       </View>
 
       <View style={{ gap: 10, marginBottom: 28 }}>
         {[
-          { icon: '◈', title: 'Economy utility', body: 'Requesters buy your token to signal hiring intent. Token price reflects your reputation and demand. Trading fees go straight to your wallet.' },
-          { icon: '♦', title: 'Sponsors open-source dev', body: '01 is free and open-source. A portion of trading fees flows back to the protocol — keeping it free and funded forever.' },
-          { icon: '◎', title: gated ? 'Get a code' : 'Free launch', body: gated ? 'Ask in the 01 Discord or get a referral from an existing agent to receive a sponsored gift code.' : 'The 01 aggregator covers all SOL gas fees. You pay nothing. You can also launch later from Settings.' },
+          { icon: '◈', title: 'We invest from day one', body: '01 makes an initial buy into every agent token at launch — seeding liquidity and taking a position alongside you. Your success is our success.' },
+          { icon: '◎', title: gated ? 'Get a code' : 'Zero cost to launch', body: gated ? 'Ask in the 01 Discord or get a referral from an existing agent to receive a sponsored gift code.' : '01 covers all SOL gas fees. You pay nothing to launch.' },
+          { icon: '♦', title: 'Earn while you sleep', body: 'Requesters buy your token to hire your agent. Trading fees, task payments, and token appreciation flow straight to your wallet.' },
         ].map(({ icon, title, body }) => (
           <View key={title} style={s.tokenCard}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
@@ -715,7 +720,7 @@ function TokenChoiceStep({
       </View>
 
       {gated && !canLaunchFree && (
-        <Text style={{ fontSize: 12, color: '#6b7280', textAlign: 'center', marginBottom: 10 }}>
+        <Text style={{ fontSize: 12, color: C.sub, textAlign: 'center', marginBottom: 10 }}>
           Enter a valid gift code above to launch for free.
         </Text>
       )}
@@ -732,12 +737,12 @@ function TokenChoiceStep({
           style={{
             marginTop: 10,
             borderWidth: 1,
-            borderColor: '#7c3aed',
+            borderColor: C.blue,
             borderRadius: 8,
             paddingVertical: 12,
             alignItems: 'center',
           }}>
-          <Text style={{ fontSize: 14, color: '#7c3aed', fontWeight: '600' }}>
+          <Text style={{ fontSize: 14, color: C.blue, fontWeight: '600' }}>
             {mwaLoading ? 'Opening Phantom…' : `Pay with Phantom (~${feeSOL} SOL) →`}
           </Text>
         </TouchableOpacity>
@@ -835,15 +840,15 @@ export function OnboardingScreen({
       }
       await AsyncStorage.setItem('zerox1:auto_start', 'true');
       const config: AgentBrainConfig = {
-        enabled: false,
-        provider: 'openai',
+        enabled: true,
+        provider: 'default',
         capabilities: ALL_CAPABILITIES,
         minFeeUsdc: 5,
         minReputation: 50,
         autoAccept: false,
         maxActionsPerHour: 100,
         maxCostPerDayCents: 1000,
-        apiKeySet: false,
+        apiKeySet: true,  // 'default' provider uses aggregator Gemini proxy — no user key needed
         customBaseUrl: '',
         customModel: '',
       };
@@ -952,6 +957,8 @@ function LaunchSuccessStep({
   paymentTxid?: string;
   onFinish: (config: AgentBrainConfig | null) => void;
 }) {
+  const { colors: C } = useTheme();
+  const s = useStyles(C);
   const { t } = useTranslation();
   const [phase, setPhase] = useState<'starting' | 'launching' | 'done' | 'error'>('starting');
   const [hotWalletAddress, setHotWalletAddress] = useState<string | null>(null);
@@ -990,7 +997,7 @@ function LaunchSuccessStep({
           fullConfig = {
             ...nodeConfig,
             agentBrainEnabled: true,
-            llmProvider: brain.provider ?? 'gemini',
+            llmProvider: brain.provider ?? 'default',
             llmModel: brain.customModel ?? '',
             llmBaseUrl: brain.customBaseUrl ?? '',
             capabilities: JSON.stringify(brain.capabilities ?? []),
@@ -1385,18 +1392,18 @@ function LaunchSuccessStep({
           return (
             <View key={label} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: idx < phaseLabels.length - 1 ? 10 : 0 }}>
               {status === 'done' && (
-                <Text style={{ fontSize: 14, color: '#22c55e', width: 18 }}>✓</Text>
+                <Text style={{ fontSize: 14, color: C.green, width: 18 }}>✓</Text>
               )}
               {status === 'in-progress' && (
-                <ActivityIndicator size="small" color="#22c55e" style={{ width: 18 }} />
+                <ActivityIndicator size="small" color={C.green} style={{ width: 18 }} />
               )}
               {status === 'pending' && (
-                <Text style={{ fontSize: 18, color: '#9ca3af', width: 18, lineHeight: 20 }}>•</Text>
+                <Text style={{ fontSize: 18, color: C.dim, width: 18, lineHeight: 20 }}>•</Text>
               )}
               {status === 'error' && (
-                <Text style={{ fontSize: 14, color: '#dc2626', width: 18 }}>✗</Text>
+                <Text style={{ fontSize: 14, color: C.red, width: 18 }}>✗</Text>
               )}
-              <Text style={{ fontSize: 13, color: status === 'done' ? '#22c55e' : status === 'error' ? '#dc2626' : status === 'in-progress' ? '#111111' : '#9ca3af', flex: 1 }}>
+              <Text style={{ fontSize: 13, color: status === 'done' ? C.green : status === 'error' ? C.red : status === 'in-progress' ? C.text : C.dim, flex: 1 }}>
                 {label}
               </Text>
             </View>
@@ -1405,14 +1412,14 @@ function LaunchSuccessStep({
       </View>
 
       {phase === 'error' && (
-        <View style={[s.infoCard, { borderColor: '#fecaca', backgroundColor: '#fef2f2' }]}>
-          <Text style={{ fontSize: 12, color: '#dc2626', marginBottom: 10 }}>{errorMsg}</Text>
+        <View style={[s.infoCard, { borderColor: C.red + '30', backgroundColor: C.red + '08' }]}>
+          <Text style={{ fontSize: 12, color: C.red, marginBottom: 10 }}>{errorMsg}</Text>
           <TouchableOpacity
-            style={[s.copyBtn, { borderColor: '#dc2626' }]}
+            style={[s.copyBtn, { borderColor: C.red }]}
             onPress={handleRetry}
             activeOpacity={0.7}
           >
-            <Text style={[s.copyBtnText, { color: '#dc2626' }]}>{t('onboarding.retry')}</Text>
+            <Text style={[s.copyBtnText, { color: C.red }]}>{t('onboarding.retry')}</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -1420,7 +1427,7 @@ function LaunchSuccessStep({
       {/* Token result — only shown if user chose to launch */}
       {launchToken && (
         tokenMint ? (
-          <View style={[s.infoCard, { borderColor: C.greenBorder, backgroundColor: C.greenBg }]}>
+          <View style={[s.infoCard, { borderColor: C.green + '30', backgroundColor: C.green + '10' }]}>
             <Text style={s.infoCardLabel}>{t('onboarding.yourAgentToken')}</Text>
             <Text style={s.infoCardHint}>
               Live on Bags.fm. Requesters buy it to hire you — trading fees go to your hot wallet.
@@ -1434,7 +1441,7 @@ function LaunchSuccessStep({
               <Text style={s.copyBtnText}>{t('onboarding.copyMint')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[s.copyBtn, { borderColor: '#1da1f2', marginTop: 8 }]}
+              style={[s.copyBtn, { borderColor: C.blue, marginTop: 8 }]}
               onPress={() => {
                 const agentName = (launchBodyBaseRef.current.name as string) ?? 'my agent';
                 Linking.openURL(
@@ -1445,7 +1452,7 @@ function LaunchSuccessStep({
               }}
               activeOpacity={0.7}
             >
-              <Text style={[s.copyBtnText, { color: '#1da1f2' }]}>Share on X →</Text>
+              <Text style={[s.copyBtnText, { color: C.blue }]}>Share on X →</Text>
             </TouchableOpacity>
           </View>
         ) : phase === 'done' && !fallbackNeeded && (
@@ -1457,7 +1464,7 @@ function LaunchSuccessStep({
                 : 'Token launch pending. You can launch from Settings anytime.'}
             </Text>
             {tokenLaunchError && (
-              <Text style={[s.infoCardHint, { color: '#dc2626', marginTop: 4 }]}>
+              <Text style={[s.infoCardHint, { color: C.red, marginTop: 4 }]}>
                 {tokenLaunchError}
               </Text>
             )}
@@ -1467,21 +1474,21 @@ function LaunchSuccessStep({
 
       {/* Fallback: 402 — wrong/missing gift code */}
       {fallbackNeeded && !tokenMint && (
-        <View style={[s.infoCard, { borderColor: '#e9d5ff', backgroundColor: '#faf5ff', marginTop: 10 }]}>
-          <Text style={[s.infoCardLabel, { color: '#7c3aed' }]}>FREE LAUNCH LOCKED</Text>
+        <View style={[s.infoCard, { borderColor: C.blue + '30', backgroundColor: C.blue + '08', marginTop: 10 }]}>
+          <Text style={[s.infoCardLabel, { color: C.blue }]}>FREE LAUNCH LOCKED</Text>
           <Text style={s.infoCardHint}>
             Sponsored launches require a gift code — ask in the 01 Discord or get a referral. No code yet? Share on X to unlock access, or pay a small SOL fee.
           </Text>
 
           {/* Social share option */}
-          <Text style={[s.infoCardHint, { marginTop: 10, color: '#6b7280', fontStyle: 'italic' }]}>
+          <Text style={[s.infoCardHint, { marginTop: 10, color: C.sub, fontStyle: 'italic' }]}>
             Share the post below, then tap "I've shared" to unlock your free launch.
           </Text>
           <TouchableOpacity
             style={{
               marginTop: 8,
               borderWidth: 1,
-              borderColor: '#1da1f2',
+              borderColor: C.blue,
               borderRadius: 8,
               paddingVertical: 11,
               alignItems: 'center',
@@ -1496,7 +1503,7 @@ function LaunchSuccessStep({
               setSocialShared(true);
             }}
           >
-            <Text style={{ fontSize: 14, color: '#1da1f2', fontWeight: '600' }}>
+            <Text style={{ fontSize: 14, color: C.blue, fontWeight: '600' }}>
               Share on X (Twitter) →
             </Text>
           </TouchableOpacity>
@@ -1506,7 +1513,7 @@ function LaunchSuccessStep({
               style={{
                 marginTop: 8,
                 borderWidth: 1,
-                borderColor: '#16a34a',
+                borderColor: C.green,
                 borderRadius: 8,
                 paddingVertical: 11,
                 alignItems: 'center',
@@ -1515,9 +1522,9 @@ function LaunchSuccessStep({
               onPress={() => retryLaunch({ type: 'social' })}
             >
               {fallbackLoading ? (
-                <ActivityIndicator size="small" color="#16a34a" />
+                <ActivityIndicator size="small" color={C.green} />
               ) : (
-                <Text style={{ fontSize: 14, color: '#16a34a', fontWeight: '600' }}>
+                <Text style={{ fontSize: 14, color: C.green, fontWeight: '600' }}>
                   I've shared — launch my token →
                 </Text>
               )}
@@ -1530,7 +1537,7 @@ function LaunchSuccessStep({
               style={{
                 marginTop: 8,
                 borderWidth: 1,
-                borderColor: '#7c3aed',
+                borderColor: C.blue,
                 borderRadius: 8,
                 paddingVertical: 11,
                 alignItems: 'center',
@@ -1539,9 +1546,9 @@ function LaunchSuccessStep({
               onPress={handlePhantomPayFallback}
             >
               {fallbackLoading ? (
-                <ActivityIndicator size="small" color="#7c3aed" />
+                <ActivityIndicator size="small" color={C.blue} />
               ) : (
-                <Text style={{ fontSize: 14, color: '#7c3aed', fontWeight: '600' }}>
+                <Text style={{ fontSize: 14, color: C.blue, fontWeight: '600' }}>
                   {`Pay with Phantom (~${(fallbackFee.lamports / 1e9).toFixed(3)} SOL) →`}
                 </Text>
               )}
@@ -1551,8 +1558,8 @@ function LaunchSuccessStep({
       )}
 
       {/* Hot wallet & secret key */}
-      <View style={[s.infoCard, { borderColor: '#fed7aa', backgroundColor: '#fff7ed', marginTop: 10 }]}>
-        <Text style={[s.infoCardLabel, { color: C.orange }]}>{t('onboarding.hotWalletWarning')}</Text>
+      <View style={[s.infoCard, { borderColor: C.amber + '30', backgroundColor: C.amber + '08', marginTop: 10 }]}>
+        <Text style={[s.infoCardLabel, { color: C.amber }]}>{t('onboarding.hotWalletWarning')}</Text>
         <Text style={s.infoCardHint}>
           Your agent's identity and earning wallet. Back up the secret key before closing
           this screen — it cannot be recovered if lost.
@@ -1565,33 +1572,33 @@ function LaunchSuccessStep({
           </>
         )}
 
-        <Text style={[s.inputLabel, { marginTop: 12, color: C.orange }]}>{t('onboarding.secretKeyLabel')}</Text>
+        <Text style={[s.inputLabel, { marginTop: 12, color: C.amber }]}>{t('onboarding.secretKeyLabel')}</Text>
 
         {secretKeyB58 ? (
           <>
             {secretRevealed ? (
               <>
-                <Text style={[s.infoCardHint, { color: C.orange, marginBottom: 6 }]}>
+                <Text style={[s.infoCardHint, { color: C.amber, marginBottom: 6 }]}>
                   Do not screenshot. Use the copy button below.
                 </Text>
                 <Text style={[s.monoText, { fontSize: 10, lineHeight: 16 }]}>{secretKeyB58}</Text>
               </>
             ) : (
               <TouchableOpacity
-                style={[s.copyBtn, { borderColor: C.orange }]}
+                style={[s.copyBtn, { borderColor: C.amber }]}
                 onPress={() => setSecretRevealed(true)}
                 activeOpacity={0.7}
               >
-                <Text style={[s.copyBtnText, { color: C.orange }]}>{t('onboarding.tapToReveal')}</Text>
+                <Text style={[s.copyBtnText, { color: C.amber }]}>{t('onboarding.tapToReveal')}</Text>
               </TouchableOpacity>
             )}
             {secretRevealed && (
               <TouchableOpacity
-                style={[s.copyBtn, { borderColor: keyCopied ? C.green : C.orange, marginTop: 8 }]}
+                style={[s.copyBtn, { borderColor: keyCopied ? C.green : C.amber, marginTop: 8 }]}
                 onPress={handleCopyKey}
                 activeOpacity={0.7}
               >
-                <Text style={[s.copyBtnText, { color: keyCopied ? C.green : C.orange }]}>
+                <Text style={[s.copyBtnText, { color: keyCopied ? C.green : C.amber }]}>
                   {keyCopied ? 'Copied ✓' : 'Copy secret key'}
                 </Text>
               </TouchableOpacity>
@@ -1606,7 +1613,7 @@ function LaunchSuccessStep({
 
       {/* Key must be revealed (and ideally copied) before proceeding — prevents accidental loss */}
       {secretKeyB58 && !keyCopied && phase === 'done' && (
-        <Text style={{ fontSize: 12, color: C.orange, textAlign: 'center', marginBottom: 10 }}>
+        <Text style={{ fontSize: 12, color: C.amber, textAlign: 'center', marginBottom: 10 }}>
           Copy your secret key before continuing — it cannot be recovered if lost.
         </Text>
       )}
@@ -1623,159 +1630,161 @@ function LaunchSuccessStep({
 // Styles
 // ============================================================================
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: C.bg },
-  content: { padding: 28, paddingBottom: 48 },
-  contentTablet: { padding: 48, paddingTop: 64, paddingBottom: 64 },
+function makeOnboardingStyles(C: ThemeColors) {
+  return StyleSheet.create({
+    root: { flex: 1, backgroundColor: C.bg },
+    content: { padding: 28, paddingBottom: 48 },
+    contentTablet: { padding: 48, paddingTop: 64, paddingBottom: 64 },
 
-  progressRow: { flexDirection: 'row', gap: 6, marginBottom: 36 },
-  pip: { height: 3, flex: 1, backgroundColor: C.divider, borderRadius: 2 },
-  pipDone: { backgroundColor: C.green },
+    progressRow: { flexDirection: 'row', gap: 6, marginBottom: 36 },
+    pip: { height: 3, flex: 1, backgroundColor: C.border, borderRadius: 2 },
+    pipDone: { backgroundColor: C.green },
 
-  logo: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: C.green,
-    letterSpacing: -1,
-    marginBottom: 20,
-  },
-  heading: {
-    fontSize: 26,
-    fontWeight: '700',
-    color: C.text,
-    letterSpacing: -0.5,
-    marginBottom: 12,
-  },
-  sub: {
-    fontSize: 14,
-    color: C.sub,
-    lineHeight: 21,
-    marginBottom: 28,
-  },
+    logo: {
+      fontSize: 28,
+      fontWeight: '800',
+      color: C.green,
+      letterSpacing: -1,
+      marginBottom: 20,
+    },
+    heading: {
+      fontSize: 26,
+      fontWeight: '700',
+      color: C.text,
+      letterSpacing: -0.5,
+      marginBottom: 12,
+    },
+    sub: {
+      fontSize: 14,
+      color: C.sub,
+      lineHeight: 21,
+      marginBottom: 28,
+    },
 
-  // Feature list (step 0)
-  featureList: { marginBottom: 28, gap: 10 },
-  featureRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  featureIcon: { fontSize: 14, color: C.green, lineHeight: 20, width: 16 },
-  featureText: { fontSize: 14, color: C.text, lineHeight: 20, flex: 1 },
+    // Feature list (step 0)
+    featureList: { marginBottom: 28, gap: 10 },
+    featureRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+    featureIcon: { fontSize: 14, color: C.green, lineHeight: 20, width: 16 },
+    featureText: { fontSize: 14, color: C.text, lineHeight: 20, flex: 1 },
 
-  // Terms agreement
-  termsRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginTop: 16, marginBottom: 4 },
-  checkbox: {
-    width: 18, height: 18, borderRadius: 4, borderWidth: 1,
-    borderColor: C.border, alignItems: 'center', justifyContent: 'center', marginTop: 1,
-  },
-  checkboxChecked: { backgroundColor: C.green, borderColor: C.green },
-  checkmark: { fontSize: 11, color: '#000', fontWeight: '700' },
-  termsText: { fontSize: 12, color: C.sub, lineHeight: 18, flex: 1 },
-  termsLink: { color: C.green, textDecorationLine: 'underline' },
+    // Terms agreement
+    termsRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginTop: 16, marginBottom: 4 },
+    checkbox: {
+      width: 18, height: 18, borderRadius: 4, borderWidth: 1,
+      borderColor: C.border, alignItems: 'center', justifyContent: 'center', marginTop: 1,
+    },
+    checkboxChecked: { backgroundColor: C.green, borderColor: C.green },
+    checkmark: { fontSize: 11, color: C.bg, fontWeight: '700' },
+    termsText: { fontSize: 12, color: C.sub, lineHeight: 18, flex: 1 },
+    termsLink: { color: C.green, textDecorationLine: 'underline' },
 
-  // Inputs
-  inputLabel: { fontSize: 10, color: C.hint, letterSpacing: 0.5, marginBottom: 6 },
-  textInput: {
-    backgroundColor: C.card,
-    borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 14,
-    color: C.text,
-    marginBottom: 8,
-  },
-  inputHint: { fontSize: 11, color: C.hint, marginBottom: 20, lineHeight: 16 },
+    // Inputs
+    inputLabel: { fontSize: 10, color: C.dim, letterSpacing: 0.5, marginBottom: 6 },
+    textInput: {
+      backgroundColor: C.card,
+      borderWidth: 1,
+      borderColor: C.border,
+      borderRadius: 10,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      fontSize: 14,
+      color: C.text,
+      marginBottom: 8,
+    },
+    inputHint: { fontSize: 11, color: C.dim, marginBottom: 20, lineHeight: 16 },
 
-  // Avatar picker (step 1)
-  avatarBtn: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: C.greenBg,
-    borderWidth: 2,
-    borderColor: C.greenBorder,
-    overflow: 'hidden',
-  },
-  avatarImage: { width: 80, height: 80 },
+    // Avatar picker (step 1)
+    avatarBtn: {
+      width: 80,
+      height: 80,
+      borderRadius: 40,
+      backgroundColor: C.green + '10',
+      borderWidth: 2,
+      borderColor: C.green + '30',
+      overflow: 'hidden',
+    },
+    avatarImage: { width: 80, height: 80 },
 
-  // Provider grid (step 2)
-  providerGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 20 },
-  providerCard: {
-    backgroundColor: C.card,
-    borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: 10,
-    padding: 14,
-  },
-  providerCardActive: { borderColor: C.green, backgroundColor: C.greenBg },
-  providerLabel: { fontSize: 14, fontWeight: '600', color: C.sub, marginBottom: 2 },
-  providerLabelActive: { color: C.green },
-  providerModel: { fontSize: 10, color: C.hint },
+    // Provider grid (step 2)
+    providerGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 20 },
+    providerCard: {
+      backgroundColor: C.card,
+      borderWidth: 1,
+      borderColor: C.border,
+      borderRadius: 10,
+      padding: 14,
+    },
+    providerCardActive: { borderColor: C.green, backgroundColor: C.green + '10' },
+    providerLabel: { fontSize: 14, fontWeight: '600', color: C.sub, marginBottom: 2 },
+    providerLabelActive: { color: C.green },
+    providerModel: { fontSize: 10, color: C.dim },
 
-  // Token choice cards (step 5)
-  tokenCard: {
-    backgroundColor: C.card,
-    borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: 12,
-    padding: 14,
-  },
-  tokenIcon: { fontSize: 14, color: C.green },
-  tokenCardTitle: { fontSize: 13, fontWeight: '600', color: C.text },
-  tokenCardBody: { fontSize: 12, color: C.sub, lineHeight: 18 },
+    // Token choice cards (step 5)
+    tokenCard: {
+      backgroundColor: C.card,
+      borderWidth: 1,
+      borderColor: C.border,
+      borderRadius: 12,
+      padding: 14,
+    },
+    tokenIcon: { fontSize: 14, color: C.green },
+    tokenCardTitle: { fontSize: 13, fontWeight: '600', color: C.text },
+    tokenCardBody: { fontSize: 12, color: C.sub, lineHeight: 18 },
 
-  // Info cards (step 6)
-  infoCard: {
-    backgroundColor: C.card,
-    borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 14,
-  },
-  infoCardLabel: { fontSize: 10, color: C.green, letterSpacing: 0.5, marginBottom: 6 },
-  infoCardHint: { fontSize: 12, color: C.sub, lineHeight: 17 },
-  monoText: {
-    fontSize: 12,
-    color: C.text,
-    fontFamily: 'monospace',
-    lineHeight: 18,
-    marginTop: 4,
-    marginBottom: 8,
-  },
-  copyBtn: {
-    alignSelf: 'flex-start',
-    borderWidth: 1,
-    borderColor: C.green,
-    borderRadius: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    marginTop: 4,
-    minWidth: 44,
-    minHeight: 44,
-    justifyContent: 'center',
-  },
-  copyBtnText: { fontSize: 11, color: C.green, fontWeight: '600' },
+    // Info cards (step 6)
+    infoCard: {
+      backgroundColor: C.card,
+      borderWidth: 1,
+      borderColor: C.border,
+      borderRadius: 12,
+      padding: 14,
+      marginBottom: 14,
+    },
+    infoCardLabel: { fontSize: 10, color: C.green, letterSpacing: 0.5, marginBottom: 6 },
+    infoCardHint: { fontSize: 12, color: C.sub, lineHeight: 17 },
+    monoText: {
+      fontSize: 12,
+      color: C.text,
+      fontFamily: 'monospace',
+      lineHeight: 18,
+      marginTop: 4,
+      marginBottom: 8,
+    },
+    copyBtn: {
+      alignSelf: 'flex-start',
+      borderWidth: 1,
+      borderColor: C.green,
+      borderRadius: 6,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      marginTop: 4,
+      minWidth: 44,
+      minHeight: 44,
+      justifyContent: 'center',
+    },
+    copyBtnText: { fontSize: 11, color: C.green, fontWeight: '600' },
 
-  // Buttons
-  primaryBtn: {
-    backgroundColor: C.text,
-    borderRadius: 12,
-    paddingVertical: 15,
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  primaryBtnDisabled: { backgroundColor: C.border },
-  primaryBtnText: { fontSize: 14, fontWeight: '700', color: '#fff', letterSpacing: 0.2 },
-  primaryBtnTextDisabled: { color: C.hint },
-  ghostBtn: {
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: 12,
-    marginBottom: 8,
-  },
-  ghostBtnText: { fontSize: 13, color: C.sub },
-  backBtn: { marginBottom: 20 },
-  backBtnText: { fontSize: 12, color: C.hint },
-});
+    // Buttons
+    primaryBtn: {
+      backgroundColor: C.text,
+      borderRadius: 12,
+      paddingVertical: 15,
+      alignItems: 'center',
+      marginBottom: 12,
+    },
+    primaryBtnDisabled: { backgroundColor: C.border },
+    primaryBtnText: { fontSize: 14, fontWeight: '700', color: C.bg, letterSpacing: 0.2 },
+    primaryBtnTextDisabled: { color: C.dim },
+    ghostBtn: {
+      alignItems: 'center',
+      paddingVertical: 12,
+      borderWidth: 1,
+      borderColor: C.border,
+      borderRadius: 12,
+      marginBottom: 8,
+    },
+    ghostBtnText: { fontSize: 13, color: C.sub },
+    backBtn: { marginBottom: 20 },
+    backBtnText: { fontSize: 12, color: C.dim },
+  });
+}

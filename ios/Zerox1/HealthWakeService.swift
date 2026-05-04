@@ -14,6 +14,7 @@ final class HealthWakeService {
     static let shared = HealthWakeService()
     private let store = HKHealthStore()
     private var registered = false
+    private var activeQueries: [HKObserverQuery] = []
 
     // ── Types we watch ────────────────────────────────────────────────────────
     // Extend this list freely — each type that the agent is configured to use.
@@ -47,10 +48,22 @@ final class HealthWakeService {
                     guard error == nil else { completionHandler(); return }
                     self?.handleHealthWake(type: identifier, completionHandler: completionHandler)
                 }
+                self.activeQueries.append(query)
                 self.store.execute(query)
                 os_log(.debug, "[HealthWake] Registered background delivery for %{public}@", identifier.rawValue)
             }
         }
+    }
+
+    /// Stop all observer queries and allow re-registration.
+    /// Called from NodeService.stop() so HealthKit wakes no longer restart the node
+    /// after the user explicitly stopped it.
+    func unregister() {
+        for query in activeQueries {
+            store.stop(query)
+        }
+        activeQueries.removeAll()
+        registered = false
     }
 
     // MARK: - Private

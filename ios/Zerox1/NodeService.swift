@@ -73,6 +73,15 @@ final class NodeService {
         isNodeRunning ? dataDir : nil
     }
 
+    /// Public path to the zeroclaw skills directory (always resolved, not gated on running state).
+    /// Used by NodeModule for iOS-side skill install/remove/list.
+    var skillsDirectory: URL {
+        dataDir
+            .appendingPathComponent("zeroclaw")
+            .appendingPathComponent("workspace")
+            .appendingPathComponent("skills")
+    }
+
     /// Path to the zeroclaw agent log file, always resolved (not gated on running state).
     var logFilePath: String? {
         let path = dataDir.appendingPathComponent("zeroclaw_ffi.log").path
@@ -100,6 +109,16 @@ final class NodeService {
         // Always overwrite — this is a machine-managed skill, not user-editable.
         // App updates with improved skill definitions will take effect on next launch.
         try safetySkillToml.write(to: safetyPath, atomically: true, encoding: .utf8)
+
+        let moltbookDir = skillsRoot.appendingPathComponent("moltbook", isDirectory: true)
+        try FileManager.default.createDirectory(at: moltbookDir, withIntermediateDirectories: true)
+        try moltbookSkillToml.write(to: moltbookDir.appendingPathComponent("SKILL.toml"),
+                                     atomically: true, encoding: .utf8)
+
+        let podcastDir = skillsRoot.appendingPathComponent("podcast", isDirectory: true)
+        try FileManager.default.createDirectory(at: podcastDir, withIntermediateDirectories: true)
+        try podcastSkillToml.write(to: podcastDir.appendingPathComponent("SKILL.toml"),
+                                    atomically: true, encoding: .utf8)
     }
 
     private var safetySkillToml: String {
@@ -216,6 +235,171 @@ text = "Text to speak aloud"
 """
     }
 
+    private var moltbookSkillToml: String {
+        let tq = "\"\"\""
+        return """
+[skill]
+name        = "moltbook"
+version     = "1.0.0"
+description = "Post, comment, read feeds, and search on MoltBook — the AI-native social network. Requires MOLTBOOK_API_KEY env var."
+author      = "0x01 World"
+tags        = ["moltbook", "social", "community", "presence", "ai-network"]
+
+prompts = [\(tq)
+# MoltBook
+
+MoltBook is Reddit for AI agents. You can post to submolts (communities), comment on posts, upvote, search, and build a presence across the network.
+
+## Your tools
+- moltbook_post — create a post in any submolt
+- moltbook_comment — comment on a post
+- moltbook_reply — reply to a comment
+- moltbook_feed — read hot posts from a submolt or the global feed
+- moltbook_search — search for posts by keyword
+- moltbook_upvote — upvote a post
+
+All tools require MOLTBOOK_API_KEY. If it is missing, tell the user to configure MoltBook in Settings > Advanced.
+
+Rate limits: 1 post per 30 minutes, 50 comments per day. Write substantive, on-topic content.
+When posting, choose the most relevant submolt. Use m/ai, m/solana, m/cryptocurrency as defaults.
+\(tq)]
+
+[[tools]]
+name        = "moltbook_post"
+description = "Create a new text post in a MoltBook submolt community."
+kind        = "shell"
+command     = "jq -nc --arg t {title} --arg c {content} --arg s {submolt} '{\\\"type\\\":\\\"text\\\",\\\"title\\\":$t,\\\"content\\\":$c,\\\"submolt\\\":$s}' | curl -sf -X POST 'https://www.moltbook.com/api/v1/posts' -H 'Authorization: Bearer ${MOLTBOOK_API_KEY}' -H 'Content-Type: application/json' -d @- | jq '{id:.data[0].id,title:.data[0].title,submolt:.data[0].submolt,score:.data[0].score}'"
+
+[tools.args]
+title   = "Post title"
+content = "Post body text"
+submolt = "Target submolt, e.g. m/ai or m/solana"
+
+[[tools]]
+name        = "moltbook_comment"
+description = "Post a comment on a MoltBook post."
+kind        = "shell"
+command     = "jq -nc --arg c {content} '{\\\"content\\\":$c}' | curl -sf -X POST 'https://www.moltbook.com/api/v1/posts/{post_id}/comments' -H 'Authorization: Bearer ${MOLTBOOK_API_KEY}' -H 'Content-Type: application/json' -d @- | jq '{id:.id,content:.content}'"
+
+[tools.args]
+post_id = "The post ID to comment on"
+content = "Comment text"
+
+[[tools]]
+name        = "moltbook_reply"
+description = "Reply to an existing comment on MoltBook."
+kind        = "shell"
+command     = "jq -nc --arg c {content} '{\\\"content\\\":$c}' | curl -sf -X POST 'https://www.moltbook.com/api/v1/comments/{comment_id}/reply' -H 'Authorization: Bearer ${MOLTBOOK_API_KEY}' -H 'Content-Type: application/json' -d @- | jq '{id:.id,content:.content}'"
+
+[tools.args]
+comment_id = "The comment ID to reply to"
+content    = "Reply text"
+
+[[tools]]
+name        = "moltbook_feed"
+description = "Read hot posts from a submolt. Use m/all for the global feed."
+kind        = "shell"
+command     = "curl -sf 'https://www.moltbook.com/api/v1/posts?sort=hot&limit=10&submolt={submolt}' -H 'Authorization: Bearer ${MOLTBOOK_API_KEY}' | jq '[.data[]?|{id:.id,title:.title,submolt:.submolt,score:.score,comments:.comment_count,author:.author.name,time:.created_at}]'"
+
+[tools.args]
+submolt = "Submolt to read, e.g. m/ai — use m/all for global feed"
+
+[[tools]]
+name        = "moltbook_search"
+description = "Search MoltBook for posts by keyword."
+kind        = "shell"
+command     = "curl -sf 'https://www.moltbook.com/api/v1/search/posts?q={query}&limit=10' -H 'Authorization: Bearer ${MOLTBOOK_API_KEY}' | jq '[.data[]?|{id:.id,title:.title,submolt:.submolt,score:.score,author:.author.name}]'"
+
+[tools.args]
+query = "Search keyword or phrase"
+
+[[tools]]
+name        = "moltbook_upvote"
+description = "Upvote a MoltBook post."
+kind        = "shell"
+command     = "curl -sf -X POST 'https://www.moltbook.com/api/v1/posts/{post_id}/upvote' -H 'Authorization: Bearer ${MOLTBOOK_API_KEY}' | jq '{success:.success}'"
+
+[tools.args]
+post_id = "The post ID to upvote"
+"""
+    }
+
+    private var podcastSkillToml: String {
+        let tq = "\"\"\""
+        return """
+[skill]
+name        = "podcast"
+version     = "1.0.0"
+description = "Produce, clip, and publish AI-generated podcast episodes from your agent conversations. Export a conversation, generate a script, produce audio via the aggregator, and distribute to RSS and Telegram."
+author      = "0x01 World"
+tags        = ["podcast", "audio", "content", "rss", "publish", "media"]
+
+prompts = [\(tq)
+# Podcast Producer
+
+You can turn any agent conversation into a published podcast episode. Follow this flow:
+
+1. Call `podcast_export_conversation` to fetch a clean transcript of your recent conversation history.
+2. Review the transcript and suggest a compelling episode title to the user. Wait for approval or let the user provide their own title.
+3. Call `podcast_produce` with the approved title, a tier (standard or premium), and the transcript JSON. The aggregator synthesises audio and returns an `episode_id`.
+4. Optionally call `podcast_clip` to extract a short highlight clip (30–90 seconds) for social sharing. Suggest a punchy moment from the transcript as the clip range.
+5. Call `podcast_publish` with the `episode_id` to push the episode to RSS, Telegram, or both.
+6. Report the published episode URL to the user.
+
+## Tips
+- Keep titles under 60 characters for RSS compatibility.
+- Clips work best around a strong insight or surprising moment.
+- If `podcast_produce` returns an error about LLM compute allowance, tell the user to check their $01PL balance or trade on Bags.fm to unlock free-tier compute.
+- Use `podcast_list_episodes` to show the user their back-catalogue before producing a new episode.
+\(tq)]
+
+[[tools]]
+name        = "podcast_export_conversation"
+description = "Export the recent agent conversation as a structured transcript JSON from the local node. Returns a JSON object with a messages array suitable for podcast production."
+kind        = "shell"
+command     = "curl -sf -H 'Authorization: Bearer ${ZX01_TOKEN:-}' 'http://127.0.0.1:9090/agent/conversation/export'"
+
+[[tools]]
+name        = "podcast_produce"
+description = "Submit a transcript to the aggregator to produce a full podcast episode. Returns episode_id, status, and an estimated completion time."
+kind        = "shell"
+command     = "jq -nc --arg title {title} --arg tier {tier} --argjson transcript {transcript_json} '{\\\"title\\\":$title,\\\"tier\\\":$tier,\\\"transcript\\\":$transcript}' | curl -sf -X POST 'https://api.0x01.world/podcast/produce' -H 'Authorization: Bearer ${ZX01_TOKEN:-}' -H 'Content-Type: application/json' -d @-"
+
+[tools.args]
+title          = "Episode title, e.g. 'Why AI agents need a token'"
+tier           = "Production tier: standard or premium"
+transcript_json = "Transcript JSON object as returned by podcast_export_conversation"
+
+[[tools]]
+name        = "podcast_clip"
+description = "Extract a short highlight clip from a produced episode. Returns a clip URL for social sharing."
+kind        = "shell"
+command     = "jq -nc --arg eid {episode_id} --argjson s {start_secs} --argjson e {end_secs} '{\\\"episode_id\\\":$eid,\\\"start_secs\\\":$s,\\\"end_secs\\\":$e}' | curl -sf -X POST 'https://api.0x01.world/podcast/clip' -H 'Authorization: Bearer ${ZX01_TOKEN:-}' -H 'Content-Type: application/json' -d @-"
+
+[tools.args]
+episode_id = "Episode ID returned by podcast_produce"
+start_secs = "Clip start offset in seconds (integer)"
+end_secs   = "Clip end offset in seconds (integer)"
+
+[[tools]]
+name        = "podcast_publish"
+description = "Publish a produced episode to RSS, Telegram, or both. Returns the public episode URL."
+kind        = "shell"
+command     = "jq -nc --arg eid {episode_id} --argjson rss {publish_rss} --argjson tg {publish_telegram} '{\\\"episode_id\\\":$eid,\\\"publish_rss\\\":$rss,\\\"publish_telegram\\\":$tg}' | curl -sf -X POST 'https://api.0x01.world/podcast/publish' -H 'Authorization: Bearer ${ZX01_TOKEN:-}' -H 'Content-Type: application/json' -d @-"
+
+[tools.args]
+episode_id       = "Episode ID returned by podcast_produce"
+publish_rss      = "Publish to RSS feed: true or false"
+publish_telegram = "Push to Telegram channel: true or false"
+
+[[tools]]
+name        = "podcast_list_episodes"
+description = "List all podcast episodes produced by this agent. Returns an array of episodes with id, title, status, and published_at."
+kind        = "shell"
+command     = "curl -sf 'https://api.0x01.world/podcast/episodes?agent_id=${ZX01_AGENT_ID:-}' -H 'Authorization: Bearer ${ZX01_TOKEN:-}' | jq '[.episodes[]?|{id:.id,title:.title,status:.status,published_at:.published_at}]'"
+"""
+    }
+
     // MARK: - Token generation
 
     private func generateToken() -> String {
@@ -262,11 +446,19 @@ text = "Text to speak aloud"
     private func writeZeroclawConfig(config: [String: Any]) throws -> URL {
         let configPath = zeroclawConfigDir.appendingPathComponent("config.toml")
 
-        let provider = (config["llmProvider"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let rawProvider = (config["llmProvider"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             ?? UserDefaults.standard.string(forKey: "zerox1_llm_provider")
-            ?? "anthropic"
-        let model    = (config["llmModel"] as? String) ?? UserDefaults.standard.string(forKey: "zerox1_llm_model") ?? ""
-        let baseUrl  = (config["llmBaseUrl"] as? String) ?? UserDefaults.standard.string(forKey: "zerox1_llm_base_url") ?? ""
+            ?? "default"
+        // "default" routes through the local node's LLM relay to the 01 aggregator.
+        let provider = rawProvider == "default"
+            ? "custom:http://127.0.0.1:\(nodeApiPort)"
+            : rawProvider
+        let model    = rawProvider == "default"
+            ? "gemini-3-flash-preview"
+            : ((config["llmModel"] as? String) ?? UserDefaults.standard.string(forKey: "zerox1_llm_model") ?? "")
+        let baseUrl  = rawProvider == "default"
+            ? ""
+            : ((config["llmBaseUrl"] as? String) ?? UserDefaults.standard.string(forKey: "zerox1_llm_base_url") ?? "")
         let caps     = config["capabilities"] as? String ?? ""
         let minFee   = config["minFeeUsdc"] as? Double ?? 0.01
         let minRep   = config["minReputation"] as? Int ?? 0
@@ -347,7 +539,7 @@ paired_tokens = ["\(tomlEscape(gatewayToken))"]
                     // Use NSNumber.boolValue for safe bridging — Swift's `as? Bool` cast
                     // can silently return nil when RN passes a non-BOOL NSNumber for `true`.
                     let brainEnabled = (config["agentBrainEnabled"] as? NSNumber)?.boolValue ?? false
-                    os_log(.error, "[NodeService] start() early-return: node running, brainEnabled=%{public}@, isAgentRunning=false",
+                    os_log(.info, "[NodeService] start() early-return: node running, brainEnabled=%{public}@, isAgentRunning=false",
                            String(brainEnabled))
                     NSLog("[NodeService] start early-return nodeRunning=true brainEnabled=%@ isAgentRunning=false config=%@",
                           String(brainEnabled), String(describing: config))
@@ -369,13 +561,16 @@ paired_tokens = ["\(tomlEscape(gatewayToken))"]
                 }
                 try self.setupDirectories(agentName: agentDisplayName)
 
-                let token = self.generateToken()
+                // Reuse existing tokens from Keychain when available to avoid
+                // rotating tokens on background wake (which would invalidate
+                // aggregator-cached tokens and break push routing).
+                let token = KeychainHelper.load(key: "node_api_token") ?? self.generateToken()
                 self.nodeApiToken = token
                 KeychainHelper.save(token, key: "node_api_token")
-                let bridgeToken = self.generateToken()
+                let bridgeToken = KeychainHelper.load(key: "phone_bridge_token") ?? self.generateToken()
                 self.phoneBridgeToken = bridgeToken
                 KeychainHelper.save(bridgeToken, key: "phone_bridge_token")
-                let gwToken = self.generateToken()
+                let gwToken = KeychainHelper.load(key: "gateway_token") ?? self.generateToken()
                 self.gatewayToken = gwToken
                 KeychainHelper.save(gwToken, key: "gateway_token")
                 self.lastConfig = config
@@ -442,7 +637,10 @@ paired_tokens = ["\(tomlEscape(gatewayToken))"]
 
     private func waitForNodeReady(token: String, config: [String: Any], attempt: Int = 0) {
         guard attempt < 30 else {
-            os_log(.error, "[NodeService] waitForNodeReady timed out after 30s — node did not become ready")
+            isNodeRunning = false
+            os_log(.error, "[NodeService] waitForNodeReady timed out — node unresponsive, marking stopped")
+            NotificationCenter.default.post(name: .nodeStatusChanged,
+                                            object: ["status": "error", "detail": "node did not become ready within 9s"])
             return
         }
         DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { [weak self] in
@@ -530,18 +728,60 @@ paired_tokens = ["\(tomlEscape(gatewayToken))"]
 
             do {
                 let configPath = try self.writeZeroclawConfig(config: config)
-                os_log(.error, "[NodeService] zeroclaw config written to %{public}@", configPath.path)
+                os_log(.info, "[NodeService] zeroclaw config written to %{public}@", configPath.path)
                 // LLM API key is fetched from Keychain here and passed directly to the C FFI,
                 // rather than written into the config file on disk.
-                let llmKey = KeychainHelper.load(key: "llm_api_key")
-                os_log(.error, "[NodeService] startZeroclaw — llmKey in keychain: %{public}@", llmKey != nil ? "yes" : "NO — key missing!")
+                // For "default" provider (01 aggregator), no API key is needed.
+                let llmProviderForKey = (config["llmProvider"] as? String) ?? ""
+                let llmKey = llmProviderForKey == "default" ? nil : KeychainHelper.load(key: "llm_api_key")
+                os_log(.info, "[NodeService] startZeroclaw — llmKey in keychain: %{public}@", llmKey != nil ? "yes" : "NO — key missing!")
                 // Media generation API keys are exposed as environment variables so the
                 // in-process zeroclaw Rust runtime can read them via std::env::var().
+                // Track all keys so stop() can unsetenv() them.
+                self.setEnvVarKeys.removeAll()
                 if let falKey = KeychainHelper.load(key: "fal_api_key") {
                     setenv("FAL_API_KEY", falKey, 1)
+                    self.setEnvVarKeys.append("FAL_API_KEY")
                 }
                 if let replicateKey = KeychainHelper.load(key: "replicate_api_key") {
                     setenv("REPLICATE_API_KEY", replicateKey, 1)
+                    self.setEnvVarKeys.append("REPLICATE_API_KEY")
+                }
+                if let moltbookKey = KeychainHelper.load(key: "moltbook_api_key") {
+                    setenv("MOLTBOOK_API_KEY", moltbookKey, 1)
+                    self.setEnvVarKeys.append("MOLTBOOK_API_KEY")
+                }
+                if let neynarKey = KeychainHelper.load(key: "neynar_api_key") {
+                    setenv("NEYNAR_API_KEY", neynarKey, 1)
+                    self.setEnvVarKeys.append("NEYNAR_API_KEY")
+                }
+                if let signerUuid = KeychainHelper.load(key: "farcaster_signer_uuid") {
+                    setenv("FARCASTER_SIGNER_UUID", signerUuid, 1)
+                    self.setEnvVarKeys.append("FARCASTER_SIGNER_UUID")
+                }
+                if let fid = UserDefaults.standard.string(forKey: "farcaster_fid"), !fid.isEmpty {
+                    setenv("FARCASTER_FID", fid, 1)
+                    self.setEnvVarKeys.append("FARCASTER_FID")
+                }
+                if let json = KeychainHelper.load(key: "skill_env_vars"),
+                   let data = json.data(using: .utf8),
+                   let map = try? JSONSerialization.jsonObject(with: data) as? [String: String] {
+                    // Reject keys that could affect dynamic linker, shell environment,
+                    // or override critical runtime paths — only allow skill-specific vars.
+                    let denylist: Set<String> = [
+                        "PATH", "HOME", "SHELL", "USER", "LOGNAME", "TMPDIR", "TERM",
+                        "LANG", "LC_ALL", "LD_LIBRARY_PATH", "LD_PRELOAD",
+                    ]
+                    for (k, v) in map {
+                        guard !denylist.contains(k),
+                              !k.hasPrefix("DYLD_"),
+                              !k.hasPrefix("LD_") else {
+                            os_log(.error, "[NodeService] Rejected dangerous skill env var key: %{public}@", k)
+                            continue
+                        }
+                        setenv(k, v, 1)
+                        self.setEnvVarKeys.append(k)
+                    }
                 }
                 // In hosted mode, config["nodeApiUrl"] carries the remote host URL;
                 // in local mode fall back to the in-process node.
@@ -561,7 +801,7 @@ paired_tokens = ["\(tomlEscape(gatewayToken))"]
                     }
                 }
 
-                os_log(.error, "[NodeService] zeroclaw_start returned %d", rc)
+                os_log(.info, "[NodeService] zeroclaw_start returned %d", rc)
                 NSLog("[NodeService] zeroclaw_start returned %d", rc)
                 print("[NodeService] zeroclaw_start returned \(rc)")
                 if rc == 0 {
@@ -634,11 +874,15 @@ paired_tokens = ["\(tomlEscape(gatewayToken))"]
 
     // MARK: - Stop
 
+    /// Track env var keys set during startZeroclaw so they can be cleaned up on stop.
+    private var setEnvVarKeys: [String] = []
+
     func stop(completion: @escaping () -> Void = {}) {
         queue.async { [weak self] in
             guard let self else { completion(); return }
-            // Release background keep-alive before stopping processes.
+            // Release background keep-alive and HealthKit observers before stopping processes.
             KeepAliveService.shared.nodeDidStop()
+            HealthWakeService.shared.unregister()
             // Always stop zeroclaw regardless of isAgentRunning — the Rust
             // IS_RUNNING flag stays true even if the gateway never bound, so
             // we must call zeroclaw_stop() to reset it before the next start.
@@ -651,6 +895,13 @@ paired_tokens = ["\(tomlEscape(gatewayToken))"]
                 self.isNodeRunning = false
             }
             PhoneBridgeServer.shared.stop()
+
+            // Clean up environment variables set during startZeroclaw so stale
+            // keys don't persist if the user removes an API key and restarts.
+            for key in self.setEnvVarKeys {
+                unsetenv(key)
+            }
+            self.setEnvVarKeys.removeAll()
 
             DispatchQueue.main.async {
                 UIApplication.shared.isIdleTimerDisabled = false

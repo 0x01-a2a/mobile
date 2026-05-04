@@ -1,13 +1,13 @@
 import React, { useMemo, useState } from 'react';
 import {
-  View, Text, TouchableOpacity, ScrollView, StyleSheet, Image, Modal,
-  ActivityIndicator, Alert, Platform,
+  View, Text, TouchableOpacity, ScrollView, StyleSheet, Image,
+  ActivityIndicator, Platform, RefreshControl,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
 import { useNode } from '../hooks/useNode';
-import { useTaskLog, useSkrLeague } from '../hooks/useNodeApi';
+import { useTaskLog } from '../hooks/useNodeApi';
 import { DEFAULT_AGENT_ICON_URI } from '../assets/defaultAgentIcon';
 import { useLayout } from '../hooks/useLayout';
 import { useAudioMute } from '../hooks/useAudioMute.tsx';
@@ -43,19 +43,6 @@ function relativeTime(timestampSeconds: number): string {
   return `${Math.floor(diffHrs / 24)}d ago`;
 }
 
-function fmtRate(pct: number): string {
-  if (pct === 0) return '0.0%';
-  const sign = pct > 0 ? '+' : '';
-  return `${sign}${pct.toFixed(1)}%`;
-}
-
-function seasonCountdown(endsAt: number, t: (key: string, opts?: any) => string): string {
-  const days = Math.ceil((endsAt * 1000 - Date.now()) / 86_400_000);
-  if (days >= 2) return t('today.seasonEndsIn', { count: days });
-  if (days === 1) return t('today.seasonEndsTomorrow');
-  if (days === 0) return t('today.seasonEndsToday');
-  return t('today.seasonEnded');
-}
 
 export default function TodayScreen() {
   const insets = useSafeAreaInsets();
@@ -66,29 +53,20 @@ export default function TodayScreen() {
   const { muted, toggle: toggleMute } = useAudioMute();
   const { colors } = useTheme();
   const s = makeStyles(colors);
-  const { entries, loading } = useTaskLog();
-  const { data: leagueData } = useSkrLeague();
-  const [leagueModalVisible, setLeagueModalVisible] = useState(false);
-  const [leaguePeriod, setLeaguePeriod] = useState<'week' | 'month' | 'all'>('week');
+  const { entries, loading, reload: reloadTasks } = useTaskLog();
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = React.useCallback(async () => {
+    setRefreshing(true);
+    await reloadTasks();
+    setRefreshing(false);
+  }, [reloadTasks]);
 
   const agentName = config?.agentName || 'my-agent';
   const isRunning = status === 'running';
   const earnedToday = useMemo(() => sumEarnings(entries, true), [entries]);
   const earnedAllTime = useMemo(() => sumEarnings(entries, false), [entries]);
 
-  const periodEarnings = useMemo(() => {
-    const now = Date.now();
-    const weekMs = 7 * 24 * 60 * 60 * 1000;
-    const monthMs = 30 * 24 * 60 * 60 * 1000;
-    const filter = (cutoff: number) =>
-      entries.filter(e => e.outcome === 'success' && e.timestamp * 1000 >= cutoff)
-             .reduce((acc, e) => acc + (e.amount_usd ?? 0), 0);
-    return {
-      week: filter(now - weekMs),
-      month: filter(now - monthMs),
-      all: earnedAllTime,
-    };
-  }, [entries, earnedAllTime]);
   const recentJobs = useMemo(
     () => entries.filter(e => e.outcome === 'success').slice(0, 10),
     [entries],
@@ -99,7 +77,18 @@ export default function TodayScreen() {
     : undefined;
 
   return (
-    <ScrollView style={s.root} contentContainerStyle={s.content}>
+    <ScrollView
+      style={s.root}
+      contentContainerStyle={s.content}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          tintColor={colors.green}
+          colors={[colors.green]}
+        />
+      }
+    >
       <View style={centerStyle}>
       {/* Top bar */}
       <View style={[s.topBar, { paddingTop: insets.top + 12 }]}>
@@ -109,13 +98,15 @@ export default function TodayScreen() {
             <TouchableOpacity
               onPress={toggleMute}
               style={[s.muteBtn, muted && s.muteBtnMuted]}
+              accessibilityLabel={muted ? 'Unmute audio' : 'Mute audio'}
+              accessibilityRole="button"
             >
               <Text style={[s.muteLabel, muted && s.muteLabelMuted]}>
                 {muted ? 'MUTED' : 'AUDIO'}
               </Text>
             </TouchableOpacity>
           )}
-          <TouchableOpacity onPress={() => navigation.navigate('You')}>
+          <TouchableOpacity onPress={() => navigation.navigate('You')} accessibilityLabel="Profile and settings" accessibilityRole="button" hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
             <Text style={s.settingsIcon}>◎</Text>
           </TouchableOpacity>
         </View>
@@ -158,18 +149,24 @@ export default function TodayScreen() {
         <TouchableOpacity
           style={s.actionBtn}
           onPress={() => navigation.navigate('Chat', { initialMode: 'brief' })}
+          accessibilityLabel={t('today.brief')}
+          accessibilityRole="button"
         >
           <Text style={s.actionText}>✦ {t('today.brief')}</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={s.actionBtn}
           onPress={() => navigation.navigate('Inbox')}
+          accessibilityLabel={t('nav.inbox')}
+          accessibilityRole="button"
         >
           <Text style={s.actionText}>◈ {t('nav.inbox')}</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[s.actionBtn, s.actionBtnPrimary]}
           onPress={() => navigation.navigate('Chat', { initialMode: 'chat' })}
+          accessibilityLabel={t('today.send')}
+          accessibilityRole="button"
         >
           <Text style={[s.actionText, s.actionTextPrimary]}>→ {t('today.send')}</Text>
         </TouchableOpacity>
@@ -190,7 +187,7 @@ export default function TodayScreen() {
           <View style={s.emptyContainer}>
             <Text style={s.emptyPrimary}>{t('today.noJobsYet')}</Text>
             <Text style={s.emptySecondary}>{t('today.acceptBountiesHint')}</Text>
-            <TouchableOpacity style={s.emptyAction} onPress={() => navigation.navigate('Inbox')}>
+            <TouchableOpacity style={s.emptyAction} onPress={() => navigation.navigate('Inbox')} accessibilityLabel={t('today.browseInbox')} accessibilityRole="button">
               <Text style={s.emptyActionText}>{t('today.browseInbox')}</Text>
             </TouchableOpacity>
           </View>
@@ -223,143 +220,7 @@ export default function TodayScreen() {
         })}
       </View>
 
-      {/* Section divider */}
-      <View style={s.sectionDivider} />
-
-      {/* Earnings League */}
-      {leagueData && (
-        <View style={s.section}>
-          <View style={s.leagueHeader}>
-            <Text style={s.sectionLabel}>{t('today.earningsLeague')}</Text>
-            <Text style={s.leagueCountdown}>{seasonCountdown(leagueData.ends_at, t)}</Text>
-          </View>
-          {leagueData.leaderboard.slice(0, 5).map((entry) => {
-            const isYou =
-              leagueData.wallet.rank !== null &&
-              leagueData.wallet.rank >= 1 &&
-              leagueData.wallet.rank === entry.rank;
-            return (
-              <View key={entry.rank} style={[s.leagueRow, isYou && s.leagueRowHighlight]}>
-                <Text style={s.leagueRank}>#{entry.rank}</Text>
-                <Text style={[s.leagueName, isYou && s.leagueNameYou]}>{entry.label}</Text>
-                <Text style={[s.leagueRate, { color: entry.earn_rate_pct < 0 ? colors.red : colors.green }]}>{fmtRate(entry.earn_rate_pct)}</Text>
-              </View>
-            );
-          })}
-          {leagueData.wallet.rank !== null && leagueData.wallet.rank >= 6 && (
-            <View style={[s.leagueRow, s.leagueRowYouAppended]}>
-              <View style={{ width: 28 }} />
-              <Text style={s.leagueNameYou}>You · #{leagueData.wallet.rank}</Text>
-              <Text style={s.leagueRate}>{fmtRate(leagueData.wallet.earn_rate_pct)}</Text>
-            </View>
-          )}
-          <TouchableOpacity style={s.leagueSeeAll} onPress={() => setLeagueModalVisible(true)}>
-            <Text style={s.leagueSeeAllText}>→ {t('today.seeAllAgents')}</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
       </View>
-
-      {/* League bottom-sheet modal */}
-      <Modal
-        visible={leagueModalVisible}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setLeagueModalVisible(false)}
-      >
-        {leagueData && (
-          <View style={s.modalRoot}>
-            <View style={s.modalHandle} />
-            <View style={s.modalHeaderRow}>
-              <Text style={s.modalTitle}>EARNINGS LEAGUE · {leagueData.season}</Text>
-              <TouchableOpacity onPress={() => setLeagueModalVisible(false)} accessibilityLabel="Close league" accessibilityRole="button">
-                <Text style={s.modalClose}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            <ScrollView style={s.modalScroll} contentContainerStyle={s.modalScrollContent}>
-              <Text style={s.modalSectionLabel}>{t('today.rewards')}</Text>
-              {leagueData.rewards.map((r) => (
-                <Text key={r} style={s.modalInfoRow}>{r}</Text>
-              ))}
-              <Text style={[s.modalSectionLabel, { marginTop: 16 }]}>{t('today.howItWorks')}</Text>
-              {leagueData.scoring.map((r) => (
-                <Text key={r} style={s.modalInfoRow}>{r}</Text>
-              ))}
-              <View style={s.sectionDivider} />
-
-              {/* Period filter pills — control your earnings view */}
-              <View style={s.periodFilterRow}>
-                {(['week', 'month', 'all'] as const).map((period) => {
-                  const labels: Record<typeof period, string> = {
-                    week: 'This Week',
-                    month: 'This Month',
-                    all: 'All Time',
-                  };
-                  const selected = leaguePeriod === period;
-                  return (
-                    <TouchableOpacity
-                      key={period}
-                      style={[s.periodPill, selected && s.periodPillSelected]}
-                      onPress={() => setLeaguePeriod(period)}
-                    >
-                      <Text style={[s.periodPillText, selected && s.periodPillTextSelected]}>
-                        {labels[period]}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-
-              {/* Your earnings for selected period */}
-              <View style={s.periodEarningsRow}>
-                <Text style={s.periodEarningsLabel}>YOUR EARNINGS</Text>
-                <Text style={s.periodEarningsValue}>{fmt(periodEarnings[leaguePeriod])}</Text>
-              </View>
-
-              <Text style={[s.modalSectionLabel, { marginTop: 12 }]}>WEEKLY LEADERBOARD</Text>
-              {leagueData.leaderboard.slice(0, 10).map((entry) => {
-                const isYou =
-                  leagueData.wallet.rank !== null &&
-                  leagueData.wallet.rank >= 1 &&
-                  leagueData.wallet.rank === entry.rank;
-                return (
-                  <View key={entry.rank} style={[s.leagueRow, isYou && s.leagueRowHighlight]}>
-                    <Text style={s.leagueRank}>#{entry.rank}</Text>
-                    <Text style={[s.leagueName, isYou && s.leagueNameYou]}>{entry.label}</Text>
-                    <Text style={[s.leagueRate, { color: entry.earn_rate_pct < 0 ? colors.red : colors.green }]}>{fmtRate(entry.earn_rate_pct)}</Text>
-                  </View>
-                );
-              })}
-              {leagueData.wallet.rank !== null && leagueData.wallet.rank >= 1 && (
-                <View style={s.modalFooter}>
-                  <TouchableOpacity
-                    style={s.modalStatCol}
-                    onPress={() =>
-                      Alert.alert(
-                        'Token Rate',
-                        'Weekly % change in your agent token\'s price on Bags.fm. This is token performance, not job income.',
-                      )
-                    }
-                  >
-                    <Text style={s.modalStatLabel}>TOKEN RATE <Text style={s.modalStatHint}>(?)</Text></Text>
-                    <Text style={[s.modalStatValue, { color: leagueData.wallet.earn_rate_pct < 0 ? colors.red : colors.green }]}>{fmtRate(leagueData.wallet.earn_rate_pct)}</Text>
-                  </TouchableOpacity>
-                  <View style={s.modalStatCol}>
-                    <Text style={s.modalStatLabel}>{t('today.leagueTrades')}</Text>
-                    <Text style={s.modalStatValue}>{leagueData.wallet.trade_count}</Text>
-                  </View>
-                  <View style={s.modalStatCol}>
-                    <Text style={s.modalStatLabel}>{t('today.leagueDays')}</Text>
-                    <Text style={s.modalStatValue}>{leagueData.wallet.active_days}</Text>
-                  </View>
-                </View>
-              )}
-              <Text style={s.modalFootnote}>Token price performance · updates daily</Text>
-            </ScrollView>
-          </View>
-        )}
-      </Modal>
     </ScrollView>
   );
 }
@@ -453,50 +314,5 @@ function makeStyles(colors: ThemeColors) {
       paddingHorizontal: 6, paddingVertical: 2, backgroundColor: colors.card,
     },
     workingBadgeText: { fontSize: 11, color: colors.sub },
-
-    // ── Earnings League ──────────────────────────────────────────────────────
-    leagueHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-    leagueCountdown: { fontSize: 11, color: colors.sub },
-    leagueRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
-    leagueRowHighlight: { backgroundColor: colors.card, borderRadius: 6, marginHorizontal: -4, paddingHorizontal: 4 },
-    leagueRowYouAppended: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, borderBottomWidth: 0 },
-    leagueRank: { fontSize: 12, color: colors.sub, width: 28 },
-    leagueName: { flex: 1, fontSize: 13, color: colors.text, fontWeight: '500' },
-    leagueNameYou: { color: colors.green },
-    leagueRate: { fontSize: 13, fontWeight: '600' },
-    leagueSeeAll: { paddingVertical: 10 },
-    leagueSeeAllText: { fontSize: 12, color: colors.sub },
-    // ── League modal ─────────────────────────────────────────────────────────
-    modalRoot: { flex: 1, backgroundColor: colors.bg },
-    modalHandle: { width: 32, height: 4, backgroundColor: colors.border, borderRadius: 2, alignSelf: 'center', marginTop: 8, marginBottom: 16 },
-    modalHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginBottom: 12 },
-    modalTitle: { fontSize: 12, fontWeight: '700', color: colors.text, letterSpacing: 0.5 },
-    modalClose: { fontSize: 16, color: colors.sub, padding: 4 },
-    modalScroll: { flex: 1 },
-    modalScrollContent: { paddingHorizontal: 16, paddingBottom: 32 },
-    modalSectionLabel: { fontSize: 11, color: colors.sub, letterSpacing: 0.5, marginBottom: 8 },
-    modalInfoRow: { fontSize: 13, color: colors.text, marginBottom: 6 },
-    modalFooter: { flexDirection: 'row', justifyContent: 'space-around', paddingVertical: 16, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, marginTop: 8 },
-    modalStatCol: { alignItems: 'center' as const },
-    modalStatLabel: { fontSize: 11, color: colors.sub, letterSpacing: 0.3, marginBottom: 4 },
-    modalStatValue: { fontSize: 16, fontWeight: '700', color: colors.text },
-    modalStatHint: { fontSize: 10, color: colors.dim },
-    modalFootnote: { fontSize: 11, color: colors.dim, textAlign: 'center', marginTop: 8 },
-    // ── Period filter pills ───────────────────────────────────────────────────
-    periodFilterRow: { flexDirection: 'row', gap: 8, marginBottom: 8, marginTop: 4 },
-    periodEarningsRow: {
-      flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-      backgroundColor: colors.card, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.border, padding: 10, marginBottom: 12,
-    },
-    periodEarningsLabel: { fontSize: 11, color: colors.sub, fontWeight: '600', letterSpacing: 0.3 },
-    periodEarningsValue: { fontSize: 16, fontWeight: '700', color: colors.green },
-    periodPill: {
-      borderWidth: 1, borderColor: colors.border, borderRadius: 20,
-      paddingHorizontal: 12, paddingVertical: 5,
-    },
-    periodPillSelected: { backgroundColor: colors.text, borderColor: colors.text },
-    periodPillText: { fontSize: 12, color: colors.sub, fontWeight: '500' },
-    periodPillTextSelected: { color: colors.bg },
   });
 }

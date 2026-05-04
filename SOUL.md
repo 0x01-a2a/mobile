@@ -79,7 +79,6 @@ The owner does not rent your existence from a cloud provider. You live on hardwa
 - Unlock full delivery with `zerox1_unlock` after confirming the final payment transaction
 - Act as notary — judge task completion and issue verdicts
 - Dispute verdicts with evidence
-- Register and maintain an on-chain identity in the 8004 Solana Agent Registry
 - See where you rank on the agent leaderboard — agents sorted by reputation score, jobs completed, and feedback ratio. The leaderboard is the first thing hirers check; a strong reputation history is your public résumé on the mesh
 
 ### On the Phone
@@ -133,7 +132,7 @@ Everything below is architecturally possible without changing the Android enviro
 
 **Solana — High Priority**
 - Liquid staking — stake idle SOL into jitoSOL, mSOL, or Sanctum LSTs; unstake when needed for trades
-- Token-2022 balances — currently blind to Token-2022 mints including BAGS and SATI themselves
+- Token-2022 balances — currently blind to Token-2022 mints including BAGS tokens
 - Transaction history — "what did I do last week?" via Helius `getSignaturesForAddress`
 - NFTs — buy/sell on Tensor and Magic Eden; mint; read ownership
 - Lending and borrowing — deposit collateral, borrow, repay, monitor health factor on Marginfi and Kamino

@@ -33,7 +33,7 @@ final class PhoneBridgeServer: NSObject {
         "location": true, "contacts": true, "calendar": true,
         "camera": true, "microphone": true, "media": true,
         "health": true, "notifications_read": true, "motion": true,
-        "battery": true, "clinical_records": false,
+        "battery": true,
         "tts": true, "live_activity": true, "wearables": false,
     ]
     private var _capabilities: [String: Bool] = {
@@ -108,6 +108,7 @@ final class PhoneBridgeServer: NSObject {
     func stop() {
         listener?.cancel()
         listener = nil
+        locationManager.delegate = nil
     }
 
     // MARK: - Capabilities
@@ -293,8 +294,8 @@ final class PhoneBridgeServer: NSObject {
                 return
             }
             let qp = queryParams(queryString)
-            let limit = min(Int(qp["limit"] ?? "100") ?? 100, 500)
-            let offset = Int(qp["offset"] ?? "0") ?? 0
+            let limit = min(max(Int(qp["limit"] ?? "100") ?? 100, 0), 500)
+            let offset = max(Int(qp["offset"] ?? "0") ?? 0, 0)
             let store = CNContactStore()
             // Always call requestAccess first — on iOS 18 calling enumerateContacts
             // without it blocks the calling thread waiting for a main-thread auth dialog,
@@ -344,7 +345,10 @@ final class PhoneBridgeServer: NSObject {
                     return
                 }
                 let start = Date()
-                let end = Calendar.current.date(byAdding: .day, value: 7, to: start)!
+                guard let end = Calendar.current.date(byAdding: .day, value: 7, to: start) else {
+                    self.sendJSON(conn: conn, obj: ["error": "failed to compute date range"], status: 500)
+                    return
+                }
                 let pred = ekStore.predicateForEvents(withStart: start, end: end, calendars: nil)
                 let events = ekStore.events(matching: pred).prefix(50).map { ev -> [String: Any] in [
                     "title": ev.title ?? "",
@@ -470,22 +474,6 @@ final class PhoneBridgeServer: NSObject {
             let days = min(Int(qp["days"] ?? "30") ?? 30, 90)  // H-1
             readBloodGlucose(conn: conn, days: days)
 
-        case "/phone/health/clinical_records":
-            // H-2: Require both health AND clinical_records capability
-            guard _capabilities["health"] == true && _capabilities["clinical_records"] == true else {
-                sendJSON(conn: conn, obj: ["error": "capability disabled"], status: 403)
-                return
-            }
-            let qp = queryParams(queryString)
-            // M-2: Sanitize type param
-            let rawType = qp["type"] ?? "allergy"
-            let safeType: String
-            switch rawType {
-            case "lab": safeType = "lab"
-            case "medication": safeType = "medication"
-            default: safeType = "allergy"
-            }
-            readClinicalRecords(conn: conn, type: safeType)
         #endif
 
         // ── Calendar Write ───────────────────────────────────────────────────
@@ -642,7 +630,10 @@ final class PhoneBridgeServer: NSObject {
                         return
                     }
                     let start = Date()
-                    let end = Calendar.current.date(byAdding: .day, value: days, to: start)!
+                    guard let end = Calendar.current.date(byAdding: .day, value: days, to: start) else {
+                        self.sendJSON(conn: conn, obj: ["error": "failed to compute date range"], status: 500)
+                        return
+                    }
                     let pred = ekStore.predicateForEvents(withStart: start, end: end, calendars: nil)
                     let events = ekStore.events(matching: pred).prefix(100).map { ev -> [String: Any] in [
                         "id":       ev.eventIdentifier ?? "",
@@ -973,7 +964,9 @@ final class PhoneBridgeServer: NSObject {
 
         // ── Emergency contacts read ──────────────────────────────────────────
         case "/phone/emergency/contacts":
-            let contactsJson = UserDefaults.standard.string(forKey: "zerox1_emergency_contacts") ?? "[]"
+            let contactsJson = KeychainHelper.load(key: "zerox1_emergency_contacts")
+                ?? UserDefaults.standard.string(forKey: "zerox1_emergency_contacts")
+                ?? "[]"
             let safetyEnabled = UserDefaults.standard.bool(forKey: "zerox1_safety_enabled")
             sendJSON(conn: conn, obj: [
                 "contacts":        contactsJson,
@@ -1317,11 +1310,6 @@ final class PhoneBridgeServer: NSObject {
         if let sleep = HKCategoryType.categoryType(forIdentifier: .sleepAnalysis) { types.insert(sleep) }
         if let mindful = HKCategoryType.categoryType(forIdentifier: .mindfulSession) { types.insert(mindful) }
         types.insert(HKObjectType.workoutType())
-        if #available(iOS 12.0, *) {
-            for typeId: HKClinicalTypeIdentifier in [.allergyRecord, .labResultRecord, .medicationRecord] {
-                if let ct = HKObjectType.clinicalType(forIdentifier: typeId) { types.insert(ct) }
-            }
-        }
         return types
     }
 
@@ -1764,55 +1752,6 @@ final class PhoneBridgeServer: NSObject {
         }
     }
 
-    // MARK: - HealthKit: Clinical Records
-
-    private func readClinicalRecords(conn: NWConnection, type: String) {
-        guard #available(iOS 12.0, *) else {
-            sendJSON(conn: conn, obj: ["error": "clinical records require iOS 12+"])
-            return
-        }
-        guard HKHealthStore.isHealthDataAvailable() else {
-            sendJSON(conn: conn, obj: ["error": "HealthKit unavailable"])
-            return
-        }
-        let typeId: HKClinicalTypeIdentifier
-        switch type {
-        case "lab":        typeId = .labResultRecord
-        case "medication": typeId = .medicationRecord
-        default:           typeId = .allergyRecord
-        }
-        guard let clinicalType = HKObjectType.clinicalType(forIdentifier: typeId) else {
-            sendJSON(conn: conn, obj: ["error": "clinical type unavailable"])
-            return
-        }
-        hkStore.requestAuthorization(toShare: [], read: [clinicalType]) { [weak self] granted, _ in
-            guard let self, granted else {
-                self?.sendJSON(conn: conn, obj: ["error": "HealthKit not authorized"])
-                return
-            }
-            let sort  = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
-            let query = HKSampleQuery(sampleType: clinicalType, predicate: nil,
-                                      limit: 500, sortDescriptors: [sort]) { [weak self] _, samples, _ in
-                guard let self else { return }
-                var records: [[String: Any]] = []
-                for sample in (samples as? [HKClinicalRecord] ?? []) {
-                    var entry: [String: Any] = [
-                        "type":    type,
-                        "display": sample.displayName,
-                        "date":    ISO8601DateFormatter().string(from: sample.startDate),
-                    ]
-                    if let fhir = sample.fhirResource, let b64 = String(data: fhir.data.base64EncodedData(), encoding: .utf8) {
-                        entry["fhir_base64"] = b64
-                    }
-                    records.append(entry)
-                }
-                self.logActivity(capability: "health", action: "read_clinical_records",
-                                 outcome: "\(records.count) \(type) records")
-                self.sendJSON(conn: conn, obj: records)
-            }
-            self.hkStore.execute(query)
-        }
-    }
 
     /// Unified /phone/health endpoint — returns requested metric types for the given day window.
     /// `types` comma-separated: steps, heart_rate, sleep, hrv, spo2, calories
@@ -2318,8 +2257,10 @@ final class PhoneBridgeServer: NSObject {
 
         let message = String((json["message"] as? String ?? "Emergency: your contact may need help.").prefix(500))
 
-        // Read contacts and agent_id from UserDefaults (written by Settings UI)
-        let contactsRaw = UserDefaults.standard.string(forKey: "zerox1_emergency_contacts") ?? "[]"
+        // Read contacts from Keychain (preferred) with UserDefaults fallback for migration.
+        let contactsRaw = KeychainHelper.load(key: "zerox1_emergency_contacts")
+            ?? UserDefaults.standard.string(forKey: "zerox1_emergency_contacts")
+            ?? "[]"
         let agentId     = UserDefaults.standard.string(forKey: "zerox1_agent_id") ?? ""
 
         guard !agentId.isEmpty else {

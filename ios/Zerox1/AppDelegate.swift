@@ -44,7 +44,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             forTaskWithIdentifier: "world.zerox1.pilot.node-keepalive",
             using: nil
         ) { task in
-            self.handleNodeKeepalive(task: task as! BGProcessingTask)
+            guard let processingTask = task as? BGProcessingTask else {
+                task.setTaskCompleted(success: false)
+                return
+            }
+            self.handleNodeKeepalive(task: processingTask)
         }
 
         // Request notification permissions + register for APNs (needed for background push wake)
@@ -149,8 +153,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         AppDelegate.loadSavedConfigStatic()
     }
 
-    /// Static variant so VoIPPushHandler (and other non-instance callers) can
-    /// load the persisted node config without a reference to the AppDelegate instance.
+    /// Static variant so callers without an AppDelegate reference can load the
+    /// persisted node config (e.g. background push handler, BGTask).
     static func loadSavedConfigStatic() -> [String: Any] {
         var cfg: [String: Any] = [:]
         if let name = UserDefaults.standard.string(forKey: "zerox1_agent_name") {
@@ -198,13 +202,25 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         case "EMERGENCY_CALL_NOW":
             // Strip everything except digits and leading + so tel:// is well-formed.
             let raw = response.notification.request.content.userInfo["emergency_phone"] as? String ?? ""
-            let digits = raw.unicodeScalars.filter {
-                CharacterSet.decimalDigits.union(CharacterSet(charactersIn: "+")).contains($0)
+            let allowedChars = CharacterSet.decimalDigits.union(CharacterSet(charactersIn: "+"))
+            let cleaned = String(raw.unicodeScalars.filter { allowedChars.contains($0) })
+            guard !cleaned.isEmpty else { break }
+            // Validate the dialed number is one of the user-configured emergency contacts
+            // to prevent a malicious notification payload from dialing an arbitrary number.
+            let contactsJson = KeychainHelper.load(key: "zerox1_emergency_contacts")
+                ?? UserDefaults.standard.string(forKey: "zerox1_emergency_contacts")
+                ?? "[]"
+            var isKnown = false
+            if let data = contactsJson.data(using: .utf8),
+               let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: String]] {
+                isKnown = arr.contains { contact in
+                    guard let phone = contact["phone"] else { return false }
+                    let knownCleaned = String(phone.unicodeScalars.filter { allowedChars.contains($0) })
+                    return knownCleaned == cleaned
+                }
             }
-            let cleaned = String(digits)
-            if !cleaned.isEmpty, let url = URL(string: "tel://\(cleaned)") {
-                DispatchQueue.main.async { UIApplication.shared.open(url) }
-            }
+            guard isKnown, let url = URL(string: "tel://\(cleaned)") else { break }
+            DispatchQueue.main.async { UIApplication.shared.open(url) }
         default:
             // Default tap on the emergency notification body — open chat so owner
             // can type "I'm okay" to cancel any pending relay.
@@ -233,8 +249,6 @@ extension AppDelegate {
                      didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
         KeychainHelper.save(hex, key: "apns_push_token")
-        UserDefaults.standard.set(hex, forKey: "zerox1_apns_token")
-        NSLog("[AppDelegate] APNs token registered: \(hex.prefix(8))…")
     }
 
     func application(_ application: UIApplication,

@@ -427,6 +427,8 @@ class PhoneBridgeServer(
                 if (!isCapEnabled("motion")) capDisabled("motion") else handleImuSnapshot()
             method == "POST" && path == "/phone/imu/record" ->
                 if (!isCapEnabled("motion")) capDisabled("motion") else handleImuRecord(body, params)
+            method == "GET"  && path == "/phone/imu/fall_check" ->
+                if (!isCapEnabled("motion")) capDisabled("motion") else handleImuFallCheck()
 
             // ---- Media images ----
             method == "GET"  && path == "/phone/media/images" ->
@@ -599,12 +601,21 @@ class PhoneBridgeServer(
                 else handleNotificationsTriageSet(body)
 
             // ---- Call Screening ----
-            method == "GET"  && path == "/phone/calls/pending"  ->
-                if (!isCapEnabled("calls")) capDisabled("calls") else handleCallsPending()
-            method == "GET"  && path == "/phone/calls/history"  ->
-                if (!isCapEnabled("calls")) capDisabled("calls") else handleCallsHistory()
-            method == "POST" && path == "/phone/calls/respond"  ->
-                if (!isCapEnabled("calls")) capDisabled("calls") else handleCallsRespond(body)
+            method == "GET"  && path == "/phone/calls/pending"  -> when {
+                !isCapEnabled("calls") -> capDisabled("calls")
+                !AgentCallScreeningService.isConnected() -> jsonError("call screening service not connected — enable in Settings > Special App Access > Call Screening", 503)
+                else -> handleCallsPending()
+            }
+            method == "GET"  && path == "/phone/calls/history"  -> when {
+                !isCapEnabled("calls") -> capDisabled("calls")
+                !AgentCallScreeningService.isConnected() -> jsonError("call screening service not connected — enable in Settings > Special App Access > Call Screening", 503)
+                else -> handleCallsHistory()
+            }
+            method == "POST" && path == "/phone/calls/respond"  -> when {
+                !isCapEnabled("calls") -> capDisabled("calls")
+                !AgentCallScreeningService.isConnected() -> jsonError("call screening service not connected — enable in Settings > Special App Access > Call Screening", 503)
+                else -> handleCallsRespond(body)
+            }
 
             // ---- Health Connect ----
             method == "GET"  && path == "/phone/health" ->
@@ -701,6 +712,7 @@ class PhoneBridgeServer(
         path == "/phone/calls/history" -> "CALLS" to "Read call screening history"
         path == "/phone/calls/respond" -> "CALLS" to "${body?.optString("action")?.replaceFirstChar { it.uppercase() } ?: "Handled"} incoming call"
         path == "/phone/imu" -> "MOTION" to "Read IMU snapshot (accelerometer + gyroscope)"
+        path == "/phone/imu/fall_check" -> "MOTION" to "Checked fall detection via accelerometer"
         path == "/phone/imu/record" -> "MOTION" to "Recorded ${
             (body?.optLong("duration_ms") ?: params["duration_ms"]?.toLongOrNull() ?: 5_000L) / 1000
         }s IMU data at ${body?.optInt("rate_hz") ?: params["rate_hz"]?.toIntOrNull() ?: 50}Hz"
@@ -850,6 +862,9 @@ class PhoneBridgeServer(
         else null
         val selArgs = if (query.isNotBlank()) arrayOf("%$query%") else null
 
+        // Group phone numbers by contact ID so response matches iOS shape:
+        // { "contacts": [{ "id", "name", "phones": [...] }], "count": N }
+        val contactMap = LinkedHashMap<String, JSONObject>()
         context.contentResolver.query(
             ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
             arrayOf(
@@ -857,17 +872,29 @@ class PhoneBridgeServer(
                 ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
                 ContactsContract.CommonDataKinds.Phone.NUMBER,
             ),
-            selection, selArgs, null
+            selection, selArgs,
+            "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} ASC"
         )?.use { cursor ->
-            while (cursor.moveToNext() && results.length() < 100) {
-                results.put(JSONObject().apply {
-                    put("id",    cursor.getString(0) ?: "")
-                    put("name",  cursor.getString(1) ?: "")
-                    put("phone", cursor.getString(2) ?: "")
-                })
+            while (cursor.moveToNext()) {
+                val id    = cursor.getString(0) ?: continue
+                val name  = cursor.getString(1) ?: ""
+                val phone = cursor.getString(2) ?: ""
+                val entry = contactMap.getOrPut(id) {
+                    JSONObject().apply {
+                        put("id",     id)
+                        put("name",   name)
+                        put("phones", JSONArray())
+                    }
+                }
+                if (phone.isNotBlank()) (entry.get("phones") as JSONArray).put(phone)
+                if (contactMap.size >= 100) break
             }
         }
-        return jsonOk(results)
+        contactMap.values.forEach { results.put(it) }
+        return jsonOk(JSONObject().apply {
+            put("contacts", results)
+            put("count",    results.length())
+        })
     }
 
     private fun handleContactsWrite(body: JSONObject?): BridgeResponse {
@@ -1134,7 +1161,7 @@ class PhoneBridgeServer(
         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE)
             as android.content.ClipboardManager
         cm.setPrimaryClip(android.content.ClipData.newPlainText("zeroclaw", text))
-        return jsonOk(JSONObject().put("set", true))
+        return jsonOk(JSONObject().put("ok", true))
     }
 
     private fun handleCameraCapture(body: JSONObject?): BridgeResponse {
@@ -1172,10 +1199,10 @@ class PhoneBridgeServer(
                 img.close()
                 cameraRef?.close()  // close camera as soon as image is in hand
                 bridgeResult = jsonOk(JSONObject().apply {
-                    put("width",       captureWidth)
-                    put("height",      captureHeight)
-                    put("format",      "jpeg")
-                    put("data_base64", Base64.encodeToString(bytes, Base64.NO_WRAP))
+                    put("image_base64", Base64.encodeToString(bytes, Base64.NO_WRAP))  // matches iOS
+                    put("format",       "jpeg")
+                    put("width",        captureWidth)
+                    put("height",       captureHeight)
                 })
             } catch (e: Exception) {
                 bridgeResult = jsonError("image read failed: ${e.message}", 500)
@@ -1287,10 +1314,10 @@ class PhoneBridgeServer(
                 val bytes = outFile.readBytes()
                 val b64   = Base64.encodeToString(bytes, Base64.NO_WRAP)
                 jsonOk(JSONObject().apply {
-                    put("duration_ms", clampedMs)
-                    put("format",      "aac")
-                    put("data_base64", b64)
-                    put("note",        "recording complete")
+                    put("audio_base64",  b64)                           // matches iOS
+                    put("format",        "aac")
+                    put("duration_secs", clampedMs / 1000.0)            // matches iOS unit
+                    put("duration_ms",   clampedMs)                     // Android-extra
                 })
             } catch (e: Exception) {
                 jsonError("audio record failed: ${e.message}", 500)
@@ -1368,10 +1395,13 @@ class PhoneBridgeServer(
             BatteryManager.BATTERY_PLUGGED_WIRELESS -> "wireless"
             else -> "unplugged"
         }
+        val charging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
+                       status == BatteryManager.BATTERY_STATUS_FULL
         return jsonOk(JSONObject().apply {
-            put("percent", pct)
-            put("status",  statusStr)
-            put("source",  sourceStr)
+            put("level",    pct)          // matches iOS "level" field
+            put("charging", charging)     // matches iOS "charging" boolean
+            put("status",   statusStr)    // Android-extra: "charging"|"discharging"|"full"|"not_charging"
+            put("source",   sourceStr)    // Android-extra: "ac"|"usb"|"wireless"|"unplugged"
         })
     }
 
@@ -1413,9 +1443,13 @@ class PhoneBridgeServer(
             caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "ethernet"
             else                                                      -> "other"
         }
+        val isWifi     = caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ?: false
+        val isCellular = caps?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ?: false
         return jsonOk(JSONObject().apply {
             put("connected", connected)
-            put("type",      type)
+            put("wifi",      isWifi)      // matches iOS boolean fields
+            put("cellular",  isCellular)  // matches iOS boolean fields
+            put("type",      type)        // Android-extra enum
             put("internet",  caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) ?: false)
             put("validated", caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) ?: false)
         })
@@ -1521,7 +1555,8 @@ class PhoneBridgeServer(
         val got = latch.await(5, TimeUnit.SECONDS)
         sm.unregisterListener(listener)
         return if (got)
-            jsonOk(JSONObject().put("steps_since_reboot", steps))
+            // "steps" matches iOS field name; note Android counts since last reboot, iOS counts today
+            jsonOk(JSONObject().put("steps", steps).put("steps_since_reboot", steps))
         else
             jsonError("step count not available (sensor timeout)", 503)
     }
@@ -1577,15 +1612,57 @@ class PhoneBridgeServer(
 
         if (!got) return jsonError("IMU snapshot timeout", 503)
 
-        val result = JSONObject()
-            .put("timestamp_ms", System.currentTimeMillis())
-            .put("accelerometer", JSONObject()
-                .put("x", ax).put("y", ay).put("z", az).put("unit", "m/s²"))
-        if (gyroReady) {
-            result.put("gyroscope", JSONObject()
-                .put("x", gx).put("y", gy).put("z", gz).put("unit", "rad/s"))
+        // Flat field names match iOS shape: accel_x/y/z, gyro_x/y/z, timestamp_ms
+        val result = JSONObject().apply {
+            put("timestamp_ms", System.currentTimeMillis())
+            put("accel_x", ax); put("accel_y", ay); put("accel_z", az)
+            if (gyroReady) { put("gyro_x", gx); put("gyro_y", gy); put("gyro_z", gz) }
         }
         return jsonOk(result)
+    }
+
+    // Sample 0.5s of accelerometer at 50 Hz, compute peak-g and detect a fall
+    // threshold: peak magnitude > 2.5 g (24.5 m/s²) then < 0.5 g (4.9 m/s²) within window
+    private fun handleImuFallCheck(): BridgeResponse {
+        val sm = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        val accelSensor = sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+            ?: return jsonError("accelerometer not available", 404)
+
+        val sampleWindowMs = 500L
+        val samples = java.util.concurrent.CopyOnWriteArrayList<Float>()
+        val latch = CountDownLatch(1)
+
+        val listener = object : SensorEventListener {
+            override fun onSensorChanged(event: SensorEvent) {
+                val x = event.values[0]; val y = event.values[1]; val z = event.values[2]
+                val magnitude = Math.sqrt((x * x + y * y + z * z).toDouble()).toFloat()
+                samples.add(magnitude)
+            }
+            override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) {}
+        }
+
+        sm.registerListener(listener, accelSensor, SensorManager.SENSOR_DELAY_GAME)
+        val timerThread = Thread {
+            Thread.sleep(sampleWindowMs)
+            latch.countDown()
+        }
+        timerThread.start()
+        latch.await(2, TimeUnit.SECONDS)
+        sm.unregisterListener(listener)
+
+        if (samples.isEmpty()) return jsonError("accelerometer read timeout", 503)
+
+        val peakG = (samples.maxOrNull() ?: 0f) / SensorManager.GRAVITY_EARTH
+        val minG  = (samples.minOrNull() ?: SensorManager.GRAVITY_EARTH) / SensorManager.GRAVITY_EARTH
+        // Fall heuristic: brief free-fall (low g) or impact spike (high g) in same window
+        val fallDetected = peakG > 2.5f && minG < 0.5f
+
+        return jsonOk(JSONObject()
+            .put("fall_detected", fallDetected)
+            .put("peak_g", String.format("%.3f", peakG).toDouble())
+            .put("min_g",  String.format("%.3f", minG).toDouble())
+            .put("sample_count", samples.size)
+            .put("window_ms", sampleWindowMs))
     }
 
     private fun handleImuRecord(body: JSONObject?, params: Map<String, String>): BridgeResponse {
@@ -2873,7 +2950,7 @@ class PhoneBridgeServer(
 
             val result = engine.speak(text, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "zerox1_${System.currentTimeMillis()}")
             if (result == android.speech.tts.TextToSpeech.SUCCESS) {
-                jsonOk(JSONObject().put("queued", true).put("chars", text.length))
+                jsonOk(JSONObject().put("spoken", true).put("chars", text.length))  // "spoken" matches iOS
             } else {
                 jsonError("tts_speak_failed: engine returned $result", 500)
             }

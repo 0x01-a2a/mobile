@@ -54,37 +54,37 @@
 		<true/>
 	</dict>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>ZeroClaw can discover nearby wearable devices.</string>
+	<string>Your agent can discover nearby wearable devices to read health and activity data.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_zerox1._tcp</string>
 	</array>
 	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>ZeroClaw needs full calendar access to manage your schedule.</string>
+	<string>Your agent needs full calendar access to manage your schedule.</string>
 	<key>NSCalendarsUsageDescription</key>
-	<string>ZeroClaw can read and create calendar events for scheduling tasks.</string>
+	<string>Your agent can read and create calendar events for scheduling tasks.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>ZeroClaw can take photos for image processing and analysis tasks.</string>
+	<string>Your agent can take photos for image processing and analysis tasks.</string>
 	<key>NSContactsUsageDescription</key>
-	<string>ZeroClaw can read your contacts to help with messaging and lookup tasks.</string>
+	<string>Your agent can read your contacts to help with messaging and lookup tasks.</string>
 	<key>NSHealthShareUsageDescription</key>
-	<string>ZeroClaw reads steps, heart rate, and activity data to help schedule tasks and adapt to your physical state.</string>
+	<string>Your agent reads steps, heart rate, and activity data to help schedule tasks and adapt to your physical state.</string>
 	<key>NSHealthUpdateUsageDescription</key>
-	<string>ZeroClaw can log workouts and activity data when you ask it to.</string>
+	<string>Your agent can log workouts and activity data when you ask it to.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Required for mesh node communication on the local network.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>ZeroClaw can access your location in the background for ongoing tasks.</string>
+	<string>Your agent can access your location in the background for ongoing tasks.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>ZeroClaw can access your location for location-aware tasks.</string>
+	<string>Your agent can access your location for location-aware tasks.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>ZeroClaw can record audio for transcription and voice tasks.</string>
+	<string>Your agent can record audio for transcription and voice tasks.</string>
 	<key>NSMotionUsageDescription</key>
-	<string>ZeroClaw can read motion and activity data to support movement-aware tasks and phone sensor features.</string>
+	<string>Your agent can read motion and activity data to support movement-aware tasks and phone sensor features.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>ZeroClaw can save photos to your library.</string>
+	<string>Your agent can save photos to your library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>ZeroClaw can access your photo library for media tasks.</string>
+	<string>Your agent can access your photo library for media tasks.</string>
 <key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>NSSupportsLiveActivitiesFrequentUpdates</key>
@@ -124,15 +124,6 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
-
-	<!-- ── App Intents / Siri Shortcuts ──────────────────────────────────── -->
-	<key>NSUserActivityTypes</key>
-	<array>
-		<string>StartAgentIntent</string>
-		<string>StopAgentIntent</string>
-		<string>AgentStatusIntent</string>
-		<string>CheckPortfolioIntent</string>
-	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 </dict>

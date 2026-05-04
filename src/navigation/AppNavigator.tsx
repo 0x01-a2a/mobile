@@ -1,7 +1,7 @@
 /**
  * AppNavigator — bottom tab navigation for the 0x01 node app.
  *
- * Tabs: Today | Inbox | Chat | You
+ * Tabs: Today | Inbox | Fleet | Chat | You
  */
 import React from 'react';
 import { StyleSheet, Pressable, View } from 'react-native';
@@ -12,6 +12,7 @@ import { useLayout } from '../hooks/useLayout';
 
 import TodayScreen        from '../screens/Today';
 import InboxScreen        from '../screens/Inbox';
+import FleetScreen        from '../screens/Fleet';
 import { ChatScreen }     from '../screens/Chat';
 import YouScreen          from '../screens/You';
 import { useTheme, ThemeColors } from '../theme/ThemeContext';
@@ -73,6 +74,7 @@ export function AppNavigator() {
       >
       <Tab.Screen name="Today" component={TodayScreen} options={{ title: t('nav.today'), tabBarLabel: t('nav.today') }} />
       <Tab.Screen name="Inbox" component={InboxScreen} options={{ title: t('nav.inbox'), tabBarLabel: t('nav.inbox') }} />
+      <Tab.Screen name="Fleet" component={FleetScreen} options={{ title: t('nav.fleet'), tabBarLabel: t('nav.fleet') }} />
       <Tab.Screen name="Chat"  component={ChatScreen}  options={{ title: t('nav.chat'),  tabBarLabel: t('nav.chat')  }} />
       <Tab.Screen name="You"   component={YouScreen}   options={{ title: t('nav.you'),   tabBarLabel: t('nav.you')   }} />
     </Tab.Navigator>

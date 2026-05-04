@@ -153,6 +153,48 @@ export const NodeModule = {
     ZeroxNodeModule.saveReplicateApiKey(key),
 
   /**
+   * Securely store the MoltBook API key.
+   * NodeService sets MOLTBOOK_API_KEY env var on zeroclaw at launch.
+   */
+  saveMoltbookApiKey: (key: string): Promise<void> =>
+    ZeroxNodeModule.saveMoltbookApiKey(key),
+
+  /**
+   * Securely store the Neynar API key (Farcaster).
+   * NodeService sets NEYNAR_API_KEY env var on zeroclaw at launch.
+   */
+  saveNeynarApiKey: (key: string): Promise<void> =>
+    ZeroxNodeModule.saveNeynarApiKey(key),
+
+  /**
+   * Securely store the Farcaster managed signer UUID.
+   * NodeService sets FARCASTER_SIGNER_UUID env var on zeroclaw at launch.
+   */
+  saveFarcasterSignerUuid: (uuid: string): Promise<void> =>
+    ZeroxNodeModule.saveFarcasterSignerUuid(uuid),
+
+  /**
+   * Persist a single skill env var key=value to native secure storage (EncryptedSharedPreferences
+   * on Android, Keychain on iOS). NodeService merges it into the process environment at zeroclaw
+   * launch and includes the key in shell_env_passthrough so shell tools can read it.
+   */
+  saveSkillEnvVar: (key: string, value: string): Promise<void> =>
+    ZeroxNodeModule.saveSkillEnvVar(key, value),
+
+  /**
+   * Remove a skill env var from native secure storage by key name.
+   */
+  removeSkillEnvVar: (key: string): Promise<void> =>
+    ZeroxNodeModule.removeSkillEnvVar(key),
+
+  /**
+   * Persist the Farcaster FID (numeric, non-sensitive) to native SharedPreferences/UserDefaults
+   * so NodeService can inject it as FARCASTER_FID env var at zeroclaw launch.
+   */
+  saveFarcasterFid: (fid: string): Promise<void> =>
+    ZeroxNodeModule.saveFarcasterFid(fid),
+
+  /**
    * Update the LLM provider/model/baseUrl in SharedPreferences so the next
    * zeroclaw restart (including after reloadAgent) picks up the new values.
    */
@@ -459,6 +501,28 @@ export const NodeModule = {
     Platform.OS === 'ios'
       ? ZeroxNodeModule.getLogFilePath()
       : Promise.reject(new Error('getLogFilePath is iOS only')),
+
+  // ── iOS skill management (filesystem-based) ────────────────────────────
+  // The iOS FFI node build does not expose /skill/* REST endpoints.
+  // These methods manage TOML files directly on the filesystem.
+
+  /** List installed skill directory names. iOS only. */
+  listInstalledSkills: (): Promise<string[]> =>
+    Platform.OS === 'ios'
+      ? ZeroxNodeModule.listInstalledSkills()
+      : Promise.reject(new Error('listInstalledSkills is iOS only')),
+
+  /** Download TOML from url and write to skills/{name}/SKILL.toml. iOS only. */
+  installSkillFromUrl: (name: string, url: string): Promise<void> =>
+    Platform.OS === 'ios'
+      ? ZeroxNodeModule.installSkillFromUrl(name, url)
+      : Promise.reject(new Error('installSkillFromUrl is iOS only')),
+
+  /** Delete skills/{name}/ directory. iOS only. */
+  removeInstalledSkill: (name: string): Promise<void> =>
+    Platform.OS === 'ios'
+      ? ZeroxNodeModule.removeInstalledSkill(name)
+      : Promise.reject(new Error('removeInstalledSkill is iOS only')),
 };
 
 // Temporary iOS bridge instrumentation to diagnose stale native module builds.

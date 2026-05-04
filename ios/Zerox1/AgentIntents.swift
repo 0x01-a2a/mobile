@@ -66,7 +66,9 @@ struct CheckPortfolioIntent: AppIntent {
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let token = KeychainHelper.load(key: "node_api_token") ?? ""
-        let url = URL(string: "http://127.0.0.1:9090/wallet/balance")!
+        guard let url = URL(string: "http://127.0.0.1:9090/wallet/balance") else {
+            return .result(dialog: "Internal error: invalid URL.")
+        }
         var req = URLRequest(url: url)
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.timeoutInterval = 5

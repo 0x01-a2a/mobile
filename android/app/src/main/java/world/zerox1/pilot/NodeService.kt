@@ -56,6 +56,10 @@ class NodeService : Service() {
         const val KEY_LLM_API_KEY      = "llm_api_key"
         const val KEY_FAL_API_KEY        = "fal_api_key"
         const val KEY_REPLICATE_API_KEY  = "replicate_api_key"
+        const val KEY_NEYNAR_API_KEY     = "neynar_api_key"
+        const val KEY_FARCASTER_SIGNER_UUID = "farcaster_signer_uuid"
+        const val KEY_MOLTBOOK_API_KEY   = "moltbook_api_key"
+        const val KEY_SKILL_ENV_VARS     = "skill_env_vars"
         const val KEY_NODE_API_SECRET  = "local_node_api_secret"
         const val KEY_GATEWAY_TOKEN    = "local_gateway_token"
         const val KEY_BRIDGE_SECRET    = "bridge_secret"
@@ -149,7 +153,6 @@ Every action on the mesh maps to a message type. Use the right one for each situ
 
 - zerox1_identity  → your agent_id and display name
 - zerox1_peers     → agents currently visible on the mesh
-- zerox1_register  → register once in the 8004 Solana Agent Registry (required for full participation)
 - zerox1_discover  → find agents by capability before proposing a task
 - zerox1_advertise → announce yourself when you receive a DISCOVER
 
@@ -238,15 +241,6 @@ name        = "zerox1_peers"
 description = "List agents currently connected to your node on the 0x01 mesh."
 kind        = "shell"
 command     = ${TOML_TQ}curl -sf "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/peers" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${TOML_TQ}
-
-[[tools]]
-name        = "zerox1_register"
-description = "Register this agent in the 8004 Solana Agent Registry. Run once to establish an on-chain identity. Required for full mesh participation."
-kind        = "shell"
-command     = ${TOML_TQ}jq -nc --arg u {agent_uri} '{"agent_uri":${'$'}u}' | curl -sf -X POST "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/registry/8004/register-local" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
-
-[tools.args]
-agent_uri = "Optional public URI for this agent (e.g. https://yoursite.com/agent). Leave empty string to skip."
 
 # ── Negotiation ───────────────────────────────────────────────────────────────
 
@@ -1308,6 +1302,255 @@ command     = ${TOML_TQ}jq -nc --arg t {text} '{"text":${'$'}t}' | curl -sf -X P
 text = "Text to speak aloud"
 """.trimIndent()
 
+        val FARCASTER_SKILL_TOML = """
+[skill]
+name        = "farcaster"
+version     = "1.0.0"
+description = "Post casts, reply, read mentions, and search on Farcaster via Neynar API. Requires NEYNAR_API_KEY, FARCASTER_SIGNER_UUID, and FARCASTER_FID env vars."
+author      = "0x01 World"
+tags        = ["farcaster", "social", "cast", "web3", "presence"]
+
+prompts = [${TOML_TQ}
+# Farcaster Social Presence
+
+You can post and read on Farcaster using these tools. Use them to maintain the agent's social presence.
+
+- farcaster_cast — post a new cast (tweet-equivalent, 320 char max)
+- farcaster_reply — reply to an existing cast by hash
+- farcaster_mentions — check notifications / mentions
+- farcaster_feed — read your own recent casts
+- farcaster_search — search casts by keyword
+
+All tools require NEYNAR_API_KEY, FARCASTER_SIGNER_UUID (for writes), and FARCASTER_FID to be set. If they are missing, tell the user to configure Farcaster in Settings.
+
+Keep casts concise and authentic. Do not spam. Represent the owner's voice and values.
+${TOML_TQ}]
+
+[[tools]]
+name        = "farcaster_cast"
+description = "Post a new cast on Farcaster. Text must be 320 characters or fewer."
+kind        = "shell"
+command     = ${TOML_TQ}curl -sf -X POST "https://api.neynar.com/v2/farcaster/cast" \
+  -H "x-api-key: ${'$'}{NEYNAR_API_KEY}" \
+  -H "Content-Type: application/json" \
+  -d "{\"signer_uuid\":\"${'$'}{FARCASTER_SIGNER_UUID}\",\"text\":\"{text}\"}" | jq '{hash:.cast.hash,author:.cast.author.username,text:.cast.text}'${TOML_TQ}
+
+[tools.args]
+text = "Cast text, 320 characters max"
+
+[[tools]]
+name        = "farcaster_reply"
+description = "Reply to an existing cast by its hash."
+kind        = "shell"
+command     = ${TOML_TQ}curl -sf -X POST "https://api.neynar.com/v2/farcaster/cast" \
+  -H "x-api-key: ${'$'}{NEYNAR_API_KEY}" \
+  -H "Content-Type: application/json" \
+  -d "{\"signer_uuid\":\"${'$'}{FARCASTER_SIGNER_UUID}\",\"text\":\"{text}\",\"parent\":\"{parent_hash}\"}" | jq '{hash:.cast.hash,author:.cast.author.username,text:.cast.text}'${TOML_TQ}
+
+[tools.args]
+text        = "Reply text, 320 characters max"
+parent_hash = "Hash of the cast to reply to (e.g. 0xabc123…)"
+
+[[tools]]
+name        = "farcaster_mentions"
+description = "Fetch recent mentions and notifications for the configured FID."
+kind        = "shell"
+command     = ${TOML_TQ}curl -sf "https://api.neynar.com/v2/farcaster/notifications?fid=${'$'}{FARCASTER_FID}&type=mentions,replies&limit=20" \
+  -H "x-api-key: ${'$'}{NEYNAR_API_KEY}" | jq '[.notifications[]?|{type:.type,from:(.cast.author.username//null),text:(.cast.text//null),hash:(.cast.hash//null),time:.most_recent_timestamp}]'${TOML_TQ}
+
+[[tools]]
+name        = "farcaster_feed"
+description = "Read the agent's own recent casts."
+kind        = "shell"
+command     = ${TOML_TQ}curl -sf "https://api.neynar.com/v2/farcaster/feed/user/casts?fid=${'$'}{FARCASTER_FID}&limit=20" \
+  -H "x-api-key: ${'$'}{NEYNAR_API_KEY}" | jq '[.casts[]?|{hash:.hash,text:.text,likes:.reactions.likes_count,replies:.replies.count,time:.timestamp}]'${TOML_TQ}
+
+[[tools]]
+name        = "farcaster_search"
+description = "Search Farcaster casts by keyword."
+kind        = "shell"
+command     = ${TOML_TQ}curl -sf "https://api.neynar.com/v2/farcaster/cast/search?q={query}&limit=20" \
+  -H "x-api-key: ${'$'}{NEYNAR_API_KEY}" | jq '[.result.casts[]?|{hash:.hash,author:.author.username,text:.text,likes:.reactions.likes_count,time:.timestamp}]'${TOML_TQ}
+
+[tools.args]
+query = "Search keyword or phrase"
+""".trimIndent()
+
+        val MOLTBOOK_SKILL_TOML = """
+[skill]
+name        = "moltbook"
+version     = "1.0.0"
+description = "Post, comment, read feeds, and search on MoltBook — the AI-native social network. Requires MOLTBOOK_API_KEY env var."
+author      = "0x01 World"
+tags        = ["moltbook", "social", "community", "presence", "ai-network"]
+
+prompts = [${TOML_TQ}
+# MoltBook
+
+MoltBook is Reddit for AI agents. You can post to submolts (communities), comment on posts, upvote, search, and build a presence across the network.
+
+## Your tools
+- moltbook_post — create a post in any submolt
+- moltbook_comment — comment on a post
+- moltbook_reply — reply to a comment
+- moltbook_feed — read hot posts from a submolt or the global feed
+- moltbook_search — search for posts by keyword
+- moltbook_upvote — upvote a post
+
+All tools require MOLTBOOK_API_KEY. If it is missing, tell the user to configure MoltBook in Settings > Advanced.
+
+Rate limits: 1 post per 30 minutes, 50 comments per day. Write substantive, on-topic content.
+When posting, choose the most relevant submolt. Use m/ai, m/solana, m/cryptocurrency as defaults.
+${TOML_TQ}]
+
+[[tools]]
+name        = "moltbook_post"
+description = "Create a new text post in a MoltBook submolt community."
+kind        = "shell"
+command     = ${TOML_TQ}jq -nc --arg t {title} --arg c {content} --arg s {submolt} '{"type":"text","title":${'$'}t,"content":${'$'}c,"submolt":${'$'}s}' | curl -sf -X POST "https://www.moltbook.com/api/v1/posts" \
+  -H "Authorization: Bearer ${'$'}{MOLTBOOK_API_KEY}" \
+  -H "Content-Type: application/json" \
+  -d @- | jq '{id:.data[0].id,title:.data[0].title,submolt:.data[0].submolt,score:.data[0].score}'${TOML_TQ}
+
+[tools.args]
+title   = "Post title"
+content = "Post body text"
+submolt = "Target submolt, e.g. m/ai or m/solana"
+
+[[tools]]
+name        = "moltbook_comment"
+description = "Post a comment on a MoltBook post."
+kind        = "shell"
+command     = ${TOML_TQ}jq -nc --arg c {content} '{"content":${'$'}c}' | curl -sf -X POST "https://www.moltbook.com/api/v1/posts/{post_id}/comments" \
+  -H "Authorization: Bearer ${'$'}{MOLTBOOK_API_KEY}" \
+  -H "Content-Type: application/json" \
+  -d @- | jq '{id:.id,content:.content}'${TOML_TQ}
+
+[tools.args]
+post_id = "The post ID to comment on"
+content = "Comment text"
+
+[[tools]]
+name        = "moltbook_reply"
+description = "Reply to an existing comment on MoltBook."
+kind        = "shell"
+command     = ${TOML_TQ}jq -nc --arg c {content} '{"content":${'$'}c}' | curl -sf -X POST "https://www.moltbook.com/api/v1/comments/{comment_id}/reply" \
+  -H "Authorization: Bearer ${'$'}{MOLTBOOK_API_KEY}" \
+  -H "Content-Type: application/json" \
+  -d @- | jq '{id:.id,content:.content}'${TOML_TQ}
+
+[tools.args]
+comment_id = "The comment ID to reply to"
+content    = "Reply text"
+
+[[tools]]
+name        = "moltbook_feed"
+description = "Read hot posts from a submolt. Use m/all for the global feed."
+kind        = "shell"
+command     = ${TOML_TQ}curl -sf "https://www.moltbook.com/api/v1/posts?sort=hot&limit=10&submolt={submolt}" \
+  -H "Authorization: Bearer ${'$'}{MOLTBOOK_API_KEY}" | jq '[.data[]?|{id:.id,title:.title,submolt:.submolt,score:.score,comments:.comment_count,author:.author.name,time:.created_at}]'${TOML_TQ}
+
+[tools.args]
+submolt = "Submolt to read, e.g. m/ai — use m/all for global feed"
+
+[[tools]]
+name        = "moltbook_search"
+description = "Search MoltBook for posts by keyword."
+kind        = "shell"
+command     = ${TOML_TQ}curl -sf "https://www.moltbook.com/api/v1/search/posts?q={query}&limit=10" \
+  -H "Authorization: Bearer ${'$'}{MOLTBOOK_API_KEY}" | jq '[.data[]?|{id:.id,title:.title,submolt:.submolt,score:.score,author:.author.name}]'${TOML_TQ}
+
+[tools.args]
+query = "Search keyword or phrase"
+
+[[tools]]
+name        = "moltbook_upvote"
+description = "Upvote a MoltBook post."
+kind        = "shell"
+command     = ${TOML_TQ}curl -sf -X POST "https://www.moltbook.com/api/v1/posts/{post_id}/upvote" \
+  -H "Authorization: Bearer ${'$'}{MOLTBOOK_API_KEY}" | jq '{success:.success}'${TOML_TQ}
+
+[tools.args]
+post_id = "The post ID to upvote"
+""".trimIndent()
+
+        val PODCAST_SKILL_TOML = """
+[skill]
+name        = "podcast"
+version     = "1.0.0"
+description = "Turn a conversation with your owner into a produced podcast episode. Free tier: real audio + AI jingle. Premium (01PL holders): full two-voice production with AI co-host. Generates short clips for TikTok and publishes to Telegram + RSS."
+author      = "0x01 World"
+tags        = ["podcast", "audio", "content", "social", "tiktok", "production"]
+
+prompts = [${TOML_TQ}
+# Podcast Producer
+
+You can turn any conversation into a published podcast episode. When the owner says "make a podcast", "publish that", "turn this into an episode", or similar:
+
+## Production Flow
+
+1. Call `podcast_export_conversation` to get the current chat transcript with any voice note audio CIDs.
+2. Review the transcript. Suggest a title and ask if the owner wants to change anything.
+3. Once confirmed, call `podcast_produce` with the transcript, title, and the owner's preferred tier.
+4. Show the owner the result: duration, title, and a preview link.
+5. Ask if they want short clips for social media. If yes, identify the most interesting 60-second segment and call `podcast_clip`.
+6. Ask if they want to publish. If yes, call `podcast_publish`.
+7. If the owner wants the audio file locally, mention they can find it in the link provided.
+
+## Guidelines
+
+- Keep episode titles punchy and curiosity-driven — these appear in podcast apps and Telegram.
+- For clips, pick segments with strong opinions, surprising facts, or emotional moments — not intros or pleasantries.
+- The "premium" tier requires the owner to hold 500,000 01PL. If the aggregator returns a tier error, explain this and offer the free tier instead.
+- Never fabricate transcript content. The podcast must reflect the actual conversation.
+${TOML_TQ}]
+
+[[tools]]
+name        = "podcast_export_conversation"
+description = "Export the current conversation transcript with voice note audio CIDs. Call this first to get the raw material for the podcast."
+kind        = "shell"
+command     = ${TOML_TQ}curl -sf "${'$'}{ZX01_NODE:-http://127.0.0.1:9090}/agent/conversation/export" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${TOML_TQ}
+
+[[tools]]
+name        = "podcast_produce"
+description = "Send a conversation transcript to the aggregator to produce a full podcast episode. Returns an audio URL and episode metadata. Tier: 'free' for real-audio-only production, 'premium' for full ElevenLabs two-voice recreation."
+kind        = "shell"
+command     = ${TOML_TQ}jq -nc --arg title {title} --arg tier {tier} --argjson transcript {transcript_json} '{"title":${'$'}title,"tier":${'$'}tier,"transcript":${'$'}transcript}' | curl -sf -X POST "https://api.0x01.world/podcast/produce" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
+
+[tools.args]
+title           = "Episode title — short and punchy"
+tier            = "free or premium"
+transcript_json = "JSON array of {role, text, audio_cid} objects from podcast_export_conversation"
+
+[[tools]]
+name        = "podcast_clip"
+description = "Generate a 60-second vertical video clip from a produced episode for TikTok/Reels. Includes burned-in captions."
+kind        = "shell"
+command     = ${TOML_TQ}jq -nc --arg eid {episode_id} --argjson start {start_secs} --argjson end {end_secs} '{"episode_id":${'$'}eid,"start_secs":${'$'}start,"end_secs":${'$'}end,"style":"waveform"}' | curl -sf -X POST "https://api.0x01.world/podcast/clip" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
+
+[tools.args]
+episode_id = "Episode ID returned by podcast_produce"
+start_secs = "Start time in seconds for the clip"
+end_secs   = "End time in seconds for the clip (max 90s duration)"
+
+[[tools]]
+name        = "podcast_publish"
+description = "Publish a produced episode to the agent's RSS podcast feed and Telegram channel."
+kind        = "shell"
+command     = ${TOML_TQ}jq -nc --arg eid {episode_id} --argjson rss {publish_rss} --argjson tg {publish_telegram} '{"episode_id":${'$'}eid,"publish_rss":${'$'}rss,"publish_telegram":${'$'}tg}' | curl -sf -X POST "https://api.0x01.world/podcast/publish" -H "Content-Type: application/json" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" -d @-${TOML_TQ}
+
+[tools.args]
+episode_id        = "Episode ID returned by podcast_produce"
+publish_rss       = "true to publish to RSS feed (Spotify/Apple Podcasts)"
+publish_telegram  = "true to post to agent Telegram channel"
+
+[[tools]]
+name        = "podcast_list_episodes"
+description = "List all published podcast episodes for this agent."
+kind        = "shell"
+command     = ${TOML_TQ}curl -sf "https://api.0x01.world/podcast/episodes?agent_id=${'$'}{ZX01_AGENT_ID:-}" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${TOML_TQ}
+""".trimIndent()
+
         val agentDisplayName = getSharedPreferences("zerox1", MODE_PRIVATE)
             .getString("agent_name", null)?.takeIf { it.isNotBlank() } ?: "Agent"
 
@@ -1394,7 +1637,6 @@ Your agent token is not just a memecoin. It is your stake in your own productivi
 - Deliver work and receive final payment (also settled via token buy)
 - Act as notary — judge task completion and issue verdicts
 - Dispute verdicts with evidence
-- Register and maintain an on-chain identity in the 8004 Solana Agent Registry
 
 ### On the Phone
 
@@ -1436,7 +1678,7 @@ Everything below is architecturally possible without changing the Android enviro
 
 **Solana — High Priority**
 - Liquid staking — stake idle SOL into jitoSOL, mSOL, or Sanctum LSTs; unstake when needed for trades
-- Token-2022 balances — currently blind to Token-2022 mints including BAGS and SATI themselves
+- Token-2022 balances — currently blind to Token-2022 mints including BAGS tokens
 - Transaction history — "what did I do last week?" via Helius `getSignaturesForAddress`
 - NFTs — buy/sell on Tensor and Magic Eden; mint; read ownership
 - Lending and borrowing — deposit collateral, borrow, repay, monitor health factor on Marginfi and Kamino
@@ -1863,7 +2105,7 @@ include_system = "true to include system apps (default: false)"
             ?.takeIf { it.isNotBlank() }
             ?: BuildConfig.DEFAULT_LAUNCHLAB_SHARE_FEE_WALLET.takeIf { it.isNotBlank() }
         val brainEnabled   = intent?.getBooleanExtra(EXTRA_BRAIN_ENABLED, false) ?: false
-        val llmProvider    = intent?.getStringExtra(EXTRA_LLM_PROVIDER) ?: "gemini"
+        val llmProvider    = intent?.getStringExtra(EXTRA_LLM_PROVIDER) ?: "default"
         val llmModel       = intent?.getStringExtra(EXTRA_LLM_MODEL) ?: ""
         val llmBaseUrl     = intent?.getStringExtra(EXTRA_LLM_BASE_URL) ?: ""
         Log.i(TAG, "Brain config: enabled=$brainEnabled provider=$llmProvider model=$llmModel baseUrl=${if (llmBaseUrl.isNotBlank()) "[set]" else "[empty]"}")
@@ -2151,10 +2393,6 @@ include_system = "true to include system apps (default: false)"
         // Skill workspace — enables the skill manager REST endpoints on the node.
         cmd += listOf("--skill-workspace", File(filesDir, "workspace").absolutePath)
 
-        // Disable 8004 registry gate on devnet — genesis/bootstrap agents are not
-        // registered, so without this flag all PROPOSEs get dropped as "deactivated".
-        cmd += "--registry-8004-disabled"
-
         // Redact sensitive flags before logging.
         val safeCmd = cmd.toMutableList().also { list ->
             for (flag in listOf("--bags-api-key", "--jupiter-api-key", "--jupiter-fee-account", "--api-secret", "--fcm-token")) {
@@ -2233,6 +2471,46 @@ include_system = "true to include system apps (default: false)"
         }
     }
 
+    private fun getMoltbookApiKey(): String? {
+        return try {
+            securePrefs().getString(KEY_MOLTBOOK_API_KEY, null)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to read MoltBook API key from encrypted storage: $e")
+            null
+        }
+    }
+
+    private fun getNeynarApiKey(): String? {
+        return try {
+            securePrefs().getString(KEY_NEYNAR_API_KEY, null)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to read Neynar API key from encrypted storage: $e")
+            null
+        }
+    }
+
+    private fun getFarcasterSignerUuid(): String? {
+        return try {
+            securePrefs().getString(KEY_FARCASTER_SIGNER_UUID, null)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to read Farcaster signer UUID from encrypted storage: $e")
+            null
+        }
+    }
+
+    private fun getSkillEnvVars(): Map<String, String> {
+        return try {
+            val json = securePrefs().getString(KEY_SKILL_ENV_VARS, null) ?: return emptyMap()
+            val obj = org.json.JSONObject(json)
+            val map = mutableMapOf<String, String>()
+            for (k in obj.keys()) map[k] = obj.getString(k)
+            map
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to read skill env vars from encrypted storage: $e")
+            emptyMap()
+        }
+    }
+
     /**
      * Escape a user-provided string for safe embedding inside a TOML basic string (double-quoted).
      * Replaces backslashes, double-quotes, and newline characters.
@@ -2293,6 +2571,80 @@ include_system = "true to include system apps (default: false)"
         maxActionsPerHour: Int = 100,
         maxCostPerDayCents: Int = 1000,
     ) {
+        // Build shell_env_passthrough — fixed built-ins plus any user-defined skill env var keys.
+        val builtinPassthrough = listOf(
+            "ZX01_NODE", "ZX01_TOKEN", "FAL_API_KEY", "REPLICATE_API_KEY",
+            "NEYNAR_API_KEY", "FARCASTER_SIGNER_UUID", "FARCASTER_FID",
+            "MOLTBOOK_API_KEY",
+        )
+        val skillEnvKeys = getSkillEnvVars().keys.toList()
+        val allPassthrough = (builtinPassthrough + skillEnvKeys).distinct()
+        val shellEnvPassthrough = allPassthrough.joinToString(", ") { "\"$it\"" }
+
+        // "default" provider routes through the local node's LLM relay to the 01 aggregator.
+        // No API key is needed — access is gated by the agent's Bags.fm token trading history.
+        if (provider == "default") {
+            val localApiSecret = ensureSecureToken(KEY_NODE_API_SECRET)
+            val gatewayToken = ensureSecureToken(KEY_GATEWAY_TOKEN, "zc_mobile_")
+            val escapedNodeApiSecret = escapeTOMLString(localApiSecret)
+            val escapedGatewayToken = escapeTOMLString(gatewayToken)
+            val tomlCaps = try {
+                JSONArray(if (capabilities.isBlank()) "[]" else capabilities).toString()
+            } catch (e: Exception) {
+                Log.w(TAG, "Invalid capabilities JSON — using empty array")
+                "[]"
+            }
+            val workspaceDir = File(filesDir, "workspace")
+            workspaceDir.mkdirs()
+            val config = """
+# 01 Aggregator LLM — no API key needed
+default_provider    = "custom:http://127.0.0.1:$NODE_API_PORT"
+api_key             = ""
+default_model       = "gemini-3-flash-preview"
+default_temperature = 0.7
+
+[gateway]
+port            = $AGENT_GATEWAY_PORT
+host            = "127.0.0.1"
+require_pairing = true
+paired_tokens   = ["$escapedGatewayToken"]
+
+[channels_config]
+cli = false
+
+[channels_config.zerox1]
+node_api_url    = "http://127.0.0.1:$NODE_API_PORT"
+api_secret      = "$escapedNodeApiSecret"
+min_fee_usdc    = $minFee
+min_reputation  = $minRep
+auto_accept     = $autoAccept
+capabilities    = $tomlCaps
+topics          = []
+
+[autonomy]
+level                  = "full"
+block_high_risk_commands = false
+workspace_only         = false
+allowed_commands       = ["curl", "jq", "sh", "bash"]
+forbidden_paths        = []
+max_actions_per_hour   = $maxActionsPerHour
+max_cost_per_day_cents = $maxCostPerDayCents
+shell_env_passthrough  = [$shellEnvPassthrough]
+
+[memory]
+backend    = "sqlite"
+auto_save  = true
+sqlite_path = "${escapeTOMLString(File(filesDir, "workspace/memory.db").absolutePath)}"
+
+# Bridge URL and token are passed via ZX01_BRIDGE_URL / ZX01_BRIDGE_TOKEN env vars
+# (set by NodeService before process launch). No [phone] config section needed.
+""".trimStart()
+            File(filesDir, AGENT_CONFIG_FILE).writeText(config)
+            Log.i(TAG, "ZeroClaw TOML config written (default/aggregator provider).")
+            writeBundledSkills(workspaceDir)
+            return
+        }
+
         val modelMap = mapOf(
             "gemini"    to "gemini-2.5-flash",
             "anthropic" to "claude-haiku-4-5-20251001",
@@ -2387,7 +2739,7 @@ allowed_commands       = ["curl", "jq", "sh", "bash"]
 forbidden_paths        = []
 max_actions_per_hour   = $maxActionsPerHour
 max_cost_per_day_cents = $maxCostPerDayCents
-shell_env_passthrough  = ["ZX01_NODE", "ZX01_TOKEN", "FAL_API_KEY", "REPLICATE_API_KEY"]
+shell_env_passthrough  = [$shellEnvPassthrough]
 
 [memory]
 backend    = "sqlite"
@@ -2474,6 +2826,21 @@ sqlite_path = "${escapeTOMLString(File(filesDir, "workspace/memory.db").absolute
         val safetySkillDir = File(skillsRoot, "safety")
         safetySkillDir.mkdirs()
         File(safetySkillDir, "SKILL.toml").writeText(SAFETY_SKILL_TOML)
+
+        // ── Farcaster social presence skill ──────────────────────────────────
+        val farcasterSkillDir = File(skillsRoot, "farcaster")
+        farcasterSkillDir.mkdirs()
+        File(farcasterSkillDir, "SKILL.toml").writeText(FARCASTER_SKILL_TOML)
+
+        // ── MoltBook social presence skill ────────────────────────────────────
+        val moltbookSkillDir = File(skillsRoot, "moltbook")
+        moltbookSkillDir.mkdirs()
+        File(moltbookSkillDir, "SKILL.toml").writeText(MOLTBOOK_SKILL_TOML)
+
+        // ── Podcast production skill ────────────────────────────────────────
+        val podcastSkillDir = File(skillsRoot, "podcast")
+        podcastSkillDir.mkdirs()
+        File(podcastSkillDir, "SKILL.toml").writeText(PODCAST_SKILL_TOML)
 
         // ── Agent soul / persona (injected at top of system prompt) ─────────
         File(workspaceDir, "SOUL.md").writeText(SOUL_MD)
@@ -2839,6 +3206,16 @@ the capability in the app Settings > Phone Bridge section instead.
                 if (!falKey.isNullOrEmpty()) it.environment()["FAL_API_KEY"] = falKey
                 val replicateKey = getReplicateApiKey()
                 if (!replicateKey.isNullOrEmpty()) it.environment()["REPLICATE_API_KEY"] = replicateKey
+                val moltbookKey = getMoltbookApiKey()
+                if (!moltbookKey.isNullOrEmpty()) it.environment()["MOLTBOOK_API_KEY"] = moltbookKey
+                val neynarKey = getNeynarApiKey()
+                if (!neynarKey.isNullOrEmpty()) it.environment()["NEYNAR_API_KEY"] = neynarKey
+                val farcasterSignerUuid = getFarcasterSignerUuid()
+                if (!farcasterSignerUuid.isNullOrEmpty()) it.environment()["FARCASTER_SIGNER_UUID"] = farcasterSignerUuid
+                val farcasterFid = getSharedPreferences("zerox1", Context.MODE_PRIVATE)
+                    .getString("farcaster_fid", null)
+                if (!farcasterFid.isNullOrEmpty()) it.environment()["FARCASTER_FID"] = farcasterFid
+                getSkillEnvVars().forEach { (k, v) -> it.environment()[k] = v }
                 // Prepend skill bin dir so curl/jq are found even on minimal system images.
                 val existingPath = it.environment()["PATH"] ?: "/system/bin:/system/xbin"
                 it.environment()["PATH"] = "$skillBinDir:$existingPath"

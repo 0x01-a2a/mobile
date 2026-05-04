@@ -66,8 +66,7 @@ class NodeModule: RCTEventEmitter {
     /// send wake pushes (bounty, trading opportunity, etc.).
     @objc func getApnsToken(_ resolve: @escaping RCTPromiseResolveBlock,
                              rejecter reject: @escaping RCTPromiseRejectBlock) {
-        resolve(KeychainHelper.load(key: "apns_push_token")
-            ?? UserDefaults.standard.string(forKey: "zerox1_apns_token"))
+        resolve(KeychainHelper.load(key: "apns_push_token") as Any)
     }
 
     /// Trigger HealthKit background delivery registration.
@@ -106,12 +105,14 @@ class NodeModule: RCTEventEmitter {
         resolve(nil)
     }
 
-    /// Persist emergency contacts JSON to UserDefaults so PhoneBridgeServer can
-    /// read them without going through AsyncStorage.
+    /// Persist emergency contacts JSON to Keychain so PhoneBridgeServer can
+    /// read them without going through AsyncStorage. Contacts are sensitive (names +
+    /// phone numbers) and must not be stored in UserDefaults which is included in
+    /// unencrypted device backups.
     @objc func saveEmergencyContacts(_ contacts: String,
                                       resolver resolve: @escaping RCTPromiseResolveBlock,
                                       rejecter reject: @escaping RCTPromiseRejectBlock) {
-        UserDefaults.standard.set(contacts, forKey: "zerox1_emergency_contacts")
+        KeychainHelper.save(contacts, key: "zerox1_emergency_contacts")
         resolve(nil)
     }
 
@@ -140,7 +141,7 @@ class NodeModule: RCTEventEmitter {
             "_dbg_brainCfgEnabled": brainCfgEnabled,
             "_dbg_llmKeyInChain": llmKeyInChain,
         ]
-        os_log(.error, "[NodeService] getLocalAuthConfig — agentRunning=%{public}@, brainCfgEnabled=%{public}@, llmKeyInChain=%{public}@",
+        os_log(.info, "[NodeModule] getLocalAuthConfig — agentRunning=%{public}@, brainCfgEnabled=%{public}@, llmKeyInChain=%{public}@",
                String(NodeService.shared.isAgentRunning), String(brainCfgEnabled), String(llmKeyInChain))
         NSLog("[NodeModule] getLocalAuthConfig payload: %@", String(describing: payload))
         print("[NodeModule] getLocalAuthConfig payload: \(payload)")
@@ -314,9 +315,13 @@ class NodeModule: RCTEventEmitter {
         result["motion"] = CMMotionActivityManager.isActivityAvailable()
 
         // Health
-        let hkStatus = HKHealthStore.isHealthDataAvailable()
-            ? HKHealthStore().authorizationStatus(for: HKObjectType.quantityType(forIdentifier: .stepCount)!) != .notDetermined
-            : false
+        let hkStatus: Bool
+        if HKHealthStore.isHealthDataAvailable(),
+           let stepType = HKObjectType.quantityType(forIdentifier: .stepCount) {
+            hkStatus = HKHealthStore().authorizationStatus(for: stepType) != .notDetermined
+        } else {
+            hkStatus = false
+        }
         result["health"] = hkStatus
 
         // Bluetooth
@@ -334,19 +339,6 @@ class NodeModule: RCTEventEmitter {
         } else {
             result["live_activity"] = false
         }
-
-        // Clinical records — check HK auth for at least one clinical type
-        #if canImport(HealthKit)
-        if HKHealthStore.isHealthDataAvailable(),
-           let allergyType = HKObjectType.clinicalType(forIdentifier: .allergyRecord) {
-            let clinicalStatus = HKHealthStore().authorizationStatus(for: allergyType)
-            result["clinical_records"] = clinicalStatus == .sharingAuthorized
-        } else {
-            result["clinical_records"] = false
-        }
-        #else
-        result["clinical_records"] = false
-        #endif
 
         // Notifications (async — must resolve here)
         UNUserNotificationCenter.current().getNotificationSettings { settings in
@@ -396,11 +388,10 @@ class NodeModule: RCTEventEmitter {
             resolve(false)
         case "health":
             guard HKHealthStore.isHealthDataAvailable() else { resolve(false); return }
-            let types: Set<HKObjectType> = [
-                HKObjectType.quantityType(forIdentifier: .stepCount)!,
-                HKObjectType.quantityType(forIdentifier: .heartRate)!,
-                HKObjectType.categoryType(forIdentifier: .sleepAnalysis)!,
-            ]
+            var types = Set<HKObjectType>()
+            if let t = HKObjectType.quantityType(forIdentifier: .stepCount)  { types.insert(t) }
+            if let t = HKObjectType.quantityType(forIdentifier: .heartRate)   { types.insert(t) }
+            if let t = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) { types.insert(t) }
             HKHealthStore().requestAuthorization(toShare: nil, read: types) { granted, _ in resolve(granted) }
         case "bluetooth", "wearables":
             // Bluetooth permission is declared in Info.plist; trigger CBCentralManager init to prompt
@@ -412,18 +403,6 @@ class NodeModule: RCTEventEmitter {
         case "live_activity":
             // Live Activities are enabled/disabled by user in Settings; no runtime dialog
             resolve(true)
-        case "clinical_records":
-            #if canImport(HealthKit)
-            guard HKHealthStore.isHealthDataAvailable() else { resolve(false); return }
-            var clinicalTypes = Set<HKObjectType>()
-            for typeId: HKClinicalTypeIdentifier in [.allergyRecord, .labResultRecord, .medicationRecord] {
-                if let ct = HKObjectType.clinicalType(forIdentifier: typeId) { clinicalTypes.insert(ct) }
-            }
-            HKHealthStore().requestAuthorization(toShare: nil, read: clinicalTypes) { granted, _ in resolve(granted) }
-            return
-            #else
-            resolve(false)
-            #endif
         default:
             resolve(false)
         }
@@ -455,6 +434,8 @@ class NodeModule: RCTEventEmitter {
 
     // MARK: - Security
 
+    private static let secureOverlayTag = 0x01_DEAD
+
     /// NOTE: setWindowSecure is best-effort UI protection only. It adds a black overlay
     /// to obscure on-screen content but does NOT block iOS screen recording via ReplayKit
     /// or AirPlay mirroring. Apple's sandbox does not expose FLAG_SECURE equivalents to
@@ -473,11 +454,11 @@ class NodeModule: RCTEventEmitter {
             if enabled {
                 let overlay = UIView(frame: UIScreen.main.bounds)
                 overlay.backgroundColor = .black
-                overlay.tag = 9999
+                overlay.tag = NodeModule.secureOverlayTag
                 window?.addSubview(overlay)
                 // Do NOT disable isUserInteractionEnabled — that would lock the user out.
             } else {
-                window?.viewWithTag(9999)?.removeFromSuperview()
+                window?.viewWithTag(NodeModule.secureOverlayTag)?.removeFromSuperview()
             }
             resolve(nil)
         }
@@ -500,7 +481,11 @@ class NodeModule: RCTEventEmitter {
     @objc func checkForUpdate(_ resolve: @escaping RCTPromiseResolveBlock,
                               rejecter reject: @escaping RCTPromiseRejectBlock) {
         let currentVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
-        let url = URL(string: "https://api.github.com/repos/0x01-a2a/mobile/releases/latest")!
+        guard let url = URL(string: "https://api.github.com/repos/0x01-a2a/mobile/releases/latest") else {
+            resolve(["hasUpdate": false, "currentVersion": currentVersion, "latestVersion": currentVersion,
+                     "downloadUrl": "", "releaseNotes": "", "publishedAt": ""])
+            return
+        }
         URLSession.shared.dataTask(with: url) { data, _, _ in
             guard let data, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 resolve(["hasUpdate": false, "currentVersion": currentVersion, "latestVersion": currentVersion,
@@ -524,8 +509,9 @@ class NodeModule: RCTEventEmitter {
     @objc func downloadAndInstall(_ downloadUrl: String,
                                   resolver resolve: @escaping RCTPromiseResolveBlock,
                                   rejecter reject: @escaping RCTPromiseRejectBlock) {
-        // iOS cannot install APKs; open TestFlight / App Store link instead
-        if let url = URL(string: "https://testflight.apple.com/join/zerox1") {
+        // iOS cannot install APKs; open App Store page instead.
+        // Replace this with the actual App Store URL once published.
+        if let url = URL(string: "https://apps.apple.com/app/01-pilot/id6743704498") {
             DispatchQueue.main.async { UIApplication.shared.open(url) }
         }
         resolve(nil)
@@ -651,6 +637,66 @@ class NodeModule: RCTEventEmitter {
         resolve(nil)
     }
 
+    @objc func saveMoltbookApiKey(_ key: String,
+                                  resolver resolve: @escaping RCTPromiseResolveBlock,
+                                  rejecter reject: @escaping RCTPromiseRejectBlock) {
+        KeychainHelper.save(key, key: "moltbook_api_key")
+        resolve(nil)
+    }
+
+    @objc func saveNeynarApiKey(_ key: String,
+                                resolver resolve: @escaping RCTPromiseResolveBlock,
+                                rejecter reject: @escaping RCTPromiseRejectBlock) {
+        KeychainHelper.save(key, key: "neynar_api_key")
+        resolve(nil)
+    }
+
+    @objc func saveFarcasterSignerUuid(_ uuid: String,
+                                       resolver resolve: @escaping RCTPromiseResolveBlock,
+                                       rejecter reject: @escaping RCTPromiseRejectBlock) {
+        KeychainHelper.save(uuid, key: "farcaster_signer_uuid")
+        resolve(nil)
+    }
+
+    @objc func saveFarcasterFid(_ fid: String,
+                                resolver resolve: @escaping RCTPromiseResolveBlock,
+                                rejecter reject: @escaping RCTPromiseRejectBlock) {
+        UserDefaults.standard.set(fid, forKey: "farcaster_fid")
+        resolve(nil)
+    }
+
+    @objc func saveSkillEnvVar(_ key: String, value: String,
+                               resolver resolve: @escaping RCTPromiseResolveBlock,
+                               rejecter reject: @escaping RCTPromiseRejectBlock) {
+        var map = loadSkillEnvVars()
+        map[key] = value
+        if let data = try? JSONSerialization.data(withJSONObject: map),
+           let json = String(data: data, encoding: .utf8) {
+            KeychainHelper.save(json, key: "skill_env_vars")
+        }
+        resolve(nil)
+    }
+
+    @objc func removeSkillEnvVar(_ key: String,
+                                 resolver resolve: @escaping RCTPromiseResolveBlock,
+                                 rejecter reject: @escaping RCTPromiseRejectBlock) {
+        var map = loadSkillEnvVars()
+        map.removeValue(forKey: key)
+        if let data = try? JSONSerialization.data(withJSONObject: map),
+           let json = String(data: data, encoding: .utf8) {
+            KeychainHelper.save(json, key: "skill_env_vars")
+        }
+        resolve(nil)
+    }
+
+    private func loadSkillEnvVars() -> [String: String] {
+        guard let json = KeychainHelper.load(key: "skill_env_vars"),
+              let data = json.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: String]
+        else { return [:] }
+        return obj
+    }
+
     @objc func requestScreenCapture(_ resolve: @escaping RCTPromiseResolveBlock,
                                     rejecter reject: @escaping RCTPromiseRejectBlock) {
         resolve(nil) // Not available on iOS
@@ -750,6 +796,85 @@ class NodeModule: RCTEventEmitter {
             resolve(logPath)
         } else {
             reject("NOT_FOUND", "Log file not found — start the node first", nil)
+        }
+    }
+
+    // MARK: - Skill management (filesystem-based, iOS only)
+    //
+    // The iOS FFI node build does not expose /skill/* REST endpoints.
+    // These methods manage skill TOML files directly on the filesystem
+    // so the JS layer can install / remove / list skills without the node API.
+
+    private var skillsDir: URL {
+        NodeService.shared.skillsDirectory
+    }
+
+    @objc func listInstalledSkills(_ resolve: @escaping RCTPromiseResolveBlock,
+                                    rejecter reject: @escaping RCTPromiseRejectBlock) {
+        let dir = skillsDir
+        guard FileManager.default.fileExists(atPath: dir.path) else {
+            resolve([] as [String])
+            return
+        }
+        do {
+            let contents = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+            let skills = contents.filter { name in
+                var isDir: ObjCBool = false
+                let path = dir.appendingPathComponent(name).path
+                return FileManager.default.fileExists(atPath: path, isDirectory: &isDir) && isDir.boolValue
+                    && FileManager.default.fileExists(atPath: dir.appendingPathComponent(name).appendingPathComponent("SKILL.toml").path)
+            }
+            resolve(skills)
+        } catch {
+            reject("LIST_ERROR", error.localizedDescription, error)
+        }
+    }
+
+    @objc func installSkillFromUrl(_ name: NSString,
+                                    url urlString: NSString,
+                                    resolver resolve: @escaping RCTPromiseResolveBlock,
+                                    rejecter reject: @escaping RCTPromiseRejectBlock) {
+        let skillName = name as String
+        let urlStr = urlString as String
+        guard let url = URL(string: urlStr) else {
+            reject("INVALID_URL", "Invalid skill URL", nil)
+            return
+        }
+        let dest = skillsDir.appendingPathComponent(skillName)
+        let tomlPath = dest.appendingPathComponent("SKILL.toml")
+
+        URLSession.shared.dataTask(with: url) { data, resp, error in
+            if let error {
+                reject("FETCH_ERROR", error.localizedDescription, error)
+                return
+            }
+            guard let data, let httpResp = resp as? HTTPURLResponse, httpResp.statusCode == 200 else {
+                reject("FETCH_ERROR", "Failed to download SKILL.toml (HTTP \((resp as? HTTPURLResponse)?.statusCode ?? 0))", nil)
+                return
+            }
+            do {
+                try FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
+                try data.write(to: tomlPath)
+                resolve(nil)
+            } catch {
+                reject("WRITE_ERROR", error.localizedDescription, error)
+            }
+        }.resume()
+    }
+
+    @objc func removeInstalledSkill(_ name: NSString,
+                                     resolver resolve: @escaping RCTPromiseResolveBlock,
+                                     rejecter reject: @escaping RCTPromiseRejectBlock) {
+        let dir = skillsDir.appendingPathComponent(name as String)
+        guard FileManager.default.fileExists(atPath: dir.path) else {
+            resolve(nil) // already gone
+            return
+        }
+        do {
+            try FileManager.default.removeItem(at: dir)
+            resolve(nil)
+        } catch {
+            reject("REMOVE_ERROR", error.localizedDescription, error)
         }
     }
 

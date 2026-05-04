@@ -6,7 +6,7 @@
  * the main AppNavigator.
  */
 import React, { useEffect, useState, Component, ErrorInfo, ReactNode, createContext, useContext } from 'react';
-import { StatusBar, View, Text, StyleSheet } from 'react-native';
+import { StatusBar, View, Text, StyleSheet, Linking, Alert } from 'react-native';
 import { LaunchScreen } from './src/components/LaunchScreen';
 import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -19,7 +19,7 @@ import { initI18n } from './src/i18n';
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext';
 import { useScreenActionListener } from './src/hooks/useScreenActions';
 import { ScreenActionConfirmModal } from './src/components/ScreenActionConfirmModal';
-import { useIdentity, useOwnReel } from './src/hooks/useNodeApi';
+import { useIdentity, useOwnReel, skillInstallUrl } from './src/hooks/useNodeApi';
 
 // ── Deep link config for Agent Presence notification actions ──────────────────
 // zerox1://chat        → Chat tab (normal chat)
@@ -113,6 +113,46 @@ export default function App() {
   useEffect(() => {
     initI18n().then(() => setI18nReady(true)).catch(() => setI18nReady(true));
     checkOnboardingDone().then(done => setOnboardingDone(done));
+  }, []);
+
+  useEffect(() => {
+    const parseSkillDeepLink = (url: string): { name: string; tomlUrl: string } | null => {
+      if (!url.includes('zerox1://skill/install')) return null;
+      const qs = url.split('?')[1] ?? '';
+      const params: Record<string, string> = {};
+      qs.split('&').forEach(pair => {
+        const [k, ...rest] = pair.split('=');
+        if (k) params[decodeURIComponent(k)] = decodeURIComponent(rest.join('='));
+      });
+      return params.name && params.url ? { name: params.name, tomlUrl: params.url } : null;
+    };
+
+    const handleSkillDeepLink = (url: string) => {
+      const parsed = parseSkillDeepLink(url);
+      if (!parsed) return;
+      Alert.alert(
+        'Install Skill',
+        `Install "${parsed.name}"?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Install',
+            onPress: async () => {
+              try {
+                await skillInstallUrl(parsed.name, parsed.tomlUrl);
+                Alert.alert('Installed', `"${parsed.name}" is ready. Reload skills to activate.`);
+              } catch (e: any) {
+                Alert.alert('Install failed', e?.message ?? 'Make sure your node is running.');
+              }
+            },
+          },
+        ],
+      );
+    };
+
+    Linking.getInitialURL().then(url => { if (url) handleSkillDeepLink(url); }).catch(() => {});
+    const sub = Linking.addEventListener('url', ({ url }) => handleSkillDeepLink(url));
+    return () => sub.remove();
   }, []);
 
   const handleOnboardingDone = async (config: AgentBrainConfig | null) => {

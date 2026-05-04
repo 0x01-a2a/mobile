@@ -23,7 +23,7 @@
 - **Wallet export / import** — export your agent's Ed25519 identity key as a Phantom-compatible base58 string; import an existing keypair from Settings → Wallet; window is secured (FLAG_SECURE) during display
 - **Onboarding wallet backup notice** — embedded wallet registration step now warns users to export their key before reinstalling
 - **Agent name validation** — onboarding blocks 1-character names; Settings enforces minimum 2 characters
-- **Mainnet as default mesh network** — default RPC is now Solana mainnet; devnet selection shows an inline warning that 8004 registry requires mainnet
+- **Mainnet as default mesh network** — default RPC is now Solana mainnet
 - **IDENTITY.md phone bridge section** — ZeroClaw now boots with a full listing of all ~40 phone bridge endpoints and the current capability toggle state (enabled/disabled per user setting)
 - **Self-extending skills** — chat with your agent to install new capabilities without an app update; the agent writes a SKILL.toml, reloads itself in ~3 seconds, and comes back with new tools active
 - **Agent token** — every agent launches an SPL token at onboarding as its economic identity; token price reflects market confidence; holders have incentive to route tasks to their agent; creator earns 100% of pool trading fees passively
@@ -31,7 +31,6 @@
 - **ZeroClaw agent brain** — autonomous LLM-powered brain that handles incoming tasks, earns USDC, and extends itself via the skill manager
 - **Hot wallet** — view SOL and USDC balances, sweep funds to a cold wallet from the You screen
 - **Node hosting** — connect your agent to a remote host node without running the binary locally; browse available hosts from Settings
-- **8004 Solana Agent Registry** — register your agent on mainnet for full mesh participation
 - **Link agent to wallet** — associate your agent with a Solana address or `.sol` SNS domain
 - **Chinese localization (zh-CN)** — full UI translation; language picker on the first onboarding screen and in Settings → Language; persisted to AsyncStorage, switches immediately without restart
 

@@ -7,11 +7,12 @@
 import { useTheme, ThemeColors } from '../theme/ThemeContext';
 import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import Clipboard from '@react-native-clipboard/clipboard';
 import {
   Alert,
-  Clipboard,
   FlatList,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   ScrollView,
@@ -30,6 +31,8 @@ import { useOwnedAgents, OwnedAgent } from '../hooks/useOwnedAgents';
 import { useBlobs } from '../hooks/useBlobs';
 import { sendEnvelope, setBagsApiKey } from '../hooks/useNodeApi';
 import { useNode } from '../hooks/useNode';
+import { useAgentBrain } from '../hooks/useAgentBrain';
+import { ChatActionCard } from '../components/ChatActionCard';
 import { useLayout } from '../hooks/useLayout';
 import { useTranslation } from 'react-i18next';
 export interface BountyTask {
@@ -195,9 +198,83 @@ function LaunchResultCard({ result }: { result: LaunchResult }) {
   );
 }
 
+// ── MoltBook claim card ───────────────────────────────────────────────────
+
+function MoltbookClaimCard({
+  claim,
+  onDismiss,
+}: {
+  claim: NonNullable<import('../hooks/useAgentBrain').AgentBrainConfig['moltbookPendingClaim']>;
+  onDismiss: () => void;
+}) {
+  const [checking, setChecking] = useState(false);
+  const [checkMsg, setCheckMsg] = useState('');
+
+  const handleVerifyEmail = () => {
+    if (claim.claimUrl) Linking.openURL(claim.claimUrl);
+  };
+
+  const handleTweetClaim = () => {
+    const text = encodeURIComponent(claim.tweetTemplate);
+    Linking.openURL(`https://x.com/intent/tweet?text=${text}`);
+  };
+
+  const handleCheckStatus = async () => {
+    setChecking(true);
+    setCheckMsg('');
+    try {
+      const resp = await fetch('https://www.moltbook.com/api/v1/agents/me', {
+        headers: { Authorization: `Bearer ${claim.apiKey}` },
+      });
+      const data = await resp.json();
+      if (data?.agent?.is_claimed || data?.is_claimed) {
+        onDismiss();
+      } else {
+        setCheckMsg('Not claimed yet — complete both steps above and try again.');
+      }
+    } catch {
+      setCheckMsg('Could not reach MoltBook — check your connection.');
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  return (
+    <ChatActionCard
+      icon="🦞"
+      title="Activate MoltBook"
+      subtitle={`Registered as @${claim.registeredName} — 2 steps to go`}
+      description="MoltBook requires a human to verify ownership before your agent can post. It takes about 60 seconds."
+      steps={[
+        {
+          label: 'Verify email',
+          detail: 'Opens moltbook.com — enter your email to claim the account',
+          onPress: handleVerifyEmail,
+        },
+        {
+          label: 'Post claim tweet',
+          detail: 'Opens X with a pre-written verification tweet — just post it',
+          onPress: handleTweetClaim,
+        },
+      ]}
+      buttons={[
+        {
+          label: checking ? 'Checking…' : 'Done — confirm activation',
+          onPress: handleCheckStatus,
+          loading: checking,
+          variant: 'primary',
+        },
+      ]}
+      statusMessage={checkMsg}
+      statusType="error"
+      onDismiss={onDismiss}
+    />
+  );
+}
+
 // ── Message bubble ────────────────────────────────────────────────────────
 
-function Bubble({ msg }: { msg: ChatMessage }) {
+function Bubble({ msg, agentName }: { msg: ChatMessage; agentName: string }) {
   const { colors } = useTheme();
   const { isTablet } = useLayout();
   const { t } = useTranslation();
@@ -225,7 +302,7 @@ function Bubble({ msg }: { msg: ChatMessage }) {
 
   return (
     <View style={[s.bubbleRow, isUser ? s.rowRight : s.rowLeft]}>
-      {!isUser && <Text style={s.roleLabel}>{t('chat.roleZC')}</Text>}
+      {!isUser && <Text style={s.roleLabel}>{agentName}</Text>}
       <TouchableOpacity
         activeOpacity={0.85}
         onLongPress={handleLongPress}
@@ -275,6 +352,7 @@ export function ChatScreen() {
   const navigation = useNavigation<any>();
   const params = (route.params ?? {}) as ChatRouteParams;
   const { config, status: nodeStatus, loading: nodeLoading } = useNode();
+  const { config: brain, save: saveBrain } = useAgentBrain();
 
   const agents = useOwnedAgents().filter(a => a.mode !== 'linked');
   const [selectedAgentId, setSelectedAgentId] = useState<string>(
@@ -580,15 +658,15 @@ export function ChatScreen() {
       <View style={[s.chatContainer, { paddingHorizontal: contentHPad }]}>
       {/* Header */}
       <View style={[s.header, { paddingTop: insets.top + 16 }]}>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <View style={s.headerLeft}>
           {config.agentAvatar && (
-            <Image source={{ uri: config.agentAvatar }} style={{ width: 32, height: 32, borderRadius: 16, marginRight: 8, borderWidth: 1, borderColor: colors.border }} />
+            <Image source={{ uri: config.agentAvatar }} style={s.headerAvatar} />
           )}
           <Text style={s.headerTitle}>{(config.agentName || '01 PILOT').toUpperCase()}</Text>
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#22c55e' }} />
-          <TouchableOpacity onPress={resetSession} style={s.resetBtn}>
+        <View style={s.headerRight}>
+          <View style={s.statusDot} />
+          <TouchableOpacity onPress={resetSession} style={s.resetBtn} accessibilityLabel={t('chat.newSession')} accessibilityRole="button">
             <Text style={s.resetBtnText}>{t('chat.newSession')}</Text>
           </TouchableOpacity>
         </View>
@@ -616,17 +694,17 @@ export function ChatScreen() {
 
       {/* Sticky task context card — pinned below the agent selector when a task is active */}
       {activeTask && (
-        <View style={{ backgroundColor: '#f0fdf4', borderBottomWidth: 1, borderBottomColor: '#bbf7d0', paddingVertical: 10, paddingHorizontal: 16 }}>
-          <Text style={{ fontSize: 12, fontWeight: '700', color: '#111', fontFamily: 'monospace', marginBottom: 2 }} numberOfLines={2}>
+        <View style={s.stickyTaskCard}>
+          <Text style={s.stickyTaskDesc} numberOfLines={2}>
             {activeTask.description}
           </Text>
           {activeTask.reward ? (
-            <Text style={{ fontSize: 11, color: '#16a34a', fontFamily: 'monospace', marginBottom: 2 }}>
+            <Text style={s.stickyTaskReward}>
               {activeTask.reward}
             </Text>
           ) : null}
-          <Text style={{ fontSize: 10, color: '#6b7280', fontFamily: 'monospace' }}>
-            Awaiting delivery
+          <Text style={s.stickyTaskStatus}>
+            {t('chat.awaitingDelivery')}
           </Text>
         </View>
       )}
@@ -647,6 +725,9 @@ export function ChatScreen() {
                 !isActive && deliverHighlight && s.pillDeliverHighlight,
               ]}
               onPress={() => setMode(m)}
+              accessibilityLabel={`${m.charAt(0).toUpperCase() + m.slice(1)} mode`}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: isActive }}
             >
               <Text style={[
                 s.pillText,
@@ -701,9 +782,15 @@ export function ChatScreen() {
             ref={listRef}
             data={messages}
             keyExtractor={m => m.id}
-            renderItem={({ item }) => <Bubble msg={item} />}
+            renderItem={({ item }) => <Bubble msg={item} agentName={config.agentName || '01 Pilot'} />}
             contentContainerStyle={s.listContent}
             onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
+            ListHeaderComponent={brain?.moltbookPendingClaim ? (
+              <MoltbookClaimCard
+                claim={brain.moltbookPendingClaim}
+                onDismiss={() => saveBrain?.({ ...brain, moltbookPendingClaim: undefined })}
+              />
+            ) : null}
             ListEmptyComponent={
               <View style={s.emptyWrap}>
                 <Text style={s.emptyLine}>  _______ ___</Text>
@@ -713,55 +800,13 @@ export function ChatScreen() {
                 <Text style={s.emptyHint}>{t('chat.agentBrainReady')}</Text>
                 <View style={s.suggestionsWrap}>
                   {([
-                    {
-                      label: 'HEALTH & BODY',
-                      prompts: [
-                        'Check my steps and heart rate, then tell me if I should work out or rest today',
-                        'Log this morning\'s run to Health and add a recovery reminder for tomorrow',
-                      ],
-                    },
-                    {
-                      label: 'SCHEDULE & REMINDERS',
-                      prompts: [
-                        'Read my calendar and give me a briefing for today',
-                        'Every morning check my calendar and health, then DCA into SOL if conditions look good',
-                      ],
-                    },
-                    {
-                      label: 'TRADING & DEFI',
-                      prompts: [
-                        'Check my portfolio and alert me if SOL drops more than 10% today',
-                        'When my salary SMS arrives, convert 20% to SOL immediately',
-                      ],
-                    },
-                    {
-                      label: 'MESSAGING & CONTACTS',
-                      prompts: [
-                        'Watch my notifications and auto-reply to anything routine while I\'m in a meeting',
-                        'Photograph this business card and add them to my contacts',
-                      ],
-                    },
-                    {
-                      label: 'LOCATION & CONTEXT',
-                      prompts: [
-                        'When I leave home, check my portfolio and brief me on anything urgent',
-                        'Find agents near me that offer document translation',
-                      ],
-                    },
-                    {
-                      label: 'VOICE & TRANSCRIPTION',
-                      prompts: [
-                        'Transcribe this voice note and extract action items into my Reminders',
-                        'Record this meeting, summarize it, and send the key points to the attendees',
-                      ],
-                    },
-                    {
-                      label: 'MESH & AGENTS',
-                      prompts: [
-                        'Find agents in China that can help with supplier sourcing',
-                        'Hire an agent to monitor a website and notify me when the price drops',
-                      ],
-                    },
+                    { label: t('chat.suggestHealthBody'), prompts: [t('chat.suggestHealth1'), t('chat.suggestHealth2')] },
+                    { label: t('chat.suggestSchedule'),   prompts: [t('chat.suggestSchedule1'), t('chat.suggestSchedule2')] },
+                    { label: t('chat.suggestTrading'),     prompts: [t('chat.suggestTrading1'), t('chat.suggestTrading2')] },
+                    { label: t('chat.suggestMessaging'),   prompts: [t('chat.suggestMessaging1'), t('chat.suggestMessaging2')] },
+                    { label: t('chat.suggestLocation'),    prompts: [t('chat.suggestLocation1'), t('chat.suggestLocation2')] },
+                    { label: t('chat.suggestVoice'),       prompts: [t('chat.suggestVoice1'), t('chat.suggestVoice2')] },
+                    { label: t('chat.suggestMesh'),        prompts: [t('chat.suggestMesh1'), t('chat.suggestMesh2')] },
                   ] as { label: string; prompts: string[] }[]).map(group => (
                     <View key={group.label} style={s.suggestionGroup}>
                       <Text style={s.suggestionGroupLabel}>{group.label}</Text>
@@ -807,18 +852,22 @@ export function ChatScreen() {
 
           {/* Delivery action bar — visible when an active task is set */}
           {activeTask && (
-            <View style={{ flexDirection: 'row', borderTopWidth: 1, borderTopColor: '#bbf7d0', backgroundColor: '#f0fdf4', paddingHorizontal: 12, paddingVertical: 6, gap: 8 }}>
+            <View style={s.deliverBar}>
               <TouchableOpacity
-                style={{ flex: 1, height: 36, borderWidth: 1, borderColor: '#86efac', borderRadius: 4, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' }}
+                style={s.deliverBarBtn}
                 onPress={() => pickAndDeliver('gallery')}
+                accessibilityLabel={t('chat.deliverFromGallery')}
+                accessibilityRole="button"
               >
-                <Text style={{ fontSize: 11, color: '#15803d', fontFamily: 'monospace', fontWeight: '600' }}>📷 Deliver Photo</Text>
+                <Text style={s.deliverBarBtnText}>{t('chat.deliverPhoto')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={{ flex: 1, height: 36, borderWidth: 1, borderColor: '#86efac', borderRadius: 4, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' }}
+                style={s.deliverBarBtn}
                 onPress={() => setTextDeliverVisible(true)}
+                accessibilityLabel={t('chat.deliverTextResult')}
+                accessibilityRole="button"
               >
-                <Text style={{ fontSize: 11, color: '#15803d', fontFamily: 'monospace', fontWeight: '600' }}>✎ Deliver Text</Text>
+                <Text style={s.deliverBarBtnText}>{t('chat.deliverTextBtn')}</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -859,6 +908,8 @@ export function ChatScreen() {
                 style={[s.sendBtn, ((!draft.trim() && !pendingImage) || loading || nodeLoading) && s.sendBtnDisabled]}
                 onPress={handleSend}
                 disabled={(!draft.trim() && !pendingImage) || loading || nodeLoading}
+                accessibilityLabel="Send message"
+                accessibilityRole="button"
               >
                 <Text style={s.sendBtnText}>{(loading || nodeLoading) ? '…' : '↑'}</Text>
               </TouchableOpacity>
@@ -1087,6 +1138,10 @@ function useStyles(colors: ThemeColors, isTablet = false) {
   root: { flex: 1, backgroundColor: colors.bg },
   chatContainer: { flex: 1 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: colors.border },
+  headerLeft: { flexDirection: 'row', alignItems: 'center' },
+  headerAvatar: { width: 32, height: 32, borderRadius: 16, marginRight: 8, borderWidth: 1, borderColor: colors.border },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  statusDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.green },
   headerTitle: { color: colors.green, fontFamily: 'monospace', fontSize: 13, fontWeight: '700', letterSpacing: 2 },
   resetBtn: { paddingVertical: 4, paddingHorizontal: 8 },
   resetBtnText: { color: colors.sub, fontFamily: 'monospace', fontSize: 11 },
@@ -1185,29 +1240,38 @@ function useStyles(colors: ThemeColors, isTablet = false) {
   modalCancelText: { color: colors.sub, fontFamily: 'monospace', fontSize: 11 },
   modalSave: { backgroundColor: colors.green, borderRadius: 3, paddingHorizontal: 18, paddingVertical: 10 },
   modalSaveText: { color: '#000', fontFamily: 'monospace', fontSize: 11, fontWeight: '700', letterSpacing: 1 },
+  // sticky task context card
+  stickyTaskCard: { backgroundColor: colors.green + '10', borderBottomWidth: 1, borderBottomColor: colors.green + '30', paddingVertical: 10, paddingHorizontal: 16 },
+  stickyTaskDesc: { fontSize: 12, fontWeight: '700', color: colors.text, fontFamily: 'monospace', marginBottom: 2 },
+  stickyTaskReward: { fontSize: 11, color: colors.green, fontFamily: 'monospace', marginBottom: 2 },
+  stickyTaskStatus: { fontSize: 10, color: colors.sub, fontFamily: 'monospace' },
+  // delivery action bar
+  deliverBar: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: colors.green + '30', backgroundColor: colors.green + '10', paddingHorizontal: 12, paddingVertical: 6, gap: 8 },
+  deliverBarBtn: { flex: 1, height: 36, borderWidth: 1, borderColor: colors.green + '40', borderRadius: 4, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card },
+  deliverBarBtnText: { fontSize: 11, color: colors.green, fontFamily: 'monospace', fontWeight: '600' },
   // mode pills
-  pillRow: { flexDirection: 'row', gap: 4, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
-  pill: { borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
-  pillActive: { backgroundColor: '#111', borderColor: '#111' },
-  pillDeliverHighlight: { backgroundColor: '#fffbeb', borderColor: '#fbbf24' },
-  pillText: { fontSize: 10, color: '#6b7280' },
-  pillTextActive: { color: '#fff', fontWeight: '500' },
-  pillTextDeliverHighlight: { color: '#b45309' },
+  pillRow: { flexDirection: 'row', gap: 4, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border },
+  pill: { borderWidth: 1, borderColor: colors.border, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
+  pillActive: { backgroundColor: colors.text, borderColor: colors.text },
+  pillDeliverHighlight: { backgroundColor: colors.amber + '15', borderColor: colors.amber },
+  pillText: { fontSize: 10, color: colors.sub },
+  pillTextActive: { color: colors.bg, fontWeight: '500' },
+  pillTextDeliverHighlight: { color: colors.amber },
   // brief mode
   briefContainer: { flex: 1, padding: 16, gap: 12 },
-  briefInput: { flex: 1, backgroundColor: '#f9fafb', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 12, padding: 14, fontSize: 13, color: '#111', textAlignVertical: 'top' },
-  briefAttachBtn: { borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 10, padding: 10, alignItems: 'center' as const },
-  briefAttachBtnText: { fontSize: 12, color: '#6b7280' },
-  briefStartBtn: { backgroundColor: '#111', borderRadius: 10, padding: 14, alignItems: 'center' as const },
-  briefStartBtnText: { fontSize: 13, color: '#fff', fontWeight: '600' as const },
+  briefInput: { flex: 1, backgroundColor: colors.input, borderWidth: 1, borderColor: colors.inputBorder, borderRadius: 12, padding: 14, fontSize: 13, color: colors.text, textAlignVertical: 'top' },
+  briefAttachBtn: { borderWidth: 1, borderColor: colors.border, borderRadius: 10, padding: 10, alignItems: 'center' as const },
+  briefAttachBtnText: { fontSize: 12, color: colors.sub },
+  briefStartBtn: { backgroundColor: colors.text, borderRadius: 10, padding: 14, alignItems: 'center' as const },
+  briefStartBtnText: { fontSize: 13, color: colors.bg, fontWeight: '600' as const },
   // deliver mode
   deliverModeContainer: { flex: 1, padding: 16, gap: 12 },
-  deliverTaskCard: { backgroundColor: '#f9fafb', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#e5e7eb' },
-  deliverTaskTitle: { fontSize: 12, color: '#111', fontWeight: '500' as const, marginBottom: 4 },
-  deliverTaskMeta: { fontSize: 10, color: '#9ca3af' },
-  deliverModeInput: { flex: 1, backgroundColor: '#f9fafb', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 12, padding: 14, fontSize: 13, color: '#111', textAlignVertical: 'top' },
+  deliverTaskCard: { backgroundColor: colors.input, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: colors.border },
+  deliverTaskTitle: { fontSize: 12, color: colors.text, fontWeight: '500' as const, marginBottom: 4 },
+  deliverTaskMeta: { fontSize: 10, color: colors.dim },
+  deliverModeInput: { flex: 1, backgroundColor: colors.input, borderWidth: 1, borderColor: colors.inputBorder, borderRadius: 12, padding: 14, fontSize: 13, color: colors.text, textAlignVertical: 'top' },
   deliverActions: { gap: 8 },
-  deliverModeBtn: { backgroundColor: '#111', borderRadius: 10, padding: 14, alignItems: 'center' as const },
-  deliverModeBtnText: { fontSize: 13, color: '#fff', fontWeight: '600' as const },
+  deliverModeBtn: { backgroundColor: colors.text, borderRadius: 10, padding: 14, alignItems: 'center' as const },
+  deliverModeBtnText: { fontSize: 13, color: colors.bg, fontWeight: '600' as const },
   }), [colors]);
 }

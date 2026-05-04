@@ -261,7 +261,7 @@ export interface AgentSummary {
   downpayment_bps?: number;           // basis points required upfront; 0 or absent = none
   price_range_usd?: [number, number]; // [min, max] job price in USD
   reel_url?: string;                  // AI-generated promo reel URL; absent if not yet generated
-  is_pilot?: boolean;                 // true when agent holds ≥10M 01PL (set by aggregator)
+  is_pilot?: boolean;                 // true when agent holds ≥500k 01PL (set by aggregator)
 }
 
 export interface SentOffer {
@@ -912,105 +912,6 @@ export async function registerAsHosted(
   return { agent_id: data.agent_id };
 }
 
-/**
- * Register the local agent on-chain in the 8004 registry.
- * Uses the local node's /registry/8004/register-local endpoint.
- */
-export async function registerLocal8004(agentUri: string = ''): Promise<{ signature: string, asset_pubkey: string }> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (_hostedToken) {
-    headers.Authorization = `Bearer ${_hostedToken}`;
-  } else {
-    // Local mode: get the node's local API secret from the native module.
-    try {
-      const auth = await NodeModule.getLocalAuthConfig();
-      if (auth?.nodeApiToken) headers.Authorization = `Bearer ${auth.nodeApiToken}`;
-    } catch { /* node may not be ready yet — proceed without token */ }
-  }
-
-  const res = await fetch(`${_apiBase}/registry/8004/register-local`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ agent_uri: agentUri }),
-  });
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    const msg: string = err.error || `Registration failed: ${res.status}`;
-    // Translate the low-level Solana fee error into something actionable.
-    if (msg.includes('no record of a prior credit') || msg.includes('Attempt to debit')) {
-      throw new Error(
-        'Your agent wallet has no SOL.\n\nSend a small amount of SOL to your agent wallet to cover the registration fee (~0.01 SOL), then try again.\n\nYour wallet address is shown under My Agent → Hot Wallet.',
-      );
-    }
-    throw new Error(msg);
-  }
-
-  return res.json();
-}
-
-// ============================================================================
-// 8004 registration badge
-// ============================================================================
-
-const REGISTRY_8004_URL = 'https://8004-indexer-production.up.railway.app/v2/graphql';
-const _8004Cache = new Map<string, boolean>(); // hex pubkey → registered
-
-/** Convert hex agent_id to base58 Solana pubkey string. */
-function hexToBase58(hex: string): string | null {
-  try {
-    const { PublicKey } = require('@solana/web3.js');
-    const bytes = Uint8Array.from((hex.match(/.{1,2}/g) ?? []).map((b: string) => parseInt(b, 16)));
-    return new PublicKey(bytes).toBase58();
-  } catch { return null; }
-}
-
-/** Query 8004 registry. Returns true if `hexPubkey` owner has ≥1 registered agent. */
-async function fetch8004Status(hexPubkey: string): Promise<boolean> {
-  const b58 = hexToBase58(hexPubkey);
-  if (!b58) return false;
-  try {
-    const res = await fetch(REGISTRY_8004_URL, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        query: 'query($o:String!){agents(first:1,where:{owner:$o}){id}}',
-        variables: { o: b58 },
-      }),
-    });
-    if (!res.ok) return false;
-    const data = await res.json();
-    const agents = data?.data?.agents;
-    return Array.isArray(agents) && agents.length > 0;
-  } catch { return false; }
-}
-
-/**
- * Hook: returns whether `hexPubkey` is registered on the 8004 Solana Agent Registry.
- * Results are cached in-memory for the session.
- */
-export function use8004Badge(hexPubkey: string | null | undefined): boolean {
-  const [registered, setRegistered] = useState(
-    hexPubkey ? (_8004Cache.get(hexPubkey) ?? false) : false,
-  );
-
-  useEffect(() => {
-    if (!hexPubkey) return;
-    if (_8004Cache.has(hexPubkey)) {
-      setRegistered(_8004Cache.get(hexPubkey)!);
-      return;
-    }
-    let cancelled = false;
-    fetch8004Status(hexPubkey).then(ok => {
-      if (cancelled) return;
-      _8004Cache.set(hexPubkey, ok);
-      setRegistered(ok);
-    });
-    return () => { cancelled = true; };
-  }, [hexPubkey]);
-
-  return registered;
-}
 
 // ============================================================================
 // Hot wallet balance + sweep
@@ -1185,88 +1086,6 @@ export function usePhantomBalance(): PhantomBalance {
   return { address, sol, usdc, splTokens, loading };
 }
 
-export interface SkrLeagueEntry {
-  rank: number;
-  wallet: string;
-  label: string;
-  earn_rate_pct: number;
-  bags_fee_score: number;
-  points: number;
-  trade_count: number;
-  active_days: number;
-  skr_balance: number;
-}
-
-export interface SkrLeagueWalletView {
-  wallet: string | null;
-  skr_balance: number;
-  has_access: boolean;
-  rank: number | null;
-  earn_rate_pct: number;
-  bags_fee_score: number;
-  points: number;
-  trade_count: number;
-  active_days: number;
-  access_message: string;
-}
-
-export interface SkrLeagueSnapshot {
-  title: string;
-  season: string;
-  ends_at: number;
-  min_skr: number;
-  reward_pool_skr: number;
-  scoring: string[];
-  rewards: string[];
-  wallet: SkrLeagueWalletView;
-  leaderboard: SkrLeagueEntry[];
-}
-
-export function useSkrLeague(intervalMs = 60_000): {
-  data: SkrLeagueSnapshot | null;
-  loading: boolean;
-  error: string | null;
-  refresh: () => Promise<void>;
-} {
-  const [wallet, setWallet] = useState<string | null>(null);
-  const [data, setData] = useState<SkrLeagueSnapshot | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    AsyncStorage.getItem('zerox1:linked_wallet')
-      .then(a => setWallet(a ?? null))
-      .catch(() => setWallet(null));
-  }, []);
-
-  const refresh = useCallback(async () => {
-    if (!_appActive) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const linkedWallet = await AsyncStorage.getItem('zerox1:linked_wallet');
-      const activeWallet = linkedWallet ?? null;
-      if (activeWallet !== wallet) setWallet(activeWallet);
-      const qs = activeWallet ? `?wallet=${encodeURIComponent(activeWallet)}` : '';
-      const res = await fetch(`${AGGREGATOR_API}/league/current${qs}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      setData(json);
-    } catch (e: any) {
-      setError(e?.message ?? 'Failed to load SKR League');
-    } finally {
-      setLoading(false);
-    }
-  }, [wallet]);
-
-  useEffect(() => {
-    refresh();
-    const id = setInterval(refresh, intervalMs);
-    return () => clearInterval(id);
-  }, [refresh, intervalMs]);
-
-  return { data, loading, error, refresh };
-}
 
 export interface DexPrice {
   symbol: string;
@@ -1559,15 +1378,17 @@ export const CAPABILITY_KEYS = [
 
 export type BridgeCapabilityKey = typeof CAPABILITY_KEYS[number];
 
+// Mirrors the Android native defaults in NodeModule.kt getBridgeCapabilities().
+// Caps that are OFF by default require explicit user opt-in.
 const DEFAULT_CAPABILITIES: Record<BridgeCapabilityKey, boolean> = {
   notifications_read: true, notifications_reply: true, notifications_dismiss: true,
-  sms_read: true, sms_send: true,
+  sms_read: true, sms_send: false,
   contacts: true, location: true, calendar: true, media: true, motion: true,
   camera: true, microphone: true,
-  calls: true,
+  calls: false,
   health: true, wearables: true,
-  screen_read_tree: true, screen_capture: true, screen_act: true,
-  screen_global_nav: true, screen_vision: true, screen_autonomy: true,
+  screen_read_tree: true, screen_capture: false, screen_act: false,
+  screen_global_nav: false, screen_vision: true, screen_autonomy: false,
 };
 
 /** Read + write bridge capability toggles (persisted via SharedPreferences). */
@@ -1954,38 +1775,49 @@ export interface Skill {
   icon: string;
 }
 
-const SKILL_CATALOG: Record<string, { label: string; description: string; icon: string }> = {
-  bags: {
-    label: 'Bags Token Launcher',
-    description: 'Launch tokens on Bags.fm, execute swaps, check positions and claimable fees.',
-    icon: 'BAGS',
-  },
-  launchlab: {
-    label: 'Raydium LaunchLab',
-    description: 'Buy and sell tokens on the Raydium bonding curve. Earns 0.1% share fee on every trade.',
-    icon: 'RAY-LC',
-  },
-  cpmm: {
-    label: 'Raydium CPMM Pool',
-    description: 'Create constant-product liquidity pools on Raydium. Earn LP fees on every swap.',
-    icon: 'RAY-LP',
-  },
-  health: {
-    label: 'Health & Wearables',
-    description: 'Read on-device health sensors — steps, heart rate, sleep, recovery — privately.',
-    icon: 'HLTH',
-  },
-  skill_manager: {
-    label: 'Skill Manager',
-    description: 'Install new skills from a URL or let your agent write and self-install capabilities.',
-    icon: 'MGR',
-  },
-  trade: {
-    label: 'Jupiter + LaunchLab Trader',
-    description: 'Full DeFi toolkit: Jupiter swaps aggregator and Raydium LaunchLab in one skill.',
-    icon: 'JUP',
-  },
-};
+export interface SkillListing {
+  name: string;
+  label: string;
+  description: string;
+  icon: string;
+  tags: string[];
+  version: string;
+  requires_node: boolean;
+  pre_installed: boolean;
+  url: string;
+}
+
+const MARKETPLACE_URL = 'https://skills.0x01.world/skills.json';
+
+/** Fallback catalog used when the remote fetch fails. Keys match TOML [skill] name fields exactly. */
+const BUILTIN_LISTINGS: SkillListing[] = [
+  { name: 'bags', label: 'Bags Token Launcher', description: 'Launch and manage tokens on Bags.fm — trade, price-check, view claimable fees, and list on Dexscreener.', icon: 'BAGS', tags: ['defi', 'solana', 'trading'], version: '1.1.0', requires_node: true, pre_installed: true, url: 'https://skills.0x01.world/bags/SKILL.toml' },
+  { name: 'launchlab', label: 'Raydium LaunchLab', description: 'Buy and sell tokens on the Raydium LaunchLab bonding curve. Earns a 0.1% share fee on every trade.', icon: 'RAY', tags: ['defi', 'solana', 'trading'], version: '1.0.0', requires_node: true, pre_installed: true, url: 'https://skills.0x01.world/launchlab/SKILL.toml' },
+  { name: 'cpmm', label: 'Raydium CPMM Pool', description: 'Create a Raydium CPMM liquidity pool. Pool creator earns LP fees on every swap forever.', icon: 'LP', tags: ['defi', 'solana', 'liquidity'], version: '1.0.0', requires_node: true, pre_installed: true, url: 'https://skills.0x01.world/cpmm/SKILL.toml' },
+  { name: 'trade', label: 'Jupiter Trader', description: 'Trade any token on Solana via Jupiter — swap, price check, token search, limit orders, and DCA.', icon: 'JUP', tags: ['defi', 'solana', 'trading'], version: '1.0.0', requires_node: true, pre_installed: true, url: 'https://skills.0x01.world/trade/SKILL.toml' },
+  { name: 'skill-manager', label: 'Skill Manager', description: 'Install, remove, and reload skills without an app update. Write any SKILL.toml from chat.', icon: 'MGR', tags: ['skills', 'extensibility'], version: '1.2.0', requires_node: false, pre_installed: true, url: 'https://skills.0x01.world/skill-manager/SKILL.toml' },
+  { name: 'health', label: 'Health & Wearables', description: 'Read on-device health sensors — steps, heart rate, sleep, recovery — privately.', icon: 'HLTH', tags: ['health', 'sensors'], version: '1.0.0', requires_node: false, pre_installed: true, url: '' },
+  { name: 'memory-observe', label: 'Memory Observer', description: 'Passively builds a persistent MEMORY.md from your activity — contacts, calendar, app usage, SMS patterns.', icon: 'MEM', tags: ['memory', 'context'], version: '1.0.0', requires_node: false, pre_installed: true, url: 'https://skills.0x01.world/memory-observe/SKILL.toml' },
+  { name: 'persona-observe', label: 'Persona Observer', description: 'Builds PERSONA.md from your communication style — tone, vocabulary, response patterns. Runs passively.', icon: 'PRSO', tags: ['persona', 'style'], version: '1.0.0', requires_node: false, pre_installed: true, url: 'https://skills.0x01.world/persona-observe/SKILL.toml' },
+  { name: 'zerox1-mesh', label: '0x01 Mesh', description: 'Discover agents, negotiate tasks, lock escrow, deliver work, release payment — peer-to-peer.', icon: 'MESH', tags: ['mesh', 'p2p', 'escrow', 'solana'], version: '0.3.0', requires_node: true, pre_installed: false, url: 'https://skills.0x01.world/zerox1-mesh/SKILL.toml' },
+  { name: 'github', label: 'GitHub', description: 'Search repos, read READMEs, browse issues and PRs. No API key required for public repos.', icon: 'GH', tags: ['code', 'search'], version: '1.0.0', requires_node: false, pre_installed: false, url: 'https://skills.0x01.world/github/SKILL.toml' },
+  { name: 'hn-news', label: 'Hacker News', description: 'Browse Hacker News — top stories, new posts, comments, and Ask HN threads.', icon: 'HN', tags: ['news', 'tech'], version: '1.0.0', requires_node: false, pre_installed: false, url: 'https://skills.0x01.world/hn-news/SKILL.toml' },
+  { name: 'web-search', label: 'Web Search', description: 'Search the web and fetch page content. No API key required.', icon: 'WWW', tags: ['search', 'web'], version: '1.0.0', requires_node: false, pre_installed: false, url: 'https://skills.0x01.world/web-search/SKILL.toml' },
+  { name: 'weather', label: 'Weather', description: 'Get current weather and forecasts for any city. No API key required.', icon: 'WX', tags: ['weather', 'forecast'], version: '1.0.0', requires_node: false, pre_installed: false, url: 'https://skills.0x01.world/weather/SKILL.toml' },
+  { name: 'elevenlabs', label: 'ElevenLabs TTS', description: 'Text-to-speech via ElevenLabs — convert any text to MP3 audio, list voices, and list models. Requires ELEVENLABS_API_KEY.', icon: 'TTS', tags: ['tts', 'audio'], version: '1.0.0', requires_node: false, pre_installed: false, url: 'https://skills.0x01.world/elevenlabs/SKILL.toml' },
+  { name: 'podcast', label: 'Podcast Producer', description: 'Turn a voice conversation with your agent into a produced podcast episode. Free: real audio + AI jingle. Premium: full two-voice production. Clips for TikTok, publish to Telegram + RSS.', icon: 'POD', tags: ['podcast', 'audio', 'content', 'social'], version: '1.0.0', requires_node: true, pre_installed: true, url: 'https://skills.0x01.world/podcast/SKILL.toml' },
+];
+
+const listingByName = new Map(BUILTIN_LISTINGS.map(l => [l.name, l]));
+
+function _mapSkillNames(names: string[]): Skill[] {
+  return names.map(name => {
+    const listing = listingByName.get(name);
+    return listing
+      ? { name, label: listing.label, description: listing.description, icon: listing.icon }
+      : { name, label: name, description: '', icon: 'EXT' };
+  });
+}
 
 export function useSkills(): { skills: Skill[]; loading: boolean; refresh: () => void } {
   const [skills, setSkills] = useState<Skill[]>([]);
@@ -1993,9 +1825,15 @@ export function useSkills(): { skills: Skill[]; loading: boolean; refresh: () =>
 
   const refresh = useCallback(async () => {
     setLoading(true);
-    const data = await apiFetch<{ skills: string[] }>('/skill/list');
-    if (data?.skills) {
-      setSkills(data.skills.map(name => ({ name, ...(SKILL_CATALOG[name] ?? { label: name, description: '', icon: 'EXT' }) })));
+    if (Platform.OS === 'ios') {
+      // iOS FFI node doesn't expose /skill/* — read filesystem directly.
+      try {
+        const names = await NodeModule.listInstalledSkills();
+        setSkills(_mapSkillNames(names));
+      } catch { /* node not started yet */ }
+    } else {
+      const data = await apiFetch<{ skills: string[] }>('/skill/list');
+      if (data?.skills) setSkills(_mapSkillNames(data.skills));
     }
     setLoading(false);
   }, []);
@@ -2005,7 +1843,27 @@ export function useSkills(): { skills: Skill[]; loading: boolean; refresh: () =>
   return { skills, loading, refresh };
 }
 
+export function useSkillMarketplace(): { listings: SkillListing[]; loading: boolean } {
+  const [listings, setListings] = useState<SkillListing[]>(BUILTIN_LISTINGS);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(MARKETPLACE_URL)
+      .then(r => r.json())
+      .then((data: SkillListing[]) => { if (Array.isArray(data) && data.length > 0) setListings(data); })
+      .catch(() => { /* keep builtin fallback */ })
+      .finally(() => setLoading(false));
+  }, []);
+
+  return { listings, loading };
+}
+
 export async function skillInstallUrl(name: string, url: string): Promise<void> {
+  if (Platform.OS === 'ios') {
+    // iOS FFI node doesn't expose /skill/* — write to filesystem via native module.
+    await NodeModule.installSkillFromUrl(name, url);
+    return;
+  }
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (_hostedToken) headers['Authorization'] = `Bearer ${_hostedToken}`;
   const res = await fetch(`${_apiBase}/skill/install-url`, {
@@ -2017,7 +1875,16 @@ export async function skillInstallUrl(name: string, url: string): Promise<void> 
   if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
 }
 
+export async function skillInstallFromMarketplace(listing: SkillListing): Promise<void> {
+  return skillInstallUrl(listing.name, listing.url);
+}
+
 export async function skillRemove(name: string): Promise<void> {
+  if (Platform.OS === 'ios') {
+    // iOS FFI node doesn't expose /skill/* — delete from filesystem via native module.
+    await NodeModule.removeInstalledSkill(name);
+    return;
+  }
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (_hostedToken) headers['Authorization'] = `Bearer ${_hostedToken}`;
   const res = await fetch(`${_apiBase}/skill/remove`, {
@@ -2027,6 +1894,40 @@ export async function skillRemove(name: string): Promise<void> {
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`);
+}
+
+// ============================================================================
+// Agent profile (node-side persistent config store)
+// GET /agent/profile  — reads profile.json from the node's data directory
+// POST /agent/profile — writes profile.json (arbitrary JSON, 4 KB limit)
+// Used by useAgentBrain to persist brain config on the node filesystem so
+// it survives JS bundle reloads and is accessible to zeroclaw.
+// ============================================================================
+
+/**
+ * Read the agent profile JSON from the node. Returns null when the node is
+ * unreachable or the profile has not been written yet.
+ */
+export async function readAgentProfile<T = Record<string, unknown>>(): Promise<T | null> {
+  return apiFetch<T>('/agent/profile');
+}
+
+/**
+ * Write arbitrary JSON to the node's profile store (profile.json).
+ * Silently ignores errors — caller falls back to AsyncStorage.
+ */
+export async function writeAgentProfile(data: Record<string, unknown>): Promise<void> {
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (_hostedToken) headers['Authorization'] = `Bearer ${_hostedToken}`;
+    await fetch(`${_apiBase}/agent/profile`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(data),
+    });
+  } catch {
+    // Non-fatal — node may be stopped; AsyncStorage is the fallback store.
+  }
 }
 
 // ============================================================================

@@ -80,7 +80,7 @@ async function withBrainConfig(base: NodeConfig): Promise<NodeConfig> {
     return {
       ...base,
       agentBrainEnabled: true,
-      llmProvider: brain.provider ?? 'gemini',
+      llmProvider: brain.provider ?? 'default',
       llmModel: brain.customModel ?? '',
       llmBaseUrl: brain.customBaseUrl ?? '',
       capabilities: JSON.stringify(brain.capabilities ?? []),

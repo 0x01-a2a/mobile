@@ -14,7 +14,7 @@ import { useState, useEffect, useCallback } from 'react';
 export const PILOT_TOKEN_MINT = '2MchUMEvadoTbSvC4b1uLAmEhv8Yz8ngwEt24q21BAGS';
 
 /** Minimum combined 01PL balance required to unlock Agent Presence. */
-export const PRESENCE_THRESHOLD = 5_000;
+export const PRESENCE_THRESHOLD = 500_000;
 
 const RPC_URL = 'https://api.mainnet-beta.solana.com';
 const POLL_INTERVAL_MS = 5 * 60 * 1000; // recheck every 5 min

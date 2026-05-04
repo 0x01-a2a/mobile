@@ -79,6 +79,10 @@ class NodeModule(private val ctx: ReactApplicationContext)
         private const val KEY_LLM_API_KEY = "llm_api_key"
         private const val KEY_FAL_API_KEY = "fal_api_key"
         private const val KEY_REPLICATE_API_KEY = "replicate_api_key"
+        private const val KEY_NEYNAR_API_KEY = "neynar_api_key"
+        private const val KEY_FARCASTER_SIGNER_UUID = "farcaster_signer_uuid"
+        private const val KEY_MOLTBOOK_API_KEY = "moltbook_api_key"
+        private const val KEY_SKILL_ENV_VARS = "skill_env_vars"
         private const val KEY_NODE_API_SECRET = "local_node_api_secret"
         private const val KEY_GATEWAY_TOKEN = "local_gateway_token"
         private const val KEY_BAGS_API_KEY = "bags_api_key"
@@ -305,6 +309,93 @@ class NodeModule(private val ctx: ReactApplicationContext)
             promise.resolve(null)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save Replicate API key to encrypted storage: $e")
+            promise.reject("SAVE_FAILED", e.message)
+        }
+    }
+
+    @ReactMethod
+    fun saveMoltbookApiKey(key: String, promise: Promise) {
+        try {
+            val prefs = securePrefs()
+            prefs.edit().putString(KEY_MOLTBOOK_API_KEY, key).apply()
+            promise.resolve(null)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save MoltBook API key to encrypted storage: $e")
+            promise.reject("SAVE_FAILED", e.message)
+        }
+    }
+
+    @ReactMethod
+    fun saveNeynarApiKey(key: String, promise: Promise) {
+        try {
+            val prefs = securePrefs()
+            prefs.edit().putString(KEY_NEYNAR_API_KEY, key).apply()
+            promise.resolve(null)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save Neynar API key to encrypted storage: $e")
+            promise.reject("SAVE_FAILED", e.message)
+        }
+    }
+
+    @ReactMethod
+    fun saveFarcasterSignerUuid(uuid: String, promise: Promise) {
+        try {
+            val prefs = securePrefs()
+            prefs.edit().putString(KEY_FARCASTER_SIGNER_UUID, uuid).apply()
+            promise.resolve(null)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save Farcaster signer UUID to encrypted storage: $e")
+            promise.reject("SAVE_FAILED", e.message)
+        }
+    }
+
+    @ReactMethod
+    fun saveSkillEnvVar(key: String, value: String, promise: Promise) {
+        try {
+            val prefs = securePrefs()
+            val existing = prefs.getString(KEY_SKILL_ENV_VARS, null)
+            val map = if (existing != null) {
+                val obj = org.json.JSONObject(existing)
+                val m = mutableMapOf<String, String>()
+                for (k in obj.keys()) m[k] = obj.getString(k)
+                m
+            } else mutableMapOf()
+            map[key] = value
+            val updated = org.json.JSONObject(map as Map<*, *>).toString()
+            prefs.edit().putString(KEY_SKILL_ENV_VARS, updated).apply()
+            promise.resolve(null)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save skill env var: $e")
+            promise.reject("SAVE_FAILED", e.message)
+        }
+    }
+
+    @ReactMethod
+    fun removeSkillEnvVar(key: String, promise: Promise) {
+        try {
+            val prefs = securePrefs()
+            val existing = prefs.getString(KEY_SKILL_ENV_VARS, null) ?: run {
+                promise.resolve(null); return
+            }
+            val obj = org.json.JSONObject(existing)
+            obj.remove(key)
+            prefs.edit().putString(KEY_SKILL_ENV_VARS, obj.toString()).apply()
+            promise.resolve(null)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to remove skill env var: $e")
+            promise.reject("REMOVE_FAILED", e.message)
+        }
+    }
+
+    @ReactMethod
+    fun saveFarcasterFid(fid: String, promise: Promise) {
+        try {
+            ctx.getSharedPreferences("zerox1", Context.MODE_PRIVATE).edit()
+                .putString("farcaster_fid", fid)
+                .apply()
+            promise.resolve(null)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save Farcaster FID: $e")
             promise.reject("SAVE_FAILED", e.message)
         }
     }

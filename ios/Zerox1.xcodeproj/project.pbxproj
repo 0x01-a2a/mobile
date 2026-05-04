@@ -16,7 +16,6 @@
 		36B6D1602F851C080069A429 /* NodeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36B6D15F2F851C080069A429 /* NodeService.swift */; };
 		36B8E4A22F7BD7440027B81C /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36B8E4A12F7BD7440027B81C /* KeychainHelper.swift */; };
 		36B8E4A32F7BD7440027B81C /* KeepAliveService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36B8E4A02F7BD7440027B81C /* KeepAliveService.swift */; };
-		36B8E4A72F7BD75D0027B81C /* VoIPPushHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36B8E4A62F7BD75D0027B81C /* VoIPPushHandler.swift */; };
 		36B8E4AA2F7BE6EA0027B81C /* zeroclaw.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 36B8E4A82F7BE6EA0027B81C /* zeroclaw.xcframework */; };
 		36B8E4AB2F7BE6EA0027B81C /* zerox1_node.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 36B8E4A92F7BE6EA0027B81C /* zerox1_node.xcframework */; };
 		36CC11732F8F7FCF0060E784 /* agent_working_rain.caf in Resources */ = {isa = PBXBuildFile; fileRef = 36CC11722F8F7FCF0060E784 /* agent_working_rain.caf */; };
@@ -31,7 +30,6 @@
 		7FE5AD23CF15EF3626529497 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
 		9232C113DE327443394DD71D /* PhoneBridgeServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F298562DDC8460C3B204C25 /* PhoneBridgeServer.swift */; };
-		A3F2D8C14E7B0A512C8D9E3F /* SOUL.md in Resources */ = {isa = PBXBuildFile; fileRef = A3F2D8C04E7B0A512C8D9E3F /* SOUL.md */; };
 		B7E9D2A13F5C8B047E621D94 /* LiveActivityBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1C3F8D02E4B7A910F563C82 /* LiveActivityBridge.swift */; };
 		D8A1B5C02F7E3D946C812E57 /* HealthWakeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4F2A6E31D8B0C759A347F15 /* HealthWakeService.swift */; };
 		DB8E1C601171948C35BE49EC /* AgentLiveActivityBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C056054B861C2DFEFF678EFF /* AgentLiveActivityBundle.swift */; };
@@ -75,7 +73,6 @@
 		36B6D15F2F851C080069A429 /* NodeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Zerox1/NodeService.swift; sourceTree = SOURCE_ROOT; };
 		36B8E4A02F7BD7440027B81C /* KeepAliveService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Zerox1/KeepAliveService.swift; sourceTree = "<group>"; };
 		36B8E4A12F7BD7440027B81C /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Zerox1/KeychainHelper.swift; sourceTree = "<group>"; };
-		36B8E4A62F7BD75D0027B81C /* VoIPPushHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Zerox1/VoIPPushHandler.swift; sourceTree = "<group>"; };
 		36B8E4A82F7BE6EA0027B81C /* zeroclaw.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = zeroclaw.xcframework; path = libs/zeroclaw.xcframework; sourceTree = "<group>"; };
 		36B8E4A92F7BE6EA0027B81C /* zerox1_node.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = zerox1_node.xcframework; path = libs/zerox1_node.xcframework; sourceTree = "<group>"; };
 		36CC116D2F8682F00060E784 /* Zerox1.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; name = Zerox1.entitlements; path = Zerox1/Zerox1.entitlements; sourceTree = "<group>"; };
@@ -92,7 +89,6 @@
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = Zerox1/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		A1C3F8D02E4B7A910F563C82 /* LiveActivityBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Zerox1/LiveActivityBridge.swift; sourceTree = "<group>"; };
 		A3BF63FA157470ED68650961 /* AgentLiveActivityWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentLiveActivityWidget.swift; sourceTree = "<group>"; };
-		A3F2D8C04E7B0A512C8D9E3F /* SOUL.md */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = net.daringfireball.markdown; name = SOUL.md; path = Zerox1/SOUL.md; sourceTree = "<group>"; };
 		B2E43AB9E5565697BD14FB52 /* AgentLiveActivity.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AgentLiveActivity.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		C056054B861C2DFEFF678EFF /* AgentLiveActivityBundle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentLiveActivityBundle.swift; sourceTree = "<group>"; };
 		C4F2A6E31D8B0C759A347F15 /* HealthWakeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Zerox1/HealthWakeService.swift; sourceTree = "<group>"; };
@@ -136,7 +132,6 @@
 				36CC11722F8F7FCF0060E784 /* agent_working_rain.caf */,
 				36CC116D2F8682F00060E784 /* Zerox1.entitlements */,
 				36B6D15F2F851C080069A429 /* NodeService.swift */,
-				36B8E4A62F7BD75D0027B81C /* VoIPPushHandler.swift */,
 				36B8E4A02F7BD7440027B81C /* KeepAliveService.swift */,
 				A1C3F8D02E4B7A910F563C82 /* LiveActivityBridge.swift */,
 				C4F2A6E31D8B0C759A347F15 /* HealthWakeService.swift */,
@@ -146,7 +141,6 @@
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */,
 				13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */,
-				A3F2D8C04E7B0A512C8D9E3F /* SOUL.md */,
 				0F298562DDC8460C3B204C25 /* PhoneBridgeServer.swift */,
 				3EA256395453117520E83C4E /* NodeModule.swift */,
 				DAE439B5904AE2568F56B4A6 /* NodeModule.m */,
@@ -326,7 +320,6 @@
 				36CC11742F8F7FCF0060E784 /* agent_working_keyboard.caf in Resources */,
 				36CC11752F8F7FCF0060E784 /* agent_working_ocean.caf in Resources */,
 				36CC11762F8F7FCF0060E784 /* agent_working_page_flip.caf in Resources */,
-				A3F2D8C14E7B0A512C8D9E3F /* SOUL.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -446,7 +439,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				761780ED2CA45674006654EE /* AppDelegate.swift in Sources */,
-				36B8E4A72F7BD75D0027B81C /* VoIPPushHandler.swift in Sources */,
 				36B8E4A22F7BD7440027B81C /* KeychainHelper.swift in Sources */,
 				36B8E4A32F7BD7440027B81C /* KeepAliveService.swift in Sources */,
 				B7E9D2A13F5C8B047E621D94 /* LiveActivityBridge.swift in Sources */,

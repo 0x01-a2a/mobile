@@ -54,6 +54,9 @@ final class KeepAliveService {
     func nodeDidStart(dataDir: URL) {
         self.dataDir = dataDir
         isNodeRunning = true
+        // Remove any previously registered observers before adding new ones to prevent
+        // duplicates when the node is stopped and restarted within the same process.
+        NotificationCenter.default.removeObserver(self)
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(appDidBackground),

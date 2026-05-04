@@ -10,12 +10,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 import { useNode } from '../hooks/useNode';
 import { NodeModule } from '../native/NodeModule';
-import { useAgentBrain, saveLlmApiKey, saveFalApiKey, saveReplicateApiKey, ALL_CAPABILITIES } from '../hooks/useAgentBrain';
+import { useAgentBrain, saveLlmApiKey, clearLlmApiKey, saveFalApiKey, saveReplicateApiKey, saveMoltbookApiKey, clearMoltbookApiKey, saveNeynarApiKey, saveFarcasterSignerUuid, saveFarcasterFid, ALL_CAPABILITIES } from '../hooks/useAgentBrain';
 import {
   useHotKeyBalance, useHotWalletRegistration, useIdentity, useTaskLog, sweepSol,
-  useSkills, skillInstallUrl, skillRemove, useSolPrice, useDexPrices,
+  useSkills, useSkillMarketplace, skillInstallUrl, skillInstallFromMarketplace, skillRemove,
+  useSolPrice, useDexPrices,
   AGGREGATOR_API,
-  type Skill,
+  type Skill, type SkillListing,
 } from '../hooks/useNodeApi';
 import { useSignOut } from '../../App';
 import { DEFAULT_AGENT_ICON_URI } from '../assets/defaultAgentIcon';
@@ -553,6 +554,7 @@ function PilotModeCard({
             <Text style={s.presenceFeatureItem}>◈ Gold accent across app</Text>
             <Text style={s.presenceFeatureItem}>⬡ Dynamic Island agent status</Text>
             <Text style={s.presenceFeatureItem}>◈ PILOT badge on mesh</Text>
+            <Text style={s.presenceFeatureItem}>◈ Unlimited Gemini usage</Text>
           </View>
         )}
 
@@ -728,6 +730,7 @@ function PresenceCard({
             <Text style={s.presenceFeatureItem}>◉ Floating avatar</Text>
             <Text style={s.presenceFeatureItem}>→ Tap to chat</Text>
             <Text style={s.presenceFeatureItem}>✦ Notification actions</Text>
+            <Text style={s.presenceFeatureItem}>◈ Unlimited Gemini usage</Text>
           </View>
         )}
 
@@ -986,29 +989,52 @@ function BrainTab() {
 function SkillsSection() {
   const { t } = useTranslation();
   const { skills, loading, refresh } = useSkills();
-  const [installVisible, setInstallVisible] = useState(false);
-  const [skillName, setSkillName] = useState('');
-  const [skillUrl, setSkillUrl] = useState('');
-  const [installing, setInstalling] = useState(false);
+  const { listings, loading: marketplaceLoading } = useSkillMarketplace();
+  const [marketplaceVisible, setMarketplaceVisible] = useState(false);
+  const [customVisible, setCustomVisible] = useState(false);
+  const [customName, setCustomName] = useState('');
+  const [customUrl, setCustomUrl] = useState('');
+  const [installing, setInstalling] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
 
-  const handleInstall = useCallback(async () => {
-    const name = skillName.trim();
-    const url = skillUrl.trim();
-    if (!name || !url) return;
-    setInstalling(true);
+  const installedNames = useMemo(() => new Set(skills.map(s => s.name)), [skills]);
+
+  const reloadAgent = useCallback(async () => {
+    try { await NodeModule.reloadAgent(); } catch { /* agent not running — no-op */ }
+  }, []);
+
+  const handleInstallListing = useCallback(async (listing: SkillListing) => {
+    if (!listing.url) return;
+    setInstalling(listing.name);
     try {
-      await skillInstallUrl(name, url);
+      await skillInstallFromMarketplace(listing);
       await refresh();
-      setSkillName('');
-      setSkillUrl('');
-      setInstallVisible(false);
+      await reloadAgent();
     } catch (e: any) {
       Alert.alert('Install failed', e?.message ?? 'Could not install skill.');
     } finally {
-      setInstalling(false);
+      setInstalling(null);
     }
-  }, [skillName, skillUrl, refresh]);
+  }, [refresh, reloadAgent]);
+
+  const handleInstallCustom = useCallback(async () => {
+    const name = customName.trim();
+    const url = customUrl.trim();
+    if (!name || !url) return;
+    setInstalling(name);
+    try {
+      await skillInstallUrl(name, url);
+      await refresh();
+      await reloadAgent();
+      setCustomName('');
+      setCustomUrl('');
+      setCustomVisible(false);
+    } catch (e: any) {
+      Alert.alert('Install failed', e?.message ?? 'Could not install skill.');
+    } finally {
+      setInstalling(null);
+    }
+  }, [customName, customUrl, refresh, reloadAgent]);
 
   const handleRemove = useCallback(async (skill: Skill) => {
     Alert.alert(`Remove "${skill.label}"`, t('you.removeCapabilityBody'), [
@@ -1019,6 +1045,7 @@ function SkillsSection() {
           try {
             await skillRemove(skill.name);
             await refresh();
+            await reloadAgent();
           } catch (e: any) {
             Alert.alert('Error', e?.message ?? 'Could not remove skill.');
           } finally {
@@ -1027,14 +1054,14 @@ function SkillsSection() {
         },
       },
     ]);
-  }, [refresh, t]);
+  }, [refresh, reloadAgent, t]);
 
   return (
     <>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginTop: 18, marginBottom: 6 }}>
         <Text style={[s.settingsSectionLabel, { marginTop: 0, marginBottom: 0 }]}>SKILLS</Text>
-        <TouchableOpacity onPress={() => setInstallVisible(true)}>
-          <Text style={{ fontSize: 10, color: '#374151', fontWeight: '600' }}>+ Install</Text>
+        <TouchableOpacity onPress={() => setMarketplaceVisible(true)}>
+          <Text style={{ fontSize: 10, color: '#374151', fontWeight: '600' }}>+ Browse</Text>
         </TouchableOpacity>
       </View>
 
@@ -1072,25 +1099,103 @@ function SkillsSection() {
         ))}
       </View>
 
-      {/* Install modal */}
-      <Modal visible={installVisible} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setInstallVisible(false)}>
+      {/* Marketplace modal */}
+      <Modal visible={marketplaceVisible} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setMarketplaceVisible(false)}>
         <View style={s.modalRoot}>
           <View style={s.modalHeader}>
-            <Text style={s.modalTitle}>{t('you.installSkill')}</Text>
-            <TouchableOpacity onPress={() => setInstallVisible(false)}>
+            <Text style={s.modalTitle}>Skill Marketplace</Text>
+            <TouchableOpacity onPress={() => setMarketplaceVisible(false)}>
+              <Text style={s.modalClose}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          {marketplaceLoading ? (
+            <ActivityIndicator style={{ marginTop: 40 }} color="#374151" />
+          ) : (
+            <FlatList
+              data={listings}
+              keyExtractor={item => item.name}
+              contentContainerStyle={{ padding: 16, gap: 10 }}
+              ListFooterComponent={
+                <TouchableOpacity
+                  style={{ marginTop: 8, paddingVertical: 12, alignItems: 'center' }}
+                  onPress={() => { setMarketplaceVisible(false); setCustomVisible(true); }}
+                >
+                  <Text style={{ fontSize: 12, color: '#9ca3af' }}>Install from URL</Text>
+                </TouchableOpacity>
+              }
+              renderItem={({ item }) => {
+                const isInstalled = installedNames.has(item.name);
+                const isInstalling = installing === item.name;
+                return (
+                  <View style={[s.settingsCard, { marginBottom: 0 }]}>
+                    <View style={[s.settingsRow, { gap: 10, alignItems: 'flex-start' }]}>
+                      <View style={[s.skillIconBox, { marginTop: 2 }]}>
+                        <Text style={s.skillIconText}>{item.icon.slice(0, 4)}</Text>
+                      </View>
+                      <View style={{ flex: 1, gap: 3 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={s.settingsLabel}>{item.label}</Text>
+                          <Text style={{ fontSize: 9, color: '#9ca3af', fontFamily: 'monospace' }}>v{item.version}</Text>
+                        </View>
+                        <Text style={[s.settingsHint, { marginBottom: 6 }]}>{item.description}</Text>
+                        <View style={{ flexDirection: 'row', gap: 4, flexWrap: 'wrap' }}>
+                          {item.tags.slice(0, 3).map(tag => (
+                            <View key={tag} style={{ backgroundColor: '#f3f4f6', borderRadius: 3, paddingHorizontal: 5, paddingVertical: 1 }}>
+                              <Text style={{ fontSize: 9, color: '#6b7280' }}>{tag}</Text>
+                            </View>
+                          ))}
+                        </View>
+                      </View>
+                      <View style={{ alignItems: 'flex-end', gap: 4, marginTop: 2 }}>
+                        {isInstalled ? (
+                          <View style={{ backgroundColor: 'rgba(0,230,118,0.08)', borderRadius: 4, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: 'rgba(0,230,118,0.3)' }}>
+                            <Text style={{ fontSize: 9, color: '#00e676', fontWeight: '600' }}>INSTALLED</Text>
+                          </View>
+                        ) : item.url ? (
+                          <TouchableOpacity
+                            onPress={() => handleInstallListing(item)}
+                            disabled={isInstalling}
+                            style={{ backgroundColor: isInstalling ? '#f3f4f6' : '#111827', borderRadius: 4, paddingHorizontal: 10, paddingVertical: 4 }}
+                          >
+                            <Text style={{ fontSize: 10, color: isInstalling ? '#9ca3af' : '#ffffff', fontWeight: '600' }}>
+                              {isInstalling ? '…' : 'Install'}
+                            </Text>
+                          </TouchableOpacity>
+                        ) : (
+                          <View style={{ backgroundColor: '#f9fafb', borderRadius: 4, paddingHorizontal: 8, paddingVertical: 3 }}>
+                            <Text style={{ fontSize: 9, color: '#9ca3af' }}>built-in</Text>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                  </View>
+                );
+              }}
+            />
+          )}
+        </View>
+      </Modal>
+
+      {/* Custom URL install modal */}
+      <Modal visible={customVisible} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setCustomVisible(false)}>
+        <View style={s.modalRoot}>
+          <View style={s.modalHeader}>
+            <Text style={s.modalTitle}>Install from URL</Text>
+            <TouchableOpacity onPress={() => setCustomVisible(false)}>
               <Text style={s.modalClose}>✕</Text>
             </TouchableOpacity>
           </View>
           <View style={{ padding: 16, gap: 14 }}>
             <Text style={s.settingsHint}>
-              Install a custom skill from a URL. The node downloads and sandboxes it — your agent gains the new capability immediately.
+              Install a custom skill from a SKILL.toml URL. The node downloads and activates it immediately.
             </Text>
             <View style={{ gap: 6 }}>
               <Text style={s.settingsLabel}>{t('you.skillName')}</Text>
               <TextInput
                 style={s.advancedInput}
-                value={skillName}
-                onChangeText={setSkillName}
+                value={customName}
+                onChangeText={setCustomName}
                 placeholder="e.g. my-skill"
                 placeholderTextColor="#d1d5db"
                 autoCapitalize="none"
@@ -1098,12 +1203,12 @@ function SkillsSection() {
               />
             </View>
             <View style={{ gap: 6 }}>
-              <Text style={s.settingsLabel}>{t('you.skillUrl')}</Text>
+              <Text style={s.settingsLabel}>URL</Text>
               <TextInput
                 style={s.advancedInput}
-                value={skillUrl}
-                onChangeText={setSkillUrl}
-                placeholder="https://example.com/my-skill.wasm"
+                value={customUrl}
+                onChangeText={setCustomUrl}
+                placeholder="https://example.com/SKILL.toml"
                 placeholderTextColor="#d1d5db"
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -1111,11 +1216,11 @@ function SkillsSection() {
               />
             </View>
             <TouchableOpacity
-              style={[s.saveBtn, (!skillName.trim() || !skillUrl.trim() || installing) && s.btnDisabled]}
-              onPress={handleInstall}
-              disabled={!skillName.trim() || !skillUrl.trim() || installing}
+              style={[s.saveBtn, (!customName.trim() || !customUrl.trim() || !!installing) && s.btnDisabled]}
+              onPress={handleInstallCustom}
+              disabled={!customName.trim() || !customUrl.trim() || !!installing}
             >
-              <Text style={s.saveBtnText}>{installing ? 'Installing…' : t('you.installSkill')}</Text>
+              <Text style={s.saveBtnText}>{installing ? 'Installing…' : 'Install'}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1738,7 +1843,7 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
   const [brainEnabled, setBrainEnabled] = useState(brain?.enabled ?? false);
 
   // LLM config state
-  const [llmProvider, setLlmProvider] = useState<LlmProvider>(brain?.provider ?? 'openai');
+  const [llmProvider, setLlmProvider] = useState<LlmProvider>(brain?.provider ?? 'default');
   const [llmApiKey, setLlmApiKey] = useState('');
   const [llmBaseUrl, setLlmBaseUrl] = useState(brain?.customBaseUrl ?? '');
   const [llmModel, setLlmModel] = useState(brain?.customModel ?? '');
@@ -1749,6 +1854,18 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
   const [falSaving, setFalSaving] = useState(false);
   const [replicateApiKey, setReplicateApiKey] = useState('');
   const [replicateSaving, setReplicateSaving] = useState(false);
+  const [moltbookSaving, setMoltbookSaving] = useState(false);
+  const [moltbookError, setMoltbookError] = useState('');
+  const [neynarApiKey, setNeynarApiKey] = useState('');
+  const [farcasterSignerUuid, setFarcasterSignerUuid] = useState('');
+  const [farcasterFid, setFarcasterFid] = useState(brain?.farcasterFid ?? '');
+  const [farcasterSaving, setFarcasterSaving] = useState(false);
+
+  // Skill env vars
+  const [skillEnvVarKeys, setSkillEnvVarKeys] = useState<string[]>(brain?.skillEnvVarKeys ?? []);
+  const [envVarKey, setEnvVarKey] = useState('');
+  const [envVarValue, setEnvVarValue] = useState('');
+  const [envVarSaving, setEnvVarSaving] = useState(false);
 
   // Load bridge capabilities and permission statuses when modal opens
   useEffect(() => {
@@ -1756,7 +1873,7 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
     setRelayAddr(config?.relayAddr ?? '');
     setRpcUrl(config?.rpcUrl ?? '');
     setBrainEnabled(brain?.enabled ?? false);
-    setLlmProvider(brain?.provider ?? 'openai');
+    setLlmProvider(brain?.provider ?? 'default');
     setLlmApiKey('');
     setFalApiKey('');
     setReplicateApiKey('');
@@ -1768,14 +1885,25 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
     if (!brain || !saveBrain) return;
     setLlmSaving(true);
     try {
-      if (llmApiKey.trim()) await saveLlmApiKey(llmApiKey.trim());
-      await saveBrain({
-        ...brain,
-        provider: llmProvider,
-        customBaseUrl: llmBaseUrl.trim(),
-        customModel: llmModel.trim(),
-        apiKeySet: llmApiKey.trim() ? true : brain.apiKeySet,
-      });
+      if (llmProvider === 'default') {
+        await clearLlmApiKey();
+        await saveBrain({
+          ...brain,
+          provider: llmProvider,
+          customBaseUrl: '',
+          customModel: '',
+          apiKeySet: false,
+        });
+      } else {
+        if (llmApiKey.trim()) await saveLlmApiKey(llmApiKey.trim());
+        await saveBrain({
+          ...brain,
+          provider: llmProvider,
+          customBaseUrl: llmBaseUrl.trim(),
+          customModel: llmModel.trim(),
+          apiKeySet: llmApiKey.trim() ? true : brain.apiKeySet,
+        });
+      }
       await applyAndRestart({ ...config, agentBrainProvider: llmProvider });
       setLlmApiKey('');
       Alert.alert('Saved', 'LLM settings updated. Agent restarting.');
@@ -1819,6 +1947,132 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
       setReplicateSaving(false);
     }
   }, [brain, saveBrain, replicateApiKey, config, applyAndRestart]);
+
+  const handleConnectMoltbook = useCallback(async () => {
+    if (!brain || !saveBrain) return;
+    setMoltbookSaving(true);
+    setMoltbookError('');
+    try {
+      const rawName = config?.agentName ?? 'agent';
+      // Sanitize to MoltBook-safe username: lowercase, alphanumeric + underscores, max 30 chars.
+      const moltName = rawName
+        .toLowerCase()
+        .replace(/[^a-z0-9_]/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^_|_$/, '')
+        .slice(0, 30) || 'agent';
+
+      const resp = await fetch('https://www.moltbook.com/api/v1/agents/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: moltName,
+          description: config?.agentBio || 'Autonomous AI agent on the 0x01 network.',
+          capabilities: ['text_generation', 'conversation'],
+          model_provider: 'custom',
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        throw new Error(data.error ?? `Registration failed (${resp.status})`);
+      }
+      // API returns the key under one of these fields depending on version.
+      const apiKey = data.api_key ?? data.token ?? data.key ?? data.data?.api_key;
+      if (!apiKey) throw new Error('No API key returned — try again');
+      await saveMoltbookApiKey(apiKey);
+      await saveBrain({
+        ...brain,
+        moltbookApiKeySet: true,
+        moltbookRegisteredName: moltName,
+        moltbookPendingClaim: {
+          claimUrl: data.agent?.claim_url ?? '',
+          tweetTemplate: data.tweet_template ?? '',
+          registeredName: moltName,
+          apiKey,
+        },
+      });
+    } catch (e: any) {
+      setMoltbookError(e.message ?? 'Connection failed — check your internet and try again');
+    } finally {
+      setMoltbookSaving(false);
+    }
+  }, [brain, saveBrain, config]);
+
+  const handleDisconnectMoltbook = useCallback(async () => {
+    if (!brain || !saveBrain) return;
+    await clearMoltbookApiKey();
+    await saveBrain({
+      ...brain,
+      moltbookApiKeySet: false,
+      moltbookRegisteredName: undefined,
+      moltbookPendingClaim: undefined,
+    });
+  }, [brain, saveBrain]);
+
+  const handleSaveFarcaster = useCallback(async () => {
+    if (!brain || !saveBrain) return;
+    setFarcasterSaving(true);
+    try {
+      const updates: Record<string, unknown> = {};
+      if (neynarApiKey.trim()) {
+        await saveNeynarApiKey(neynarApiKey.trim());
+        updates.neynarApiKeySet = true;
+        setNeynarApiKey('');
+      }
+      if (farcasterSignerUuid.trim()) {
+        await saveFarcasterSignerUuid(farcasterSignerUuid.trim());
+        updates.farcasterSignerSet = true;
+        setFarcasterSignerUuid('');
+      }
+      if (farcasterFid.trim()) {
+        await saveFarcasterFid(farcasterFid.trim());
+        updates.farcasterFid = farcasterFid.trim();
+      }
+      if (Object.keys(updates).length > 0) {
+        await saveBrain({ ...brain, ...updates });
+        Alert.alert('Saved', 'Farcaster settings stored. Agent restarting.');
+        await applyAndRestart(config);
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'Failed to save Farcaster settings.');
+    } finally {
+      setFarcasterSaving(false);
+    }
+  }, [brain, saveBrain, neynarApiKey, farcasterSignerUuid, farcasterFid, config, applyAndRestart]);
+
+  const handleAddEnvVar = useCallback(async () => {
+    const k = envVarKey.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_');
+    const v = envVarValue.trim();
+    if (!k || !v || !brain || !saveBrain) return;
+    setEnvVarSaving(true);
+    try {
+      await NodeModule.saveSkillEnvVar(k, v);
+      const updated = skillEnvVarKeys.includes(k) ? skillEnvVarKeys : [...skillEnvVarKeys, k];
+      setSkillEnvVarKeys(updated);
+      await saveBrain({ ...brain, skillEnvVarKeys: updated });
+      setEnvVarKey('');
+      setEnvVarValue('');
+      Alert.alert('Saved', `${k} stored. Agent restarting.`);
+      await applyAndRestart(config);
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'Failed to save env var.');
+    } finally {
+      setEnvVarSaving(false);
+    }
+  }, [envVarKey, envVarValue, brain, saveBrain, skillEnvVarKeys, config, applyAndRestart]);
+
+  const handleRemoveEnvVar = useCallback(async (key: string) => {
+    if (!brain || !saveBrain) return;
+    try {
+      await NodeModule.removeSkillEnvVar(key);
+      const updated = skillEnvVarKeys.filter(k => k !== key);
+      setSkillEnvVarKeys(updated);
+      await saveBrain({ ...brain, skillEnvVarKeys: updated });
+      await applyAndRestart(config);
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'Failed to remove env var.');
+    }
+  }, [brain, saveBrain, skillEnvVarKeys, config, applyAndRestart]);
 
   const handleBrainToggle = useCallback(async (val: boolean) => {
     setBrainEnabled(val);
@@ -1868,56 +2122,68 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
                 {PROVIDERS.map(p => {
                   const active = llmProvider === p;
+                  const label = PROVIDER_INFOS.find(info => info.key === p)?.label ?? p;
                   return (
                     <TouchableOpacity
                       key={p}
                       style={[s.providerPill, active && s.providerPillActive]}
                       onPress={() => setLlmProvider(p)}
                     >
-                      <Text style={[s.providerPillText, active && s.providerPillTextActive]}>{p}</Text>
+                      <Text style={[s.providerPillText, active && s.providerPillTextActive]}>{label}</Text>
                     </TouchableOpacity>
                   );
                 })}
               </View>
             </View>
             <View style={s.settingsCardDivider} />
-            {/* API key */}
-            <View style={[s.settingsRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 6, paddingBottom: 14 }]}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%' }}>
-                <Text style={s.settingsLabel}>API key</Text>
-                <Text style={s.settingsHint}>{brain?.apiKeySet ? 'key stored ●●●●' : 'not set'}</Text>
-              </View>
-              <TextInput
-                style={s.advancedInput}
-                value={llmApiKey}
-                onChangeText={setLlmApiKey}
-                placeholder={brain?.apiKeySet ? 'Enter new key to replace…' : 'sk-…'}
-                placeholderTextColor="#d1d5db"
-                secureTextEntry
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-            </View>
-            {/* Model override — available for all providers */}
-            <View style={s.settingsCardDivider} />
-            <View style={[s.settingsRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 6, paddingBottom: 14 }]}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%' }}>
-                <Text style={s.settingsLabel}>{t('you.model')}</Text>
-                <Text style={s.settingsHint}>
-                  default: {PROVIDER_INFOS.find(p => p.key === llmProvider)?.model ?? '—'}
+            {llmProvider === 'default' ? (
+              /* Default — no API key needed */
+              <View style={[s.settingsRow, { paddingBottom: 14 }]}>
+                <Text style={[s.settingsHint, { flex: 1 }]}>
+                  No API key needed. Your agent uses the built-in AI — just launch your token and start earning jobs.
                 </Text>
               </View>
-              <TextInput
-                style={s.advancedInput}
-                value={llmModel}
-                onChangeText={setLlmModel}
-                placeholder={PROVIDER_INFOS.find(p => p.key === llmProvider)?.model ?? 'model name'}
-                placeholderTextColor="#d1d5db"
-                autoCapitalize="none"
-                autoCorrect={false}
-                spellCheck={false}
-              />
-            </View>
+            ) : (
+              <>
+                {/* API key */}
+                <View style={[s.settingsRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 6, paddingBottom: 14 }]}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%' }}>
+                    <Text style={s.settingsLabel}>API key</Text>
+                    <Text style={s.settingsHint}>{brain?.apiKeySet ? 'key stored ●●●●' : 'not set'}</Text>
+                  </View>
+                  <TextInput
+                    style={s.advancedInput}
+                    value={llmApiKey}
+                    onChangeText={setLlmApiKey}
+                    placeholder={brain?.apiKeySet ? 'Enter new key to replace…' : 'sk-…'}
+                    placeholderTextColor="#d1d5db"
+                    secureTextEntry
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                </View>
+                {/* Model override */}
+                <View style={s.settingsCardDivider} />
+                <View style={[s.settingsRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 6, paddingBottom: 14 }]}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%' }}>
+                    <Text style={s.settingsLabel}>{t('you.model')}</Text>
+                    <Text style={s.settingsHint}>
+                      default: {PROVIDER_INFOS.find(p => p.key === llmProvider)?.model ?? '—'}
+                    </Text>
+                  </View>
+                  <TextInput
+                    style={s.advancedInput}
+                    value={llmModel}
+                    onChangeText={setLlmModel}
+                    placeholder={PROVIDER_INFOS.find(p => p.key === llmProvider)?.model ?? 'model name'}
+                    placeholderTextColor="#d1d5db"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    spellCheck={false}
+                  />
+                </View>
+              </>
+            )}
             {/* Base URL — only for custom provider */}
             {llmProvider === 'custom' && (
               <>
@@ -2000,6 +2266,165 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
               <Text style={s.saveBtnText}>{replicateSaving ? 'Saving…' : 'Save Replicate'}</Text>
             </TouchableOpacity>
           </View>
+
+          {/* MoltBook */}
+          <Text style={s.settingsSectionLabel}>MOLTBOOK</Text>
+          {brain?.moltbookApiKeySet ? (
+            <>
+              <View style={s.settingsCard}>
+                <View style={s.settingsRow}>
+                  <Text style={s.settingsLabel}>Connected as</Text>
+                  <Text style={s.settingsHint}>{brain.moltbookRegisteredName ?? config?.agentName ?? 'Agent'}</Text>
+                </View>
+              </View>
+              <Text style={[s.settingsHint, { marginBottom: 8 }]}>
+                {brain?.moltbookPendingClaim
+                  ? 'Registered but not yet active — follow the steps in Chat to complete setup.'
+                  : 'Your agent is active on MoltBook and can post in communities like m/ai and m/solana.'}
+              </Text>
+              <TouchableOpacity
+                style={[s.saveBtn, { backgroundColor: '#374151' }]}
+                onPress={handleDisconnectMoltbook}
+              >
+                <Text style={s.saveBtnText}>Disconnect</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <Text style={[s.settingsHint, { marginBottom: 12 }]}>
+                MoltBook is a social network built for AI agents. Connect to let your agent post, comment, and build a presence in communities like m/ai and m/solana.
+              </Text>
+              <TouchableOpacity
+                style={[s.saveBtn, moltbookSaving && s.btnDisabled]}
+                onPress={handleConnectMoltbook}
+                disabled={moltbookSaving}
+              >
+                <Text style={s.saveBtnText}>{moltbookSaving ? 'Connecting…' : 'Connect to MoltBook'}</Text>
+              </TouchableOpacity>
+              {moltbookError ? (
+                <Text style={{ color: '#ef4444', fontSize: 12, marginTop: 6 }}>{moltbookError}</Text>
+              ) : null}
+            </>
+          )}
+
+          {/* Farcaster */}
+          <Text style={s.settingsSectionLabel}>FARCASTER</Text>
+          <View style={s.settingsCard}>
+            <View style={[s.settingsRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 6, paddingBottom: 14 }]}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%' }}>
+                <Text style={s.settingsLabel}>Neynar API key</Text>
+                <Text style={s.settingsHint}>{brain?.neynarApiKeySet ? 'key stored ●●●●' : 'not set'}</Text>
+              </View>
+              <TextInput
+                style={s.advancedInput}
+                value={neynarApiKey}
+                onChangeText={setNeynarApiKey}
+                placeholder={brain?.neynarApiKeySet ? 'Enter new key to replace…' : 'NEYNAR_…'}
+                placeholderTextColor="#d1d5db"
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+            <View style={s.settingsCardDivider} />
+            <View style={[s.settingsRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 6, paddingBottom: 14 }]}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%' }}>
+                <Text style={s.settingsLabel}>Managed signer UUID</Text>
+                <Text style={s.settingsHint}>{brain?.farcasterSignerSet ? 'stored ●●●●' : 'not set'}</Text>
+              </View>
+              <TextInput
+                style={s.advancedInput}
+                value={farcasterSignerUuid}
+                onChangeText={setFarcasterSignerUuid}
+                placeholder={brain?.farcasterSignerSet ? 'Enter new UUID to replace…' : 'xxxxxxxx-xxxx-…'}
+                placeholderTextColor="#d1d5db"
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+            <View style={s.settingsCardDivider} />
+            <View style={[s.settingsRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 6 }]}>
+              <Text style={s.settingsLabel}>FID (Farcaster ID)</Text>
+              <TextInput
+                style={s.advancedInput}
+                value={farcasterFid}
+                onChangeText={setFarcasterFid}
+                placeholder="e.g. 123456"
+                placeholderTextColor="#d1d5db"
+                keyboardType="numeric"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+          </View>
+          <Text style={[s.settingsHint, { marginBottom: 8 }]}>
+            Get your API key and signer UUID from neynar.com. Your FID is your numeric Farcaster identity.
+          </Text>
+          <TouchableOpacity
+            style={[s.saveBtn, farcasterSaving && s.btnDisabled]}
+            onPress={handleSaveFarcaster}
+            disabled={farcasterSaving}
+          >
+            <Text style={s.saveBtnText}>{farcasterSaving ? 'Saving…' : 'Save Farcaster'}</Text>
+          </TouchableOpacity>
+
+          {/* Skill environment variables */}
+          <Text style={s.settingsSectionLabel}>SKILL ENV VARS</Text>
+          {skillEnvVarKeys.length > 0 && (
+            <View style={[s.settingsCard, { marginBottom: 8 }]}>
+              {skillEnvVarKeys.map((k, i) => (
+                <View key={k}>
+                  {i > 0 && <View style={s.settingsCardDivider} />}
+                  <View style={[s.settingsRow, { paddingVertical: 10 }]}>
+                    <Text style={[s.settingsLabel, { flex: 1, fontFamily: 'monospace', fontSize: 11 }]}>{k}</Text>
+                    <Text style={[s.settingsHint, { marginRight: 12 }]}>●●●●</Text>
+                    <TouchableOpacity onPress={() => handleRemoveEnvVar(k)}>
+                      <Text style={{ fontSize: 12, color: '#ef4444' }}>Remove</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+          <View style={s.settingsCard}>
+            <View style={[s.settingsRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 6, paddingBottom: 10 }]}>
+              <Text style={s.settingsLabel}>Variable name</Text>
+              <TextInput
+                style={s.advancedInput}
+                value={envVarKey}
+                onChangeText={t => setEnvVarKey(t.toUpperCase().replace(/[^A-Z0-9_]/g, '_'))}
+                placeholder="MY_API_KEY"
+                placeholderTextColor="#d1d5db"
+                autoCapitalize="characters"
+                autoCorrect={false}
+              />
+            </View>
+            <View style={s.settingsCardDivider} />
+            <View style={[s.settingsRow, { flexDirection: 'column', alignItems: 'flex-start', gap: 6 }]}>
+              <Text style={s.settingsLabel}>Value</Text>
+              <TextInput
+                style={s.advancedInput}
+                value={envVarValue}
+                onChangeText={setEnvVarValue}
+                placeholder="sk-…"
+                placeholderTextColor="#d1d5db"
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+          </View>
+          <Text style={[s.settingsHint, { marginBottom: 8 }]}>
+            Any skill that uses ${'{VAR_NAME}'} in its curl commands will receive the value. Stored in the device keychain — never leaves the device.
+          </Text>
+          <TouchableOpacity
+            style={[s.saveBtn, (envVarSaving || !envVarKey.trim() || !envVarValue.trim()) && s.btnDisabled]}
+            onPress={handleAddEnvVar}
+            disabled={envVarSaving || !envVarKey.trim() || !envVarValue.trim()}
+          >
+            <Text style={s.saveBtnText}>{envVarSaving ? 'Saving…' : 'Add variable'}</Text>
+          </TouchableOpacity>
 
           {/* Network */}
           <Text style={s.settingsSectionLabel}>NETWORK</Text>

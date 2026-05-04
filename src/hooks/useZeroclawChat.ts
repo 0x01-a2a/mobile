@@ -287,7 +287,7 @@ export function useZeroclawChat(agentId?: string, conversationId?: string): UseZ
               const startConfig = {
                 ...savedCfg,
                 agentBrainEnabled: true,
-                llmProvider: brain.provider ?? 'anthropic',
+                llmProvider: brain.provider ?? 'default',
                 llmModel: brain.customModel ?? '',
                 llmBaseUrl: brain.customBaseUrl ?? '',
                 capabilities: JSON.stringify(brain.capabilities ?? []),
