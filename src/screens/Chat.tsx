@@ -27,6 +27,7 @@ import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/nativ
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
 import { useZeroclawChat, ChatMessage } from '../hooks/useZeroclawChat';
+import { useVoiceInput } from '../hooks/useVoiceInput';
 import { useOwnedAgents, OwnedAgent } from '../hooks/useOwnedAgents';
 import { useBlobs } from '../hooks/useBlobs';
 import { sendEnvelope, setBagsApiKey } from '../hooks/useNodeApi';
@@ -410,6 +411,18 @@ export function ChatScreen() {
   const { upload, uploading, error: uploadError } = useBlobs();
   const [draft, setDraft] = useState('');
   const listRef = useRef<FlatList>(null);
+
+  // Voice input — OS native speech-to-text
+  const voice = useVoiceInput((text) => {
+    // On final result, append to draft (don't replace — user may have typed something)
+    setDraft(prev => prev ? `${prev} ${text}` : text);
+  });
+  // Show live transcript while speaking
+  useEffect(() => {
+    if (voice.listening && voice.transcript) {
+      setDraft(voice.transcript);
+    }
+  }, [voice.listening, voice.transcript]);
 
   // Pending image attachment (picked but not yet sent)
   const [pendingImage, setPendingImage] = useState<{ uri: string; base64: string; mime: string } | null>(null);
@@ -893,12 +906,24 @@ export function ChatScreen() {
               >
                 <Text style={s.attachBtnText}>📎</Text>
               </TouchableOpacity>
+              {voice.available && (
+                <TouchableOpacity
+                  style={[s.attachBtn, voice.listening && { backgroundColor: colors.red + '20', borderColor: colors.red }]}
+                  onPress={voice.toggle}
+                  disabled={loading || nodeLoading}
+                  accessibilityLabel={voice.listening ? 'Stop voice input' : 'Start voice input'}
+                  accessibilityRole="button"
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Text style={[s.attachBtnText, voice.listening && { color: colors.red }]}>{voice.listening ? '◉' : '🎙'}</Text>
+                </TouchableOpacity>
+              )}
               <TextInput
                 style={s.input}
                 value={draft}
                 onChangeText={setDraft}
-                placeholder={nodeLoading ? 'starting agent...' : t('you.messagePlaceholder', { name: config.agentName || '01 Pilot' })}
-                placeholderTextColor={colors.sub}
+                placeholder={voice.listening ? t('chat.listening') : nodeLoading ? 'starting agent...' : t('you.messagePlaceholder', { name: config.agentName || '01 Pilot' })}
+                placeholderTextColor={voice.listening ? colors.red : colors.sub}
                 multiline
                 maxLength={4000}
                 onSubmitEditing={handleSend}

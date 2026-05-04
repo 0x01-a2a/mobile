@@ -79,6 +79,8 @@
 	<string>Your agent can access your location for location-aware tasks.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Your agent can record audio for transcription and voice tasks.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Voice input lets you talk to your agent instead of typing.</string>
 	<key>NSMotionUsageDescription</key>
 	<string>Your agent can read motion and activity data to support movement-aware tasks and phone sensor features.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>

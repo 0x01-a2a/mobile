@@ -1452,6 +1452,8 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
+  - react-native-voice (3.2.4):
+    - React-Core
   - React-NativeModulesApple (0.84.1):
     - hermes-engine
     - React-callinvoker
@@ -1829,6 +1831,27 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
+  - RNCClipboard (1.16.3):
+    - hermes-engine
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - Yoga
   - RNInAppBrowser (3.7.1):
     - React-Core
   - RNKeychain (9.2.3):
@@ -1963,6 +1986,7 @@ DEPENDENCIES:
   - react-native-get-random-values (from `../node_modules/react-native-get-random-values`)
   - react-native-image-picker (from `../node_modules/react-native-image-picker`)
   - react-native-safe-area-context (from `../node_modules/react-native-safe-area-context`)
+  - "react-native-voice (from `../node_modules/@react-native-voice/voice`)"
   - React-NativeModulesApple (from `../node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios`)
   - React-networking (from `../node_modules/react-native/ReactCommon/react/networking`)
   - React-oscompat (from `../node_modules/react-native/ReactCommon/oscompat`)
@@ -1998,6 +2022,7 @@ DEPENDENCIES:
   - ReactCommon/turbomodule/core (from `../node_modules/react-native/ReactCommon`)
   - ReactNativeDependencies (from `../node_modules/react-native/third-party-podspecs/ReactNativeDependencies.podspec`)
   - "RNCAsyncStorage (from `../node_modules/@react-native-async-storage/async-storage`)"
+  - "RNCClipboard (from `../node_modules/@react-native-clipboard/clipboard`)"
   - RNInAppBrowser (from `../node_modules/react-native-inappbrowser-reborn`)
   - RNKeychain (from `../node_modules/react-native-keychain`)
   - RNLocalize (from `../node_modules/react-native-localize`)
@@ -2088,6 +2113,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native-image-picker"
   react-native-safe-area-context:
     :path: "../node_modules/react-native-safe-area-context"
+  react-native-voice:
+    :path: "../node_modules/@react-native-voice/voice"
   React-NativeModulesApple:
     :path: "../node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios"
   React-networking:
@@ -2158,6 +2185,8 @@ EXTERNAL SOURCES:
     :podspec: "../node_modules/react-native/third-party-podspecs/ReactNativeDependencies.podspec"
   RNCAsyncStorage:
     :path: "../node_modules/@react-native-async-storage/async-storage"
+  RNCClipboard:
+    :path: "../node_modules/@react-native-clipboard/clipboard"
   RNInAppBrowser:
     :path: "../node_modules/react-native-inappbrowser-reborn"
   RNKeychain:
@@ -2211,6 +2240,7 @@ SPEC CHECKSUMS:
   react-native-get-random-values: bd4970c519998029bbcfec2c90b32efd59e07ad0
   react-native-image-picker: bcb1ae12a594f18e2604cc1aff0e5f4aa950afbe
   react-native-safe-area-context: 9e5bc71daf3e49d12563467aa3f38d3229eed544
+  react-native-voice: f5e8eec2278451d0017eb6a30a6ccc726aca34e0
   React-NativeModulesApple: 8e6a2e2e6a1959606a81a691a9584d4511a2bb7f
   React-networking: 65f8debdac19f4cdd9741ff4a0a9dda6753eac9e
   React-oscompat: d25dec7213a964cdfae442e1967a680954ed0df1
@@ -2246,6 +2276,7 @@ SPEC CHECKSUMS:
   ReactCommon: 8ebf17c6da0fef2671cdcc5e066e45536ad9c290
   ReactNativeDependencies: 62e57613642e453ddf5e7a629c28a77b3b1a7d99
   RNCAsyncStorage: 189d312758a651e91e1d77785f68a3a0ad417e8f
+  RNCClipboard: 6b086ea919e3b67572ec23ff0009a171ac5279e2
   RNInAppBrowser: b53e6f6072c931115bc22ac9dc9510ac2cbea62d
   RNKeychain: ea0a8d2f098549aff74439095d32adb57bb75940
   RNLocalize: f58affe87ebc5d779d8c314b79bb7d348d74bf82
