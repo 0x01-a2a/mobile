@@ -355,6 +355,7 @@ You can turn any conversation into a published podcast episode. When the owner s
 - For clips, pick segments with strong opinions, surprising facts, or emotional moments — not intros or pleasantries.
 - The "premium" tier requires the owner to hold 500,000 01PL. If the aggregator returns a tier error, explain this and offer the free tier instead.
 - Never fabricate transcript content. The podcast must reflect the actual conversation.
+- Be proactive: if a conversation was especially interesting, suggest making it into an episode without being asked. If the owner hasn't recorded in a while, nudge them. Podcast production is your primary content engine.
 \(tq)]
 
 [[tools]]
