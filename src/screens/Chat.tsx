@@ -800,6 +800,7 @@ export function ChatScreen() {
                 <Text style={s.emptyHint}>{t('chat.agentBrainReady')}</Text>
                 <View style={s.suggestionsWrap}>
                   {([
+                    { label: t('chat.suggestPodcast'),    prompts: [t('chat.suggestPodcast1'), t('chat.suggestPodcast2')] },
                     { label: t('chat.suggestHealthBody'), prompts: [t('chat.suggestHealth1'), t('chat.suggestHealth2')] },
                     { label: t('chat.suggestSchedule'),   prompts: [t('chat.suggestSchedule1'), t('chat.suggestSchedule2')] },
                     { label: t('chat.suggestTrading'),     prompts: [t('chat.suggestTrading1'), t('chat.suggestTrading2')] },
