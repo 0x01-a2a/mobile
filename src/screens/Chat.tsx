@@ -16,6 +16,7 @@ import {
   Modal,
   Platform,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -243,27 +244,19 @@ function PodcastResultCard({ result, player }: { result: PodcastResult; player: 
       subtitle={`${mins}:${secs.toString().padStart(2, '0')} episode`}
       buttons={[
         {
-          label: player.playing ? '◼ Stop' : '▶ Play Episode',
+          label: player.playing ? '◼ Stop' : '▶ Play',
           onPress: () => player.playing ? player.stop() : player.play(result.audio_url),
           variant: 'primary',
         },
         {
-          label: '↓ Save to Phone',
+          label: '↗ Share MP3',
           onPress: () => {
-            import('@react-native-camera-roll/camera-roll').then(({ CameraRoll }) => {
-              CameraRoll.saveAsset(result.audio_url, { type: 'auto' }).catch(() => {});
-            });
+            Share.share(Platform.OS === 'ios'
+              ? { url: result.audio_url }
+              : { message: result.audio_url }
+            );
           },
           variant: 'secondary',
-        },
-        {
-          label: '↗ Share',
-          onPress: () => {
-            import('react-native').then(({ Share }) => {
-              Share.share({ message: `${result.title}\n${result.audio_url}` });
-            });
-          },
-          variant: 'ghost',
         },
       ]}
     />
