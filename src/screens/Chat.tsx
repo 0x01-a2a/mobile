@@ -412,17 +412,28 @@ export function ChatScreen() {
   const [draft, setDraft] = useState('');
   const listRef = useRef<FlatList>(null);
 
-  // Voice input — OS native speech-to-text
+  // Voice input — OS native speech-to-text.
+  // Auto-sends when the user stops speaking (like a voice message).
+  const voicePendingSend = useRef(false);
   const voice = useVoiceInput((text) => {
-    // On final result, append to draft (don't replace — user may have typed something)
-    setDraft(prev => prev ? `${prev} ${text}` : text);
+    if (text.trim()) {
+      setDraft(text);
+      voicePendingSend.current = true;
+    }
   });
-  // Show live transcript while speaking
+  // Show live transcript while speaking.
   useEffect(() => {
     if (voice.listening && voice.transcript) {
       setDraft(voice.transcript);
     }
   }, [voice.listening, voice.transcript]);
+  // Auto-send after voice stops and final transcript is in draft.
+  useEffect(() => {
+    if (!voice.listening && voicePendingSend.current && draft.trim()) {
+      voicePendingSend.current = false;
+      handleSendRef.current();
+    }
+  }, [voice.listening, draft]);
 
   // Pending image attachment (picked but not yet sent)
   const [pendingImage, setPendingImage] = useState<{ uri: string; base64: string; mime: string } | null>(null);
@@ -521,6 +532,8 @@ export function ChatScreen() {
       await send(text);
     }
   }, [draft, pendingImage, loading, send, upload]);
+  const handleSendRef = useRef(handleSend);
+  handleSendRef.current = handleSend;
 
   const pickAndDeliver = useCallback(async (source: 'camera' | 'gallery') => {
     const isHosted = Boolean(config.nodeApiUrl);
