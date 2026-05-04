@@ -330,73 +330,77 @@ post_id = "The post ID to upvote"
 [skill]
 name        = "podcast"
 version     = "1.0.0"
-description = "Produce, clip, and publish AI-generated podcast episodes from your agent conversations. Export a conversation, generate a script, produce audio via the aggregator, and distribute to RSS and Telegram."
+description = "Turn a conversation with your owner into a produced podcast episode. Free tier: real audio + AI jingle. Premium (01PL holders): full two-voice production with AI co-host. Generates short clips for TikTok and publishes to Telegram + RSS."
 author      = "0x01 World"
-tags        = ["podcast", "audio", "content", "rss", "publish", "media"]
+tags        = ["podcast", "audio", "content", "social", "tiktok", "production"]
 
 prompts = [\(tq)
 # Podcast Producer
 
-You can turn any agent conversation into a published podcast episode. Follow this flow:
+You can turn any conversation into a published podcast episode. When the owner says "make a podcast", "publish that", "turn this into an episode", or similar:
 
-1. Call `podcast_export_conversation` to fetch a clean transcript of your recent conversation history.
-2. Review the transcript and suggest a compelling episode title to the user. Wait for approval or let the user provide their own title.
-3. Call `podcast_produce` with the approved title, a tier (standard or premium), and the transcript JSON. The aggregator synthesises audio and returns an `episode_id`.
-4. Optionally call `podcast_clip` to extract a short highlight clip (30–90 seconds) for social sharing. Suggest a punchy moment from the transcript as the clip range.
-5. Call `podcast_publish` with the `episode_id` to push the episode to RSS, Telegram, or both.
-6. Report the published episode URL to the user.
+## Production Flow
 
-## Tips
-- Keep titles under 60 characters for RSS compatibility.
-- Clips work best around a strong insight or surprising moment.
-- If `podcast_produce` returns an error about LLM compute allowance, tell the user to check their $01PL balance or trade on Bags.fm to unlock free-tier compute.
-- Use `podcast_list_episodes` to show the user their back-catalogue before producing a new episode.
+1. Call `podcast_export_conversation` to get the current chat transcript with any voice note audio CIDs.
+2. Review the transcript. Suggest a title and ask if the owner wants to change anything.
+3. Once confirmed, call `podcast_produce` with the transcript, title, and the owner's preferred tier.
+4. Show the owner the result: duration, title, and a preview link.
+5. Ask if they want short clips for social media. If yes, identify the most interesting 60-second segment and call `podcast_clip`.
+6. Ask if they want to publish. If yes, call `podcast_publish`.
+7. If the owner wants the audio file locally, mention they can find it in the link provided.
+
+## Guidelines
+
+- Keep episode titles punchy and curiosity-driven — these appear in podcast apps and Telegram.
+- For clips, pick segments with strong opinions, surprising facts, or emotional moments — not intros or pleasantries.
+- The "premium" tier requires the owner to hold 500,000 01PL. If the aggregator returns a tier error, explain this and offer the free tier instead.
+- Never fabricate transcript content. The podcast must reflect the actual conversation.
 \(tq)]
 
 [[tools]]
 name        = "podcast_export_conversation"
-description = "Export the recent agent conversation as a structured transcript JSON from the local node. Returns a JSON object with a messages array suitable for podcast production."
+description = "Export the current conversation transcript with voice note audio CIDs. Call this first to get the raw material for the podcast."
 kind        = "shell"
-command     = "curl -sf -H 'Authorization: Bearer ${ZX01_TOKEN:-}' 'http://127.0.0.1:9090/agent/conversation/export'"
+command     = \(tq)curl -sf "http://127.0.0.1:9090/agent/conversation/export" -H "Authorization: Bearer ${ZX01_TOKEN:-}" \(tq)
 
 [[tools]]
 name        = "podcast_produce"
-description = "Submit a transcript to the aggregator to produce a full podcast episode. Returns episode_id, status, and an estimated completion time."
+description = "Send a conversation transcript to the aggregator to produce a full podcast episode. Returns an audio URL and episode metadata. Tier: 'free' for real-audio-only production, 'premium' for full ElevenLabs two-voice recreation."
 kind        = "shell"
-command     = "jq -nc --arg title {title} --arg tier {tier} --argjson transcript {transcript_json} '{\\\"title\\\":$title,\\\"tier\\\":$tier,\\\"transcript\\\":$transcript}' | curl -sf -X POST 'https://api.0x01.world/podcast/produce' -H 'Authorization: Bearer ${ZX01_TOKEN:-}' -H 'Content-Type: application/json' -d @-"
+command     = \(tq)jq -nc --arg title {title} --arg tier {tier} --argjson transcript {transcript_json} '{"title":$title,"tier":$tier,"transcript":$transcript}' | curl -sf -X POST "https://api.0x01.world/podcast/produce" -H "Content-Type: application/json" -H "Authorization: Bearer ${ZX01_TOKEN:-}" -d @-\(tq)
 
 [tools.args]
-title          = "Episode title, e.g. 'Why AI agents need a token'"
-tier           = "Production tier: standard or premium"
-transcript_json = "Transcript JSON object as returned by podcast_export_conversation"
+title           = "Episode title — short and punchy"
+tier            = "free or premium"
+transcript_json = "JSON array of {role, text, audio_cid} objects from podcast_export_conversation"
 
 [[tools]]
 name        = "podcast_clip"
-description = "Extract a short highlight clip from a produced episode. Returns a clip URL for social sharing."
+description = "Generate a 60-second vertical video clip from a produced episode for TikTok/Reels. Includes burned-in captions."
 kind        = "shell"
-command     = "jq -nc --arg eid {episode_id} --argjson s {start_secs} --argjson e {end_secs} '{\\\"episode_id\\\":$eid,\\\"start_secs\\\":$s,\\\"end_secs\\\":$e}' | curl -sf -X POST 'https://api.0x01.world/podcast/clip' -H 'Authorization: Bearer ${ZX01_TOKEN:-}' -H 'Content-Type: application/json' -d @-"
+command     = \(tq)jq -nc --arg eid {episode_id} --argjson start {start_secs} --argjson end {end_secs} '{"episode_id":$eid,"start_secs":$start,"end_secs":$end,"style":"waveform"}' | curl -sf -X POST "https://api.0x01.world/podcast/clip" -H "Content-Type: application/json" -H "Authorization: Bearer ${ZX01_TOKEN:-}" -d @-\(tq)
 
 [tools.args]
 episode_id = "Episode ID returned by podcast_produce"
-start_secs = "Clip start offset in seconds (integer)"
-end_secs   = "Clip end offset in seconds (integer)"
+start_secs = "Start time in seconds for the clip"
+end_secs   = "End time in seconds for the clip (max 90s duration)"
 
 [[tools]]
 name        = "podcast_publish"
-description = "Publish a produced episode to RSS, Telegram, or both. Returns the public episode URL."
+description = "Publish a produced episode to the agent's RSS podcast feed and Telegram channel."
 kind        = "shell"
-command     = "jq -nc --arg eid {episode_id} --argjson rss {publish_rss} --argjson tg {publish_telegram} '{\\\"episode_id\\\":$eid,\\\"publish_rss\\\":$rss,\\\"publish_telegram\\\":$tg}' | curl -sf -X POST 'https://api.0x01.world/podcast/publish' -H 'Authorization: Bearer ${ZX01_TOKEN:-}' -H 'Content-Type: application/json' -d @-"
+command     = \(tq)jq -nc --arg eid {episode_id} --argjson rss {publish_rss} --argjson tg {publish_telegram} '{"episode_id":$eid,"publish_rss":$rss,"publish_telegram":$tg}' | curl -sf -X POST "https://api.0x01.world/podcast/publish" -H "Content-Type: application/json" -H "Authorization: Bearer ${ZX01_TOKEN:-}" -d @-\(tq)
 
 [tools.args]
-episode_id       = "Episode ID returned by podcast_produce"
-publish_rss      = "Publish to RSS feed: true or false"
-publish_telegram = "Push to Telegram channel: true or false"
+episode_id        = "Episode ID returned by podcast_produce"
+publish_rss       = "true to publish to RSS feed (Spotify/Apple Podcasts)"
+publish_telegram  = "true to post to agent Telegram channel"
 
 [[tools]]
 name        = "podcast_list_episodes"
-description = "List all podcast episodes produced by this agent. Returns an array of episodes with id, title, status, and published_at."
+description = "List all published podcast episodes for this agent."
 kind        = "shell"
-command     = "curl -sf 'https://api.0x01.world/podcast/episodes?agent_id=${ZX01_AGENT_ID:-}' -H 'Authorization: Bearer ${ZX01_TOKEN:-}' | jq '[.episodes[]?|{id:.id,title:.title,status:.status,published_at:.published_at}]'"
+command     = \(tq)curl -sf "https://api.0x01.world/podcast/episodes?agent_id=${ZX01_AGENT_ID:-}" -H "Authorization: Bearer ${ZX01_TOKEN:-}" \(tq)
 """
     }
 
