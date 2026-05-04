@@ -28,6 +28,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
 import { useZeroclawChat, ChatMessage } from '../hooks/useZeroclawChat';
 import { useVoiceInput } from '../hooks/useVoiceInput';
+import { useTTS } from '../hooks/useTTS';
 import { useOwnedAgents, OwnedAgent } from '../hooks/useOwnedAgents';
 import { useBlobs } from '../hooks/useBlobs';
 import { sendEnvelope, setBagsApiKey } from '../hooks/useNodeApi';
@@ -275,7 +276,7 @@ function MoltbookClaimCard({
 
 // ── Message bubble ────────────────────────────────────────────────────────
 
-function Bubble({ msg, agentName }: { msg: ChatMessage; agentName: string }) {
+function Bubble({ msg, agentName, tts }: { msg: ChatMessage; agentName: string; tts: { speaking: boolean; speak: (t: string) => void; stop: () => void } }) {
   const { colors } = useTheme();
   const { isTablet } = useLayout();
   const { t } = useTranslation();
@@ -301,6 +302,14 @@ function Bubble({ msg, agentName }: { msg: ChatMessage; agentName: string }) {
     Alert.alert('Copied', undefined, [{ text: 'OK' }], { cancelable: true });
   }, [displayText]);
 
+  const handlePlayStop = useCallback(() => {
+    if (tts.speaking) {
+      tts.stop();
+    } else if (displayText) {
+      tts.speak(displayText);
+    }
+  }, [displayText, tts]);
+
   return (
     <View style={[s.bubbleRow, isUser ? s.rowRight : s.rowLeft]}>
       {!isUser && <Text style={s.roleLabel}>{agentName}</Text>}
@@ -323,6 +332,20 @@ function Bubble({ msg, agentName }: { msg: ChatMessage; agentName: string }) {
           </Text>
         ) : null}
         {launchResult ? <LaunchResultCard result={launchResult} /> : null}
+        {/* Play button — agent messages only, text must be non-empty */}
+        {!isUser && displayText.length > 10 && (
+          <TouchableOpacity
+            onPress={handlePlayStop}
+            style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6, paddingTop: 4, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }}
+            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+            accessibilityLabel={tts.speaking ? 'Stop playing' : 'Play message'}
+            accessibilityRole="button"
+          >
+            <Text style={{ fontSize: 12, color: tts.speaking ? colors.red : colors.sub }}>
+              {tts.speaking ? '◼ Stop' : '▶ Play'}
+            </Text>
+          </TouchableOpacity>
+        )}
       </TouchableOpacity>
       {isUser && <Text style={s.roleLabel}>{t('chat.roleYou')}</Text>}
     </View>
@@ -354,6 +377,7 @@ export function ChatScreen() {
   const params = (route.params ?? {}) as ChatRouteParams;
   const { config, status: nodeStatus, loading: nodeLoading } = useNode();
   const { config: brain, save: saveBrain } = useAgentBrain();
+  const tts = useTTS();
 
   const agents = useOwnedAgents().filter(a => a.mode !== 'linked');
   const [selectedAgentId, setSelectedAgentId] = useState<string>(
@@ -808,7 +832,7 @@ export function ChatScreen() {
             ref={listRef}
             data={messages}
             keyExtractor={m => m.id}
-            renderItem={({ item }) => <Bubble msg={item} agentName={config.agentName || '01 Pilot'} />}
+            renderItem={({ item }) => <Bubble msg={item} agentName={config.agentName || '01 Pilot'} tts={tts} />}
             contentContainerStyle={s.listContent}
             keyboardDismissMode="on-drag"
             keyboardShouldPersistTaps="handled"
