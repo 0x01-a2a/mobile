@@ -202,6 +202,74 @@ function LaunchResultCard({ result }: { result: LaunchResult }) {
   );
 }
 
+// ── Podcast result detection ─────────────────────────────────────────────
+
+interface PodcastResult {
+  episode_id: string;
+  audio_url: string;
+  duration_secs: number;
+  title: string;
+}
+
+function tryParsePodcastResult(text: string): PodcastResult | null {
+  const idx = text.indexOf('"episode_id"');
+  if (idx === -1) return null;
+  for (let start = idx - 1; start >= 0; start--) {
+    if (text[start] !== '{') continue;
+    let depth = 0;
+    for (let end = start; end < text.length; end++) {
+      if (text[end] === '{') depth++;
+      else if (text[end] === '}') { depth--; if (depth === 0) {
+        try {
+          const obj = JSON.parse(text.slice(start, end + 1));
+          if (typeof obj.episode_id === 'string' && typeof obj.audio_url === 'string') return obj as PodcastResult;
+        } catch { /* keep searching */ }
+      }}
+    }
+  }
+  return null;
+}
+
+function PodcastResultCard({ result, player }: { result: PodcastResult; player: { playing: boolean; play: (uri: string) => Promise<void>; stop: () => Promise<void> } }) {
+  const { colors } = useTheme();
+  const mins = Math.floor(result.duration_secs / 60);
+  const secs = result.duration_secs % 60;
+
+  return (
+    <ChatActionCard
+      icon="🎙"
+      accentColor={colors.green}
+      title={result.title}
+      subtitle={`${mins}:${secs.toString().padStart(2, '0')} episode`}
+      buttons={[
+        {
+          label: player.playing ? '◼ Stop' : '▶ Play Episode',
+          onPress: () => player.playing ? player.stop() : player.play(result.audio_url),
+          variant: 'primary',
+        },
+        {
+          label: '↓ Save to Phone',
+          onPress: () => {
+            import('@react-native-camera-roll/camera-roll').then(({ CameraRoll }) => {
+              CameraRoll.saveAsset(result.audio_url, { type: 'auto' }).catch(() => {});
+            });
+          },
+          variant: 'secondary',
+        },
+        {
+          label: '↗ Share',
+          onPress: () => {
+            import('react-native').then(({ Share }) => {
+              Share.share({ message: `${result.title}\n${result.audio_url}` });
+            });
+          },
+          variant: 'ghost',
+        },
+      ]}
+    />
+  );
+}
+
 // ── MoltBook claim card ───────────────────────────────────────────────────
 
 function MoltbookClaimCard({
@@ -342,8 +410,9 @@ function Bubble({ msg, agentName, tts, player }: { msg: ChatMessage; agentName: 
   const isUser = msg.role === 'user';
   const hasAudio = !!msg.audioUri;
   const launchResult = !isUser ? tryParseLaunchResult(msg.text) : null;
-  const displayText = launchResult
-    ? msg.text.replace(/\{[^{}]*"token_mint"[^{}]*\}/, '').trim()
+  const podcastResult = !isUser ? tryParsePodcastResult(msg.text) : null;
+  const displayText = (launchResult || podcastResult)
+    ? msg.text.replace(/\{[^{}]*"(token_mint|episode_id)"[^{}]*\}/g, '').trim()
     : msg.text;
 
   const handleLongPress = useCallback(() => {
@@ -386,6 +455,7 @@ function Bubble({ msg, agentName, tts, player }: { msg: ChatMessage; agentName: 
           </Text>
         ) : null}
         {launchResult ? <LaunchResultCard result={launchResult} /> : null}
+        {podcastResult ? <PodcastResultCard result={podcastResult} player={player} /> : null}
       </TouchableOpacity>
       {isUser && <Text style={s.roleLabel}>{t('chat.roleYou')}</Text>}
     </View>
