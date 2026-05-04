@@ -29,6 +29,8 @@ import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
 import { useZeroclawChat, ChatMessage } from '../hooks/useZeroclawChat';
 import { useVoiceInput } from '../hooks/useVoiceInput';
 import { useTTS } from '../hooks/useTTS';
+import { useRecorder, usePlayer, generateTTSFile, formatDuration } from '../hooks/useAudioBubble';
+import { NodeModule } from '../native/NodeModule';
 import { useOwnedAgents, OwnedAgent } from '../hooks/useOwnedAgents';
 import { useBlobs } from '../hooks/useBlobs';
 import { sendEnvelope, setBagsApiKey } from '../hooks/useNodeApi';
@@ -276,7 +278,54 @@ function MoltbookClaimCard({
 
 // ── Message bubble ────────────────────────────────────────────────────────
 
-function Bubble({ msg, agentName, tts }: { msg: ChatMessage; agentName: string; tts: { speaking: boolean; speak: (t: string) => void; stop: () => void } }) {
+function VoiceBubble({ msg, player }: { msg: ChatMessage; player: { playing: boolean; currentMs: number; play: (uri: string) => Promise<void>; stop: () => Promise<void> } }) {
+  const { colors } = useTheme();
+  const isUser = msg.role === 'user';
+  const duration = formatDuration(msg.audioDurationMs ?? 0);
+
+  const handleTap = useCallback(() => {
+    if (player.playing) {
+      player.stop();
+    } else if (msg.audioUri) {
+      player.play(msg.audioUri);
+    }
+  }, [msg.audioUri, player]);
+
+  return (
+    <TouchableOpacity
+      onPress={handleTap}
+      activeOpacity={0.7}
+      style={{
+        flexDirection: 'row', alignItems: 'center', gap: 8,
+        paddingHorizontal: 12, paddingVertical: 10,
+        backgroundColor: isUser ? colors.text : colors.card,
+        borderRadius: 18, minWidth: 120,
+        borderWidth: isUser ? 0 : 1, borderColor: colors.border,
+      }}
+      accessibilityLabel={player.playing ? 'Stop playing voice message' : 'Play voice message'}
+      accessibilityRole="button"
+    >
+      <Text style={{ fontSize: 16, color: isUser ? colors.bg : colors.green }}>
+        {player.playing ? '◼' : '▶'}
+      </Text>
+      {/* Waveform placeholder — simple bars */}
+      <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 1.5, height: 20 }}>
+        {Array.from({ length: 16 }, (_, i) => (
+          <View key={i} style={{
+            width: 2.5, borderRadius: 1,
+            height: 6 + Math.sin(i * 0.8 + (msg.ts % 10)) * 8,
+            backgroundColor: isUser ? colors.bg + '80' : colors.sub + '60',
+          }} />
+        ))}
+      </View>
+      <Text style={{ fontSize: 11, color: isUser ? colors.bg + 'cc' : colors.sub }}>
+        {duration}
+      </Text>
+    </TouchableOpacity>
+  );
+}
+
+function Bubble({ msg, agentName, tts, player }: { msg: ChatMessage; agentName: string; tts: { speaking: boolean; speak: (t: string) => void; stop: () => void }; player: { playing: boolean; currentMs: number; play: (uri: string) => Promise<void>; stop: () => Promise<void> } }) {
   const { colors } = useTheme();
   const { isTablet } = useLayout();
   const { t } = useTranslation();
@@ -291,6 +340,7 @@ function Bubble({ msg, agentName, tts }: { msg: ChatMessage; agentName: string; 
   }
 
   const isUser = msg.role === 'user';
+  const hasAudio = !!msg.audioUri;
   const launchResult = !isUser ? tryParseLaunchResult(msg.text) : null;
   const displayText = launchResult
     ? msg.text.replace(/\{[^{}]*"token_mint"[^{}]*\}/, '').trim()
@@ -302,14 +352,18 @@ function Bubble({ msg, agentName, tts }: { msg: ChatMessage; agentName: string; 
     Alert.alert('Copied', undefined, [{ text: 'OK' }], { cancelable: true });
   }, [displayText]);
 
-  const handlePlayStop = useCallback(() => {
-    if (tts.speaking) {
-      tts.stop();
-    } else if (displayText) {
-      tts.speak(displayText);
-    }
-  }, [displayText, tts]);
+  // Voice bubble — show waveform-style audio player
+  if (hasAudio) {
+    return (
+      <View style={[s.bubbleRow, isUser ? s.rowRight : s.rowLeft]}>
+        {!isUser && <Text style={s.roleLabel}>{agentName}</Text>}
+        <VoiceBubble msg={msg} player={player} />
+        {isUser && <Text style={s.roleLabel}>{t('chat.roleYou')}</Text>}
+      </View>
+    );
+  }
 
+  // Text bubble (original)
   return (
     <View style={[s.bubbleRow, isUser ? s.rowRight : s.rowLeft]}>
       {!isUser && <Text style={s.roleLabel}>{agentName}</Text>}
@@ -332,20 +386,6 @@ function Bubble({ msg, agentName, tts }: { msg: ChatMessage; agentName: string; 
           </Text>
         ) : null}
         {launchResult ? <LaunchResultCard result={launchResult} /> : null}
-        {/* Play button — agent messages only, text must be non-empty */}
-        {!isUser && displayText.length > 10 && (
-          <TouchableOpacity
-            onPress={handlePlayStop}
-            style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6, paddingTop: 4, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }}
-            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-            accessibilityLabel={tts.speaking ? 'Stop playing' : 'Play message'}
-            accessibilityRole="button"
-          >
-            <Text style={{ fontSize: 12, color: tts.speaking ? colors.red : colors.sub }}>
-              {tts.speaking ? '◼ Stop' : '▶ Play'}
-            </Text>
-          </TouchableOpacity>
-        )}
       </TouchableOpacity>
       {isUser && <Text style={s.roleLabel}>{t('chat.roleYou')}</Text>}
     </View>
@@ -378,6 +418,8 @@ export function ChatScreen() {
   const { config, status: nodeStatus, loading: nodeLoading } = useNode();
   const { config: brain, save: saveBrain } = useAgentBrain();
   const tts = useTTS();
+  const audioRecorder = useRecorder();
+  const audioPlayer = usePlayer();
 
   const agents = useOwnedAgents().filter(a => a.mode !== 'linked');
   const [selectedAgentId, setSelectedAgentId] = useState<string>(
@@ -436,9 +478,10 @@ export function ChatScreen() {
   const [draft, setDraft] = useState('');
   const listRef = useRef<FlatList>(null);
 
-  // Voice input — OS native speech-to-text.
-  // Auto-sends when the user stops speaking (like a voice message).
+  // Voice input — records audio + STT simultaneously.
+  // On stop: sends as a voice bubble (audio file + transcribed text).
   const voicePendingSend = useRef(false);
+  const pendingAudioRef = useRef<{ uri: string; durationMs: number } | null>(null);
   const voice = useVoiceInput((text) => {
     if (text.trim()) {
       setDraft(text);
@@ -458,6 +501,56 @@ export function ChatScreen() {
       handleSendRef.current();
     }
   }, [voice.listening, draft]);
+
+  // Wrap voice.toggle to also start/stop audio recording.
+  const handleVoiceToggle = useCallback(async () => {
+    if (voice.listening) {
+      // Stop both STT and audio recording
+      const result = await audioRecorder.stop();
+      if (result) {
+        pendingAudioRef.current = result;
+      }
+      await voice.stop();
+    } else {
+      // Start both STT and audio recording
+      pendingAudioRef.current = null;
+      await audioRecorder.start();
+      await voice.start();
+    }
+  }, [voice, audioRecorder]);
+
+  // Voice message audio metadata — keyed by message ID.
+  // Populated after send (user recordings) and after agent response (TTS generation).
+  const [audioMap, setAudioMap] = useState<Map<string, { uri: string; durationMs: number }>>(new Map());
+  const bridgeTokenRef = useRef<string | null>(null);
+  useEffect(() => {
+    NodeModule.getLocalAuthConfig()
+      .then((auth: any) => { bridgeTokenRef.current = auth?.phoneBridgeToken ?? auth?.gatewayToken ?? null; })
+      .catch(() => {});
+  }, []);
+
+  // After send: attach recording to the last user message.
+  const prevMsgCount = useRef(messages.length);
+  useEffect(() => {
+    if (messages.length > prevMsgCount.current) {
+      const newest = messages[messages.length - 1];
+      // User message just sent with pending audio
+      if (newest.role === 'user' && pendingAudioRef.current) {
+        const audio = pendingAudioRef.current;
+        pendingAudioRef.current = null;
+        setAudioMap(prev => new Map(prev).set(newest.id, audio));
+      }
+      // Agent response just arrived — generate TTS audio.
+      if (newest.role === 'assistant' && newest.text.length > 10) {
+        generateTTSFile(newest.text, bridgeTokenRef.current).then(result => {
+          if (result) {
+            setAudioMap(prev => new Map(prev).set(newest.id, result));
+          }
+        });
+      }
+    }
+    prevMsgCount.current = messages.length;
+  }, [messages]);
 
   // Pending image attachment (picked but not yet sent)
   const [pendingImage, setPendingImage] = useState<{ uri: string; base64: string; mime: string } | null>(null);
@@ -832,7 +925,11 @@ export function ChatScreen() {
             ref={listRef}
             data={messages}
             keyExtractor={m => m.id}
-            renderItem={({ item }) => <Bubble msg={item} agentName={config.agentName || '01 Pilot'} tts={tts} />}
+            renderItem={({ item }) => {
+              const audio = audioMap.get(item.id);
+              const enriched = audio ? { ...item, audioUri: audio.uri, audioDurationMs: audio.durationMs } : item;
+              return <Bubble msg={enriched} agentName={config.agentName || '01 Pilot'} tts={tts} player={audioPlayer} />;
+            }}
             contentContainerStyle={s.listContent}
             keyboardDismissMode="on-drag"
             keyboardShouldPersistTaps="handled"
@@ -971,7 +1068,7 @@ export function ChatScreen() {
               ) : voice.available ? (
               <TouchableOpacity
                 style={[s.sendBtn, voice.listening && { backgroundColor: colors.red }]}
-                onPress={voice.toggle}
+                onPress={handleVoiceToggle}
                 disabled={loading || nodeLoading}
                 accessibilityLabel={voice.listening ? 'Stop voice input' : 'Start voice input'}
                 accessibilityRole="button"

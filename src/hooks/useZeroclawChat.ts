@@ -35,6 +35,8 @@ export interface ChatMessage {
   ts: number;
   imageUri?: string;  // local file URI for display thumbnail
   imageCid?: string;  // blob store CID (hex)
+  audioUri?: string;  // local file URI for voice bubble playback
+  audioDurationMs?: number; // duration of the voice message in milliseconds
 }
 
 export interface UseZeroclawChatResult {
