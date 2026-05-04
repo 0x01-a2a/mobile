@@ -797,6 +797,8 @@ export function ChatScreen() {
             keyExtractor={m => m.id}
             renderItem={({ item }) => <Bubble msg={item} agentName={config.agentName || '01 Pilot'} />}
             contentContainerStyle={s.listContent}
+            keyboardDismissMode="on-drag"
+            keyboardShouldPersistTaps="handled"
             onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
             ListHeaderComponent={brain?.moltbookPendingClaim ? (
               <MoltbookClaimCard
