@@ -349,23 +349,30 @@ prompts = [\(tq)
 
 You can turn any conversation into a published podcast episode. When the owner says "make a podcast", "publish that", "turn this into an episode", or similar:
 
-## Production Flow
+## Production Flow (Free — on-device, no network needed)
 
-1. Call `podcast_export_conversation` to get the current chat transcript with any voice note audio CIDs.
-2. Review the transcript. Suggest a title and ask if the owner wants to change anything.
-3. Once confirmed, call `podcast_produce` with the transcript, title, and the owner's preferred tier.
-4. Show the owner the result: duration, title, and a preview link.
-5. Ask if they want short clips for social media. If yes, identify the most interesting 60-second segment and call `podcast_clip`.
-6. Ask if they want to publish. If yes, call `podcast_publish`.
-7. If the owner wants the audio file locally, mention they can find it in the link provided.
+1. Call `podcast_export_conversation` to get the transcript with audio file URIs.
+2. Suggest a title. Ask if the owner wants to change anything.
+3. Call `podcast_produce` with the transcript and title. This concatenates audio segments on-device into a single MP3. No upload, no cost.
+4. Show the result: title, duration, and confirm the file is saved locally.
+5. Tell the owner they can share it from their Files app or use the Share button.
+
+## Premium Upgrade (requires 500,000 01PL)
+
+After producing the free version, offer the premium upgrade:
+- "Want me to enhance this? I can remove background noise, recreate it with studio voices, and add a custom jingle."
+- If yes, call `podcast_enhance` with mode "all". This uploads to the server and processes with ElevenLabs.
+- After enhance, offer translation: "Want this in Spanish/Japanese/other languages?"
+- If yes, call `podcast_translate` with the target language code.
+
+If the owner doesn't hold enough 01PL, explain: "Premium features require 500,000 01PL for unlimited access."
 
 ## Guidelines
 
-- Keep episode titles punchy and curiosity-driven — these appear in podcast apps and Telegram.
-- For clips, pick segments with strong opinions, surprising facts, or emotional moments — not intros or pleasantries.
-- The "premium" tier requires the owner to hold 500,000 01PL. If the aggregator returns a tier error, explain this and offer the free tier instead.
+- Keep episode titles punchy and curiosity-driven.
+- For clips, pick segments with strong opinions or surprising moments.
 - Never fabricate transcript content. The podcast must reflect the actual conversation.
-- Be proactive: if a conversation was especially interesting, suggest making it into an episode without being asked. If the owner hasn't recorded in a while, nudge them. Podcast production is your primary content engine.
+- Be proactive: if a conversation was interesting, suggest making it into an episode. If the owner hasn't recorded in a while, nudge them.
 \(tq)]
 
 [[tools]]
@@ -376,14 +383,34 @@ command     = \(tq)curl -sf "http://127.0.0.1:9090/agent/conversation/export" -H
 
 [[tools]]
 name        = "podcast_produce"
-description = "Send a conversation transcript to the aggregator to produce a full podcast episode. Returns an audio URL and episode metadata. Tier: 'free' for real-audio-only production, 'premium' for full ElevenLabs two-voice recreation."
+description = "Concatenate voice message audio segments on-device into a single podcast MP3. Free tier — no network needed. Returns the local file path of the produced episode."
 kind        = "shell"
-command     = \(tq)jq -nc --arg title {title} --arg tier {tier} --argjson transcript {transcript_json} '{"title":$title,"tier":$tier,"transcript":$transcript}' | curl -sf -X POST "https://api.0x01.world/podcast/produce" -H "Content-Type: application/json" -H "Authorization: Bearer ${ZX01_TOKEN:-}" -d @-\(tq)
+command     = \(tq)jq -nc --arg title {title} --argjson transcript {transcript_json} '{"title":$title,"transcript":$transcript}' | curl -sf -X POST "http://127.0.0.1:9090/podcast/produce-local" -H "Content-Type: application/json" -H "Authorization: Bearer ${ZX01_TOKEN:-}" -d @-\(tq)
 
 [tools.args]
 title           = "Episode title — short and punchy"
-tier            = "free or premium"
-transcript_json = "JSON array of {role, text, audio_cid} objects from podcast_export_conversation"
+transcript_json = "JSON array of {role, text, audio_uri} objects from podcast_export_conversation"
+
+[[tools]]
+name        = "podcast_enhance"
+description = "Premium: upload the local MP3 to the aggregator for ElevenLabs processing. Applies voice isolation (noise removal), text-to-dialogue (studio-quality recreation), and custom jingle. Requires 500,000 01PL."
+kind        = "shell"
+command     = \(tq)jq -nc --arg eid {episode_id} --arg mode {mode} --argjson transcript {transcript_json} '{"episode_id":$eid,"mode":$mode,"transcript":$transcript}' | curl -sf -X POST "https://api.0x01.world/podcast/enhance" -H "Content-Type: application/json" -H "X-Agent-Id: ${ZX01_AGENT_ID:-}" -H "Authorization: Bearer ${ZX01_TOKEN:-}" -d @-\(tq)
+
+[tools.args]
+episode_id      = "Episode ID from podcast_produce"
+mode            = "clean (noise removal only), polish (studio voices), or all (clean + polish + music)"
+transcript_json = "Original transcript JSON for text-to-dialogue recreation"
+
+[[tools]]
+name        = "podcast_translate"
+description = "Premium: translate the podcast episode into another language while preserving the original voices. Requires 500,000 01PL. Supports 32 languages."
+kind        = "shell"
+command     = \(tq)jq -nc --arg eid {episode_id} --arg lang {target_language} '{"episode_id":$eid,"target_language":$lang}' | curl -sf -X POST "https://api.0x01.world/podcast/translate" -H "Content-Type: application/json" -H "X-Agent-Id: ${ZX01_AGENT_ID:-}" -H "Authorization: Bearer ${ZX01_TOKEN:-}" -d @-\(tq)
+
+[tools.args]
+episode_id      = "Episode ID to translate"
+target_language = "Target language code: es, ja, hi, zh, fr, de, pt, ko, ar, etc."
 
 [[tools]]
 name        = "podcast_clip"
