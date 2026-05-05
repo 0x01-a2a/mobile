@@ -57,5 +57,14 @@ content = content.replace(
   '// removed: com.android.support conflicts with AndroidX',
 );
 
+// Remove buildscript block (has old AGP 3.3.2 — project-level handles this)
+content = content.replace(/buildscript\s*\{[\s\S]*?^\}/m, '');
+
+// Remove allprojects block (empty, unnecessary)
+content = content.replace(/allprojects\s*\{[\s\S]*?^\}/m, '');
+
+// Fix minSdkVersion (RN 0.84 requires 21+)
+content = content.replace(/minSdkVersion\s+\d+/g, 'minSdkVersion 21');
+
 fs.writeFileSync(buildGradle, content, 'utf8');
 console.log('[postinstall] Patched @react-native-voice/voice build.gradle for Gradle 8+ / AGP');
