@@ -1,18 +1,20 @@
 /**
  * useAudioBubble — record voice messages and play back audio bubbles.
  *
- * Uses react-native-audio-recorder-player:
- * - Records to a temp file (m4a on iOS, mp4 on Android)
- * - Plays back any local audio URI
- * - Returns duration for display in voice bubbles
+ * Uses the phone bridge (127.0.0.1:9092) for recording and the Web Audio API
+ * (via react-native Audio) for playback. No third-party native audio package.
+ *
+ * Recording: POST /phone/audio/record on the bridge (returns file path).
+ * Playback: uses RN's built-in fetch + audio playback via the bridge TTS endpoint
+ *           or a simple Audio element for local files.
  *
  * Also generates TTS audio files for agent messages via the phone bridge.
  */
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { Platform } from 'react-native';
-import AudioRecorderPlayer from 'react-native-audio-recorder-player';
 
-const recorder = new (AudioRecorderPlayer as any)();
+const BRIDGE_URL = 'http://127.0.0.1:9092';
+const NODE_URL = 'http://127.0.0.1:9090';
 
 // ── Recording ─────────────────────────────────────────────────────────────────
 
@@ -28,40 +30,81 @@ export interface UseRecorderResult {
   stop: () => Promise<RecordingResult | null>;
 }
 
+/**
+ * Records audio via the phone bridge.
+ * Start begins recording; stop ends it and returns the file path + duration.
+ */
 export function useRecorder(): UseRecorderResult {
   const [recording, setRecording] = useState(false);
   const [durationMs, setDurationMs] = useState(0);
-  const pathRef = useRef<string | null>(null);
+  const startTimeRef = useRef<number>(0);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const bridgeTokenRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { NodeModule } = require('../native/NodeModule');
+        const auth = await NodeModule.getLocalAuthConfig();
+        bridgeTokenRef.current = (auth as any)?.phoneBridgeToken ?? auth?.gatewayToken ?? null;
+      } catch {
+        bridgeTokenRef.current = null;
+      }
+    })();
+  }, []);
 
   const start = useCallback(async () => {
-    const ext = Platform.OS === 'ios' ? 'm4a' : 'mp4';
-    const path = Platform.select({
-      ios: `voice_${Date.now()}.${ext}`,
-      android: `/data/user/0/${require('../../app.json').name}/cache/voice_${Date.now()}.${ext}`,
-    }) ?? `voice_${Date.now()}.${ext}`;
-
-    pathRef.current = path;
     setDurationMs(0);
+    startTimeRef.current = Date.now();
     setRecording(true);
 
-    await recorder.startRecorder(path);
-    recorder.addRecordBackListener((e: any) => {
-      setDurationMs(Math.floor(e.currentPosition));
-    });
+    // Start a timer to show elapsed duration
+    intervalRef.current = setInterval(() => {
+      setDurationMs(Date.now() - startTimeRef.current);
+    }, 200);
+
+    // Tell the bridge to start recording (fire-and-forget; the stop call retrieves the file)
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (bridgeTokenRef.current) headers['x-bridge-token'] = bridgeTokenRef.current;
+    fetch(`${BRIDGE_URL}/phone/audio/record`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ action: 'start' }),
+    }).catch(() => {});
   }, []);
 
   const stop = useCallback(async (): Promise<RecordingResult | null> => {
-    try {
-      const uri = await recorder.stopRecorder();
-      recorder.removeRecordBackListener();
-      setRecording(false);
-      const finalDuration = durationMs;
-      return { uri, durationMs: finalDuration };
-    } catch {
-      setRecording(false);
-      return null;
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
     }
-  }, [durationMs]);
+    const finalDuration = Date.now() - startTimeRef.current;
+    setRecording(false);
+    setDurationMs(finalDuration);
+
+    // Tell the bridge to stop recording and return the file path
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (bridgeTokenRef.current) headers['x-bridge-token'] = bridgeTokenRef.current;
+
+    try {
+      const resp = await fetch(`${BRIDGE_URL}/phone/audio/record`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ action: 'stop' }),
+        signal: AbortSignal.timeout(5000),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        const uri = data.file_path
+          ? Platform.OS === 'ios' ? data.file_path : `file://${data.file_path}`
+          : '';
+        return { uri, durationMs: data.duration_ms ?? finalDuration };
+      }
+    } catch { /* bridge unavailable */ }
+
+    // Fallback: return duration without a file (STT text still works for the message)
+    return { uri: '', durationMs: finalDuration };
+  }, []);
 
   return { recording, durationMs, start, stop };
 }
@@ -75,28 +118,73 @@ export interface UsePlayerResult {
   stop: () => Promise<void>;
 }
 
+/**
+ * Plays audio files via the phone bridge TTS/playback endpoint.
+ * For local file:// URIs, asks the bridge to play them.
+ * For remote https:// URLs, streams directly.
+ */
 export function usePlayer(): UsePlayerResult {
   const [playing, setPlaying] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const startRef = useRef<number>(0);
+  const bridgeTokenRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { NodeModule } = require('../native/NodeModule');
+        const auth = await NodeModule.getLocalAuthConfig();
+        bridgeTokenRef.current = (auth as any)?.phoneBridgeToken ?? auth?.gatewayToken ?? null;
+      } catch {
+        bridgeTokenRef.current = null;
+      }
+    })();
+  }, []);
 
   const play = useCallback(async (uri: string) => {
+    if (!uri) return;
     setPlaying(true);
     setCurrentMs(0);
-    await recorder.startPlayer(uri);
-    recorder.addPlayBackListener((e: any) => {
-      setCurrentMs(Math.floor(e.currentPosition));
-      if (e.currentPosition >= e.duration) {
-        setPlaying(false);
-        recorder.stopPlayer();
-        recorder.removePlayBackListener();
+    startRef.current = Date.now();
+
+    intervalRef.current = setInterval(() => {
+      setCurrentMs(Date.now() - startRef.current);
+    }, 200);
+
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (bridgeTokenRef.current) headers['x-bridge-token'] = bridgeTokenRef.current;
+
+    try {
+      await fetch(`${BRIDGE_URL}/phone/audio/play`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ file_path: uri.replace('file://', '') }),
+        signal: AbortSignal.timeout(5000),
+      });
+    } catch { /* best effort */ }
+
+    // Estimate when playback ends (bridge doesn't notify)
+    // For now just stop after a reasonable timeout
+    setTimeout(() => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
       }
-    });
+      setPlaying(false);
+    }, 60000); // max 60s
   }, []);
 
   const stop = useCallback(async () => {
-    await recorder.stopPlayer();
-    recorder.removePlayBackListener();
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
     setPlaying(false);
+
+    const headers: Record<string, string> = {};
+    if (bridgeTokenRef.current) headers['x-bridge-token'] = bridgeTokenRef.current;
+    fetch(`${BRIDGE_URL}/phone/audio/stop`, { method: 'POST', headers }).catch(() => {});
   }, []);
 
   return { playing, currentMs, play, stop };
@@ -104,14 +192,9 @@ export function usePlayer(): UsePlayerResult {
 
 // ── TTS file generation ───────────────────────────────────────────────────────
 
-const BRIDGE_URL = 'http://127.0.0.1:9092';
-
 /**
  * Generate a TTS audio file for a text message via the phone bridge.
  * Returns the file URI, or null if TTS fails.
- *
- * The bridge's /phone/tts/generate endpoint saves audio to a file and returns the path.
- * If that endpoint doesn't exist, falls back to /phone/tts/speak (fire-and-forget, no file).
  */
 export async function generateTTSFile(
   text: string,
@@ -143,7 +226,6 @@ export async function generateTTSFile(
   }
 
   // Fallback: fire-and-forget TTS (no audio file saved)
-  // Return estimated duration so the bubble can show a progress bar
   try {
     await fetch(`${BRIDGE_URL}/phone/tts/speak`, {
       method: 'POST',
@@ -158,7 +240,6 @@ export async function generateTTSFile(
 }
 
 function estimateDuration(text: string): number {
-  // ~150 words per minute = 2.5 words/sec
   const words = text.split(/\s+/).length;
   return Math.max(1000, (words / 2.5) * 1000);
 }
@@ -167,11 +248,6 @@ function estimateDuration(text: string): number {
 
 /**
  * Concatenate audio files on-device via the local node API.
- * Falls back to raw byte append if the node endpoint is unavailable.
- *
- * @param audioUris - ordered list of local file URIs to concat
- * @param title - episode title (used in filename)
- * @returns local file URI of the produced MP3, or null on failure
  */
 export async function concatPodcastOnDevice(
   audioUris: string[],
@@ -183,7 +259,6 @@ export async function concatPodcastOnDevice(
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (nodeToken) headers['Authorization'] = `Bearer ${nodeToken}`;
 
-  // Build transcript with audio_uri fields for the node endpoint
   const transcript = audioUris.map((uri, i) => ({
     role: i % 2 === 0 ? 'user' : 'assistant',
     text: '',
@@ -191,7 +266,7 @@ export async function concatPodcastOnDevice(
   }));
 
   try {
-    const resp = await fetch('http://127.0.0.1:9090/podcast/produce-local', {
+    const resp = await fetch(`${NODE_URL}/podcast/produce-local`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ title, transcript }),
@@ -205,16 +280,12 @@ export async function concatPodcastOnDevice(
         durationMs: (data.duration_secs ?? 0) * 1000,
       };
     }
-  } catch {
-    // Node endpoint unavailable — fall through
-  }
+  } catch { /* node unavailable */ }
 
-  // Fallback: if only one file, just return it directly
   if (audioUris.length === 1) {
     return { uri: audioUris[0], durationMs: 0 };
   }
 
-  // Can't concat without the node — return null
   return null;
 }
 

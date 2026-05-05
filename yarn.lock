@@ -4435,11 +4435,6 @@ humanize-ms@^1.2.1:
   dependencies:
     ms "^2.0.0"
 
-hyochan-welcome@^1.0.0:
-  version "1.0.1"
-  resolved "https://registry.npmjs.org/hyochan-welcome/-/hyochan-welcome-1.0.1.tgz"
-  integrity sha512-WRZNH5grESkOXP/r7xc7TMhO9cUqxaJIuZcQDAjzHWs6viGP+sWtVbiBigxc9YVRrw3hnkESQWwzqg+oOga65A==
-
 i18next@^25.8.19, "i18next@>= 25.6.2":
   version "25.10.4"
   resolved "https://registry.npmjs.org/i18next/-/i18next-25.10.4.tgz"
@@ -6353,13 +6348,6 @@ react-is@^19.1.0, react-is@^19.2.3:
   version "19.2.4"
   resolved "https://registry.npmjs.org/react-is/-/react-is-19.2.4.tgz"
   integrity sha512-W+EWGn2v0ApPKgKKCy/7s7WHXkboGcsrXE+2joLyVxkbyVQfO3MUEaUQDHoSmb8TFFrSKYa9mw64WZHNHSDzYA==
-
-react-native-audio-recorder-player@^3.6.12:
-  version "3.6.12"
-  resolved "https://registry.npmjs.org/react-native-audio-recorder-player/-/react-native-audio-recorder-player-3.6.12.tgz"
-  integrity sha512-/pnZxPA2jvQ9K7oDtrjcAjc/hn124swi451Q/i1Z6yesDVqupE38moNm12HgY1IVupdUCjeiZVqPoShcE0N8mw==
-  dependencies:
-    hyochan-welcome "^1.0.0"
 
 react-native-get-random-values@^2.0.0:
   version "2.0.0"
