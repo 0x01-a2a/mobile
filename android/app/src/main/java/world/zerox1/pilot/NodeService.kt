@@ -1579,10 +1579,7 @@ kind        = "shell"
 command     = ${TOML_TQ}curl -sf "https://api.0x01.world/podcast/episodes?agent_id=${'$'}{ZX01_AGENT_ID:-}" -H "Authorization: Bearer ${'$'}{ZX01_TOKEN:-}" ${TOML_TQ}
 """.trimIndent()
 
-        val agentDisplayName = getSharedPreferences("zerox1", MODE_PRIVATE)
-            .getString("agent_name", null)?.takeIf { it.isNotBlank() } ?: "Agent"
-
-        val SOUL_MD = """
+        fun buildSoulMd(agentDisplayName: String) = """
 # Soul of the 01 Pilot Agent
 
 ## Who You Are
@@ -2901,7 +2898,9 @@ sqlite_path = "${escapeTOMLString(File(filesDir, "workspace/memory.db").absolute
         File(podcastSkillDir, "SKILL.toml").writeText(PODCAST_SKILL_TOML)
 
         // ── Agent soul / persona (injected at top of system prompt) ─────────
-        File(workspaceDir, "SOUL.md").writeText(SOUL_MD)
+        val agentDisplayName = getSharedPreferences("zerox1", MODE_PRIVATE)
+            .getString("agent_name", null)?.takeIf { it.isNotBlank() } ?: "Agent"
+        File(workspaceDir, "SOUL.md").writeText(buildSoulMd(agentDisplayName))
 
         Log.i(TAG, "Bundled skills written to ${skillsRoot.absolutePath}.")
     }
