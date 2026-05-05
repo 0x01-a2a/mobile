@@ -1019,7 +1019,6 @@ export function ChatScreen() {
                     { label: t('chat.suggestMessaging'),   prompts: [t('chat.suggestMessaging1'), t('chat.suggestMessaging2')] },
                     { label: t('chat.suggestLocation'),    prompts: [t('chat.suggestLocation1'), t('chat.suggestLocation2')] },
                     { label: t('chat.suggestVoice'),       prompts: [t('chat.suggestVoice1'), t('chat.suggestVoice2')] },
-                    { label: t('chat.suggestMesh'),        prompts: [t('chat.suggestMesh1'), t('chat.suggestMesh2')] },
                   ] as { label: string; prompts: string[] }[]).map(group => (
                     <View key={group.label} style={s.suggestionGroup}>
                       <Text style={s.suggestionGroupLabel}>{group.label}</Text>

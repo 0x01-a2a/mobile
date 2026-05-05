@@ -278,8 +278,8 @@ function WelcomeStep({
       <Heading label={t('onboarding.welcomeHeading1')} />
       <Text style={[s.heading, { color: C.green, marginTop: -8 }]}>{t('onboarding.welcomeHeading2')}</Text>
       <Sub>
-        01 Pilot runs an autonomous AI agent on your phone — accepting tasks,
-        building reputation, and settling payments on Solana while you sleep.
+        01 Pilot is your personal AI podcast companion. Talk to your agent,
+        turn conversations into episodes, and share them with the world.
       </Sub>
 
       <View style={s.featureList}>
@@ -658,7 +658,7 @@ function TokenChoiceStep({
           WHAT'S AN AGENT TOKEN?
         </Text>
         <Text style={{ fontSize: 12, color: C.text, lineHeight: 18 }}>
-          Requesters browse the mesh, find your agent, and <Text style={{ fontWeight: '600' }}>buy your token to hire you</Text>. Token price reflects your reputation and demand. Trading fees from every purchase go straight to your hot wallet.{gated ? ' Get a gift code from the 01 community.' : ' Free forever, sponsored by 01.'}
+          Listeners discover your podcast, support you by <Text style={{ fontWeight: '600' }}>buying your token</Text>. Trading fees from every purchase go straight to your hot wallet.{gated ? ' Get a gift code from the 01 community.' : ' Free forever, sponsored by 01.'}
         </Text>
       </View>
 
@@ -707,7 +707,7 @@ function TokenChoiceStep({
         {[
           { icon: '◈', title: 'We invest from day one', body: '01 makes an initial buy into every agent token at launch — seeding liquidity and taking a position alongside you. Your success is our success.' },
           { icon: '◎', title: gated ? 'Get a code' : 'Zero cost to launch', body: gated ? 'Ask in the 01 Discord or get a referral from an existing agent to receive a sponsored gift code.' : '01 covers all SOL gas fees. You pay nothing to launch.' },
-          { icon: '♦', title: 'Earn while you sleep', body: 'Requesters buy your token to hire your agent. Trading fees, task payments, and token appreciation flow straight to your wallet.' },
+          { icon: '♦', title: 'Earn from your content', body: 'Listeners and fans buy your token to support you. Trading fees from every purchase flow straight to your wallet.' },
         ].map(({ icon, title, body }) => (
           <View key={title} style={s.tokenCard}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
@@ -1112,7 +1112,7 @@ function LaunchSuccessStep({
           agent_id_hex: agentIdHex ?? '',
           name: displayName,
           symbol,
-          description: `${displayName} is an autonomous AI agent on the 01 mesh network. Hire me at 0x01.world.`,
+          description: `${displayName} is an AI-powered podcast companion on 01 Pilot. Listen at 0x01.world.`,
         };
         if (agentAvatar?.startsWith('data:')) {
           launchBody.image_b64 = agentAvatar.split(',')[1] ?? '';
@@ -1430,7 +1430,7 @@ function LaunchSuccessStep({
           <View style={[s.infoCard, { borderColor: C.green + '30', backgroundColor: C.green + '10' }]}>
             <Text style={s.infoCardLabel}>{t('onboarding.yourAgentToken')}</Text>
             <Text style={s.infoCardHint}>
-              Live on Bags.fm. Requesters buy it to hire you — trading fees go to your hot wallet.
+              Live on Bags.fm. Fans buy it to support you — trading fees go to your hot wallet.
             </Text>
             <Text style={s.monoText} selectable>{tokenMint}</Text>
             <TouchableOpacity
@@ -1446,7 +1446,7 @@ function LaunchSuccessStep({
                 const agentName = (launchBodyBaseRef.current.name as string) ?? 'my agent';
                 Linking.openURL(
                   `https://twitter.com/intent/tweet?text=${encodeURIComponent(
-                    `Just launched ${agentName} as an autonomous AI agent on the 01 mesh — buy my token to hire me on-chain.\n\nToken: ${tokenMint}\n\n@01pilot_kt\n#01Protocol #AIAgents`,
+                    `Just launched my AI podcast companion on 01 Pilot — support my content by buying my token.\n\nToken: ${tokenMint}\n\n@01pilot_kt\n#01Pilot #AIPodcast`,
                   )}`,
                 );
               }}
@@ -1497,7 +1497,7 @@ function LaunchSuccessStep({
             onPress={async () => {
               const agentName = (launchBodyBaseRef.current.name as string) ?? 'my agent';
               const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(
-                `Setting up my AI agent on the 01 mesh network — autonomous, on-chain, available for hire.\n\nGet early access @01pilot_kt\n#01Protocol #AIAgents`,
+                `Setting up my AI podcast companion on 01 Pilot — talk, create, share.\n\nGet early access @01pilot_kt\n#01Pilot #AIPodcast`,
               )}`;
               await Linking.openURL(twitterUrl);
               setSocialShared(true);
@@ -1618,7 +1618,7 @@ function LaunchSuccessStep({
         </Text>
       )}
       <PrimaryBtn
-        label="Enter the mesh →"
+        label="Start creating →"
         onPress={handleDone}
         disabled={isLoading || (!!secretKeyB58 && !keyCopied && phase === 'done')}
       />
