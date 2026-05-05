@@ -28,7 +28,7 @@
     "react": "19.2.3",
     "react-i18next": "^16.5.8",
     "react-native": "0.84.1",
-    "react-native-audio-recorder-player": "^4.5.0",
+    "react-native-audio-recorder-player": "^3.6.12",
     "react-native-get-random-values": "^2.0.0",
     "react-native-image-picker": "^7.2.3",
     "react-native-inappbrowser-reborn": "^3.7.1",
