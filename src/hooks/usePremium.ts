@@ -17,7 +17,7 @@ const MOONPAY_API_KEY = 'pk_live_01pilot_placeholder';
 
 // Operator USDC wallet that receives premium payments.
 // This is the wallet the aggregator checks for incoming transfers.
-const OPERATOR_USDC_WALLET = ''; // TODO: set your operator wallet address
+const OPERATOR_USDC_WALLET = 'qw4hzfV7UUXTrNh3hiS9Q8KSPMXWUusNoyFKLvtcMMX';
 
 const PREMIUM_AMOUNT_USD = 9.99;
 
