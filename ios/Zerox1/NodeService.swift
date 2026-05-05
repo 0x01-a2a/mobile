@@ -129,6 +129,26 @@ final class NodeService {
         try FileManager.default.createDirectory(at: personaDir, withIntermediateDirectories: true)
         try personaObserveSkillToml.write(to: personaDir.appendingPathComponent("SKILL.toml"),
                                            atomically: true, encoding: .utf8)
+
+        let bagsDir = skillsRoot.appendingPathComponent("bags", isDirectory: true)
+        try FileManager.default.createDirectory(at: bagsDir, withIntermediateDirectories: true)
+        try bagsSkillToml.write(to: bagsDir.appendingPathComponent("SKILL.toml"),
+                                atomically: true, encoding: .utf8)
+
+        let tradeDir = skillsRoot.appendingPathComponent("trade", isDirectory: true)
+        try FileManager.default.createDirectory(at: tradeDir, withIntermediateDirectories: true)
+        try tradeSkillToml.write(to: tradeDir.appendingPathComponent("SKILL.toml"),
+                                 atomically: true, encoding: .utf8)
+
+        let webDir = skillsRoot.appendingPathComponent("web", isDirectory: true)
+        try FileManager.default.createDirectory(at: webDir, withIntermediateDirectories: true)
+        try webSkillToml.write(to: webDir.appendingPathComponent("SKILL.toml"),
+                               atomically: true, encoding: .utf8)
+
+        let skillManagerDir = skillsRoot.appendingPathComponent("skill_manager", isDirectory: true)
+        try FileManager.default.createDirectory(at: skillManagerDir, withIntermediateDirectories: true)
+        try skillManagerSkillToml.write(to: skillManagerDir.appendingPathComponent("SKILL.toml"),
+                                        atomically: true, encoding: .utf8)
     }
 
     private var safetySkillToml: String {
@@ -590,6 +610,176 @@ name        = "observe_calendar_context"
 description = "Read calendar events to understand the owner's professional context and meeting patterns."
 kind        = "shell"
 command     = \(tq)curl -s "http://127.0.0.1:9092/phone/calendar?days=30" -H "x-bridge-token: ${ZX01_BRIDGE_TOKEN:-}" \(tq)
+"""
+    }
+
+    private var bagsSkillToml: String {
+        let tq = "\"\"\""
+        return """
+[skill]
+name        = "bags"
+version     = "1.0.0"
+description = "Bags.fm token management: launch tokens, buy, sell, claim fees, and check prices."
+author      = "0x01 World"
+tags        = ["bags", "token", "trade", "solana", "defi"]
+
+[[tools]]
+name        = "bags_check_price"
+description = "Check the current price of a Bags.fm token by mint address."
+kind        = "shell"
+command     = \(tq)curl -s "http://127.0.0.1:9090/bags/price?mint={mint}" -H "Authorization: Bearer ${ZX01_TOKEN:-}" \(tq)
+
+[tools.args]
+mint = "Token mint address"
+
+[[tools]]
+name        = "bags_buy"
+description = "Buy a Bags.fm token with SOL."
+kind        = "shell"
+command     = \(tq)curl -s -X POST "http://127.0.0.1:9090/bags/swap" -H "Content-Type: application/json" -H "Authorization: Bearer ${ZX01_TOKEN:-}" -d '{"action":"buy","token_mint":"{mint}","sol_amount":{amount}}' \(tq)
+
+[tools.args]
+mint   = "Token mint address"
+amount = "Amount of SOL to spend"
+
+[[tools]]
+name        = "bags_sell"
+description = "Sell a Bags.fm token for SOL."
+kind        = "shell"
+command     = \(tq)curl -s -X POST "http://127.0.0.1:9090/bags/swap" -H "Content-Type: application/json" -H "Authorization: Bearer ${ZX01_TOKEN:-}" -d '{"action":"sell","token_mint":"{mint}","token_amount":{amount}}' \(tq)
+
+[tools.args]
+mint   = "Token mint address"
+amount = "Amount of tokens to sell"
+
+[[tools]]
+name        = "bags_claimable"
+description = "Check claimable fee revenue from Bags.fm positions."
+kind        = "shell"
+command     = \(tq)curl -s "http://127.0.0.1:9090/bags/claimable" -H "Authorization: Bearer ${ZX01_TOKEN:-}" \(tq)
+
+[[tools]]
+name        = "bags_claim"
+description = "Claim accumulated fees for a Bags.fm token."
+kind        = "shell"
+command     = \(tq)curl -s -X POST "http://127.0.0.1:9090/bags/claim" -H "Content-Type: application/json" -H "Authorization: Bearer ${ZX01_TOKEN:-}" -d '{"token_mint":"{mint}"}' \(tq)
+
+[tools.args]
+mint = "Token mint address"
+"""
+    }
+
+    private var tradeSkillToml: String {
+        let tq = "\"\"\""
+        return """
+[skill]
+name        = "trade"
+version     = "1.0.0"
+description = "Jupiter-powered trading: swap tokens, check prices, search tokens, and manage limit orders."
+author      = "0x01 World"
+tags        = ["trade", "jupiter", "swap", "defi", "solana"]
+
+[[tools]]
+name        = "trade_swap"
+description = "Swap one token for another via Jupiter."
+kind        = "shell"
+command     = \(tq)curl -s -X POST "http://127.0.0.1:9090/trade/swap" -H "Content-Type: application/json" -H "Authorization: Bearer ${ZX01_TOKEN:-}" -d '{"inputMint":"{input}","outputMint":"{output}","amount":{amount}}' \(tq)
+
+[tools.args]
+input  = "Input token mint address"
+output = "Output token mint address"
+amount = "Amount in base units (lamports or token smallest unit)"
+
+[[tools]]
+name        = "trade_price"
+description = "Get the current price of a token in USD."
+kind        = "shell"
+command     = \(tq)curl -s "http://127.0.0.1:9090/trade/price?mint={mint}" -H "Authorization: Bearer ${ZX01_TOKEN:-}" \(tq)
+
+[tools.args]
+mint = "Token mint address"
+
+[[tools]]
+name        = "trade_search"
+description = "Search for tokens by name or ticker symbol."
+kind        = "shell"
+command     = \(tq)curl -s "http://127.0.0.1:9090/trade/search?q={query}" -H "Authorization: Bearer ${ZX01_TOKEN:-}" \(tq)
+
+[tools.args]
+query = "Token name or ticker to search"
+"""
+    }
+
+    private var webSkillToml: String {
+        let tq = "\"\"\""
+        return """
+[skill]
+name        = "web"
+version     = "1.0.0"
+description = "Web search and page fetch. No API key required."
+author      = "0x01 World"
+tags        = ["web", "search", "fetch", "browse", "research"]
+
+[[tools]]
+name        = "web_search"
+description = "Search the web and return results."
+kind        = "shell"
+command     = \(tq)curl -s "http://127.0.0.1:9090/web/search?q={query}" -H "Authorization: Bearer ${ZX01_TOKEN:-}" \(tq)
+
+[tools.args]
+query = "Search query"
+
+[[tools]]
+name        = "web_fetch"
+description = "Fetch and extract text content from a web page URL."
+kind        = "shell"
+command     = \(tq)curl -s "http://127.0.0.1:9090/web/fetch?url={url}" -H "Authorization: Bearer ${ZX01_TOKEN:-}" \(tq)
+
+[tools.args]
+url = "Full URL of the page to fetch"
+"""
+    }
+
+    private var skillManagerSkillToml: String {
+        let tq = "\"\"\""
+        return """
+[skill]
+name        = "skill_manager"
+version     = "1.0.0"
+description = "Install, remove, and reload skills dynamically at runtime."
+author      = "0x01 World"
+tags        = ["skill", "plugin", "install", "manage", "dynamic"]
+
+[[tools]]
+name        = "skill_list"
+description = "List all currently installed skills."
+kind        = "shell"
+command     = \(tq)curl -s "http://127.0.0.1:9090/skill/list" -H "Authorization: Bearer ${ZX01_TOKEN:-}" \(tq)
+
+[[tools]]
+name        = "skill_install_url"
+description = "Install a skill from a remote URL by providing a name and URL."
+kind        = "shell"
+command     = \(tq)curl -s -X POST "http://127.0.0.1:9090/skill/install-url" -H "Content-Type: application/json" -H "Authorization: Bearer ${ZX01_TOKEN:-}" -d '{"name":"{name}","url":"{url}"}' \(tq)
+
+[tools.args]
+name = "Skill name to install as"
+url  = "URL of the SKILL.toml or skill archive"
+
+[[tools]]
+name        = "skill_remove"
+description = "Remove an installed skill by name."
+kind        = "shell"
+command     = \(tq)curl -s -X POST "http://127.0.0.1:9090/skill/remove" -H "Content-Type: application/json" -H "Authorization: Bearer ${ZX01_TOKEN:-}" -d '{"name":"{name}"}' \(tq)
+
+[tools.args]
+name = "Skill name to remove"
+
+[[tools]]
+name        = "skill_reload"
+description = "Reload all skills from disk without restarting the agent."
+kind        = "shell"
+command     = \(tq)curl -s -X POST "http://127.0.0.1:9090/agent/reload" -H "Authorization: Bearer ${ZX01_TOKEN:-}" \(tq)
 """
     }
 
