@@ -42,5 +42,13 @@ content = content.replace(/targetSdkVersion\s+.*/g, 'targetSdkVersion 34');
 // Replace minSdkVersion if too low
 content = content.replace(/minSdkVersion\s+\d+/g, 'minSdkVersion 21');
 
+// Fix kotlin-stdlib dependency that references project.ext.kotlinVersion
+// (which no longer exists after removing buildscript block).
+// Replace with a version-less reference — Gradle will use the project-level Kotlin version.
+content = content.replace(
+  /implementation\s+"org\.jetbrains\.kotlin:kotlin-stdlib.*".*/g,
+  'implementation "org.jetbrains.kotlin:kotlin-stdlib"',
+);
+
 fs.writeFileSync(buildGradle, content, 'utf8');
 console.log('[postinstall] Patched react-native-audio-recorder-player build.gradle for Gradle 8+ / Kotlin 1.9+');
