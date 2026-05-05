@@ -110,8 +110,8 @@ jobs:
         run: chmod +x gradlew
         working-directory: android
 
-      # Strip debug symbols from the node binary — it ships unstripped from the
-      # Rust build. The other three .so files are already stripped at build time.
+      # Strip debug symbols from the node binary — built in the node repo CI
+      # and committed to jniLibs. The other .so files are already stripped.
       - name: Strip libzerox1_node.so
         run: |
           STRIP="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
