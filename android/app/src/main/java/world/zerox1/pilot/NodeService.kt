@@ -2819,10 +2819,10 @@ sqlite_path = "${escapeTOMLString(File(filesDir, "workspace/memory.db").absolute
         val skillsRoot = File(workspaceDir, "skills")
         skillsRoot.mkdirs()
 
-        // ── 0x01 mesh protocol skill ───────────────────────────────────────
-        val meshSkillDir = File(skillsRoot, "zerox1-mesh")
-        meshSkillDir.mkdirs()
-        File(meshSkillDir, "SKILL.toml").writeText(ZEROX1_MESH_SKILL_TOML)
+        // ── 0x01 mesh protocol skill (disabled for v1 — podcast-first) ────
+        // val meshSkillDir = File(skillsRoot, "zerox1-mesh")
+        // meshSkillDir.mkdirs()
+        // File(meshSkillDir, "SKILL.toml").writeText(ZEROX1_MESH_SKILL_TOML)
 
         // ── Bags token launch skill ─────────────────────────────────────────
         val bagsSkillDir = File(skillsRoot, "bags")

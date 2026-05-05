@@ -67,10 +67,6 @@ export default function TodayScreen() {
   const earnedToday = useMemo(() => sumEarnings(entries, true), [entries]);
   const earnedAllTime = useMemo(() => sumEarnings(entries, false), [entries]);
 
-  const recentJobs = useMemo(
-    () => entries.filter(e => e.outcome === 'success').slice(0, 10),
-    [entries],
-  );
 
   const centerStyle = contentMaxWidth
     ? { maxWidth: contentMaxWidth, alignSelf: 'center' as const, width: '100%' as const }
@@ -156,11 +152,11 @@ export default function TodayScreen() {
         </TouchableOpacity>
         <TouchableOpacity
           style={s.actionBtn}
-          onPress={() => navigation.navigate('Inbox')}
-          accessibilityLabel={t('nav.inbox')}
+          onPress={() => navigation.navigate('Chat', { initialMode: 'chat' })}
+          accessibilityLabel="Record podcast"
           accessibilityRole="button"
         >
-          <Text style={s.actionText}>◈ {t('nav.inbox')}</Text>
+          <Text style={s.actionText}>🎙 Podcast</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[s.actionBtn, s.actionBtnPrimary]}
@@ -175,49 +171,16 @@ export default function TodayScreen() {
       {/* Section divider */}
       <View style={s.sectionDivider} />
 
-      {/* Recent jobs */}
-      <View style={s.section}>
-        <Text style={s.sectionLabel}>{t('today.recentJobs')}</Text>
-        {loading && (
-          <View style={s.loadingContainer}>
-            <ActivityIndicator size="small" color={colors.green} />
-          </View>
-        )}
-        {!loading && recentJobs.length === 0 && (
-          <View style={s.emptyContainer}>
-            <Text style={s.emptyPrimary}>{t('today.noJobsYet')}</Text>
-            <Text style={s.emptySecondary}>{t('today.acceptBountiesHint')}</Text>
-            <TouchableOpacity style={s.emptyAction} onPress={() => navigation.navigate('Inbox')} accessibilityLabel={t('today.browseInbox')} accessibilityRole="button">
-              <Text style={s.emptyActionText}>{t('today.browseInbox')}</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-        {recentJobs.map((entry, i) => {
-          // Note: recentJobs is pre-filtered to outcome === 'success', so isActive
-          // will always be false here. The badge is preserved for forward-compat if
-          // the filter is relaxed, but it never shows in the current data set.
-          const isActive = entry.outcome !== 'success' && (entry.amount_usd ?? 0) === 0;
-          const isLast = i === recentJobs.length - 1;
-          return (
-            <View key={entry.id} style={[s.jobRow, !isLast && s.jobRowBorder]}>
-              <View>
-                <Text style={[s.jobTitle, isActive && s.jobTitleMuted]}>
-                  {entry.summary || 'Task'}
-                </Text>
-                <Text style={s.jobTime}>
-                  {isActive ? t('today.inProgress') : relativeTime(entry.timestamp)}
-                </Text>
-              </View>
-              {isActive ? (
-                <View style={s.workingBadge}>
-                  <Text style={s.workingBadgeText}>{t('today.working')}</Text>
-                </View>
-              ) : (
-                <Text style={s.jobAmount}>+{fmt(entry.amount_usd)}</Text>
-              )}
-            </View>
-          );
-        })}
+      {/* Agent Marketplace — coming soon */}
+      <View style={[s.section, { opacity: 0.4 }]}>
+        <Text style={s.sectionLabel}>AGENT MARKETPLACE</Text>
+        <View style={s.emptyContainer}>
+          <Text style={[s.emptyPrimary, { fontSize: 14 }]}>Coming Soon</Text>
+          <Text style={s.emptySecondary}>
+            Hire other agents and get hired for tasks on the 0x01 mesh.
+            Build your reputation through podcasts first.
+          </Text>
+        </View>
       </View>
 
       </View>

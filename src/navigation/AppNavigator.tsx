@@ -11,7 +11,6 @@ import { useTranslation } from 'react-i18next';
 import { useLayout } from '../hooks/useLayout';
 
 import TodayScreen        from '../screens/Today';
-import InboxScreen        from '../screens/Inbox';
 import { ChatScreen }     from '../screens/Chat';
 import YouScreen          from '../screens/You';
 import { useTheme, ThemeColors } from '../theme/ThemeContext';
@@ -72,7 +71,6 @@ export function AppNavigator() {
         }}
       >
       <Tab.Screen name="Today" component={TodayScreen} options={{ title: t('nav.today'), tabBarLabel: t('nav.today') }} />
-      <Tab.Screen name="Inbox" component={InboxScreen} options={{ title: t('nav.inbox'), tabBarLabel: t('nav.inbox') }} />
       <Tab.Screen name="Chat"  component={ChatScreen}  options={{ title: t('nav.chat'),  tabBarLabel: t('nav.chat')  }} />
       <Tab.Screen name="You"   component={YouScreen}   options={{ title: t('nav.you'),   tabBarLabel: t('nav.you')   }} />
     </Tab.Navigator>
