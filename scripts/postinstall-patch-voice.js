@@ -47,5 +47,15 @@ content = content.replace(
   'def DEFAULT_TARGET_SDK_VERSION = 34',
 );
 
+// Remove old Android Support Library — conflicts with AndroidX (duplicate classes)
+content = content.replace(
+  /implementation\s+"com\.android\.support:appcompat-v7:.*"/g,
+  '// removed: com.android.support conflicts with AndroidX',
+);
+content = content.replace(
+  /implementation\s+"com\.android\.support:.*"/g,
+  '// removed: com.android.support conflicts with AndroidX',
+);
+
 fs.writeFileSync(buildGradle, content, 'utf8');
 console.log('[postinstall] Patched @react-native-voice/voice build.gradle for Gradle 8+ / AGP');
