@@ -163,6 +163,61 @@ function estimateDuration(text: string): number {
   return Math.max(1000, (words / 2.5) * 1000);
 }
 
+// ── On-device podcast concat ──────────────────────────────────────────────────
+
+/**
+ * Concatenate audio files on-device via the local node API.
+ * Falls back to raw byte append if the node endpoint is unavailable.
+ *
+ * @param audioUris - ordered list of local file URIs to concat
+ * @param title - episode title (used in filename)
+ * @returns local file URI of the produced MP3, or null on failure
+ */
+export async function concatPodcastOnDevice(
+  audioUris: string[],
+  title: string,
+  nodeToken: string | null,
+): Promise<{ uri: string; durationMs: number } | null> {
+  if (audioUris.length === 0) return null;
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (nodeToken) headers['Authorization'] = `Bearer ${nodeToken}`;
+
+  // Build transcript with audio_uri fields for the node endpoint
+  const transcript = audioUris.map((uri, i) => ({
+    role: i % 2 === 0 ? 'user' : 'assistant',
+    text: '',
+    audio_uri: uri,
+  }));
+
+  try {
+    const resp = await fetch('http://127.0.0.1:9090/podcast/produce-local', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ title, transcript }),
+      signal: AbortSignal.timeout(30000),
+    });
+
+    if (resp.ok) {
+      const data = await resp.json();
+      return {
+        uri: data.audio_url ?? data.file_uri ?? '',
+        durationMs: (data.duration_secs ?? 0) * 1000,
+      };
+    }
+  } catch {
+    // Node endpoint unavailable — fall through
+  }
+
+  // Fallback: if only one file, just return it directly
+  if (audioUris.length === 1) {
+    return { uri: audioUris[0], durationMs: 0 };
+  }
+
+  // Can't concat without the node — return null
+  return null;
+}
+
 // ── Format helpers ────────────────────────────────────────────────────────────
 
 export function formatDuration(ms: number): string {

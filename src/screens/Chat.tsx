@@ -30,7 +30,7 @@ import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
 import { useZeroclawChat, ChatMessage } from '../hooks/useZeroclawChat';
 import { useVoiceInput } from '../hooks/useVoiceInput';
 import { useTTS } from '../hooks/useTTS';
-import { useRecorder, usePlayer, generateTTSFile, formatDuration } from '../hooks/useAudioBubble';
+import { useRecorder, usePlayer, generateTTSFile, formatDuration, concatPodcastOnDevice } from '../hooks/useAudioBubble';
 import { NodeModule } from '../native/NodeModule';
 import { useOwnedAgents, OwnedAgent } from '../hooks/useOwnedAgents';
 import { useBlobs } from '../hooks/useBlobs';
@@ -257,6 +257,92 @@ function PodcastResultCard({ result, player }: { result: PodcastResult; player: 
             );
           },
           variant: 'secondary',
+        },
+      ]}
+    />
+  );
+}
+
+// ── Podcast produce trigger detection ─────────────────────────────────────
+
+/** Detect if agent message is suggesting podcast production. */
+function isPodcastProduceTrigger(text: string): boolean {
+  const lower = text.toLowerCase();
+  return (
+    (lower.includes('produce') || lower.includes('make') || lower.includes('create')) &&
+    (lower.includes('podcast') || lower.includes('episode')) &&
+    !lower.includes('"episode_id"') // not an already-produced result
+  );
+}
+
+function ProducePodcastCard({
+  audioMap,
+  messages,
+  onProduced,
+}: {
+  audioMap: Map<string, { uri: string; durationMs: number }>;
+  messages: ChatMessage[];
+  onProduced: (result: { uri: string; durationMs: number; title: string }) => void;
+}) {
+  const { colors } = useTheme();
+  const [producing, setProducing] = useState(false);
+  const [title, setTitle] = useState('');
+
+  // Collect all audio URIs in order from the conversation
+  const audioUris = messages
+    .map(m => audioMap.get(m.id)?.uri)
+    .filter((uri): uri is string => !!uri && uri.length > 0);
+
+  const totalDurationMs = messages
+    .map(m => audioMap.get(m.id)?.durationMs ?? 0)
+    .reduce((a, b) => a + b, 0);
+
+  const handleProduce = async () => {
+    if (audioUris.length === 0) return;
+    setProducing(true);
+    try {
+      const auth = await NodeModule.getLocalAuthConfig();
+      const result = await concatPodcastOnDevice(
+        audioUris,
+        title || 'Untitled Episode',
+        auth?.nodeApiToken ?? null,
+      );
+      if (result && result.uri) {
+        onProduced({
+          uri: result.uri,
+          durationMs: result.durationMs || totalDurationMs,
+          title: title || 'Untitled Episode',
+        });
+      }
+    } catch { /* production failed */ }
+    setProducing(false);
+  };
+
+  if (audioUris.length === 0) {
+    return (
+      <ChatActionCard
+        icon="🎙"
+        accentColor={colors.sub}
+        title="No voice messages yet"
+        description="Record a voice conversation first, then produce your episode."
+        buttons={[]}
+      />
+    );
+  }
+
+  return (
+    <ChatActionCard
+      icon="🎙"
+      accentColor={colors.green}
+      title="Produce Episode"
+      subtitle={`${audioUris.length} voice segments · ${formatDuration(totalDurationMs)}`}
+      buttons={[
+        {
+          label: producing ? 'Producing...' : 'Produce MP3',
+          onPress: handleProduce,
+          loading: producing,
+          disabled: producing,
+          variant: 'primary',
         },
       ]}
     />
@@ -536,7 +622,7 @@ export function ChatScreen() {
   }, [params.agentId, agents, selectedAgentId]);
 
   // Session scoped by agentId + conversationId so each bounty has its own LLM context.
-  const { messages, loading, error, send, resetSession, prewarm } = useZeroclawChat(selectedAgentId, selectedConvId);
+  const { messages, loading, error, send, resetSession, injectSystemMessage, prewarm } = useZeroclawChat(selectedAgentId, selectedConvId);
   const { upload, uploading, error: uploadError } = useBlobs();
   const [draft, setDraft] = useState('');
   const listRef = useRef<FlatList>(null);
@@ -991,7 +1077,27 @@ export function ChatScreen() {
             renderItem={({ item }) => {
               const audio = audioMap.get(item.id);
               const enriched = audio ? { ...item, audioUri: audio.uri, audioDurationMs: audio.durationMs } : item;
-              return <Bubble msg={enriched} agentName={config.agentName || '01 Pilot'} tts={tts} player={audioPlayer} />;
+              const showProduceCard = item.role === 'assistant' && isPodcastProduceTrigger(item.text) && !tryParsePodcastResult(item.text);
+              return (
+                <>
+                  <Bubble msg={enriched} agentName={config.agentName || '01 Pilot'} tts={tts} player={audioPlayer} />
+                  {showProduceCard && (
+                    <ProducePodcastCard
+                      audioMap={audioMap}
+                      messages={messages}
+                      onProduced={(result) => {
+                        // Inject a podcast result message into the chat
+                        injectSystemMessage(JSON.stringify({
+                          episode_id: Date.now().toString(36),
+                          audio_url: result.uri,
+                          duration_secs: Math.floor(result.durationMs / 1000),
+                          title: result.title,
+                        }));
+                      }}
+                    />
+                  )}
+                </>
+              );
             }}
             contentContainerStyle={s.listContent}
             keyboardDismissMode="on-drag"
