@@ -6,7 +6,7 @@
     "android": "react-native run-android",
     "ios": "react-native run-ios",
     "lint": "eslint .",
-    "postinstall": "node scripts/postinstall-patch-hermes.js && node scripts/postinstall-patch-voice.js",
+    "postinstall": "node scripts/postinstall-patch-hermes.js && node scripts/postinstall-patch-voice.js && node scripts/postinstall-patch-audio-recorder.js",
     "start": "react-native start",
     "test": "jest",
     "release:patch": "npm version patch && git push --follow-tags",
