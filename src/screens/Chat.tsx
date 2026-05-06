@@ -245,13 +245,35 @@ function PodcastResultCard({ result, player }: { result: PodcastResult; player: 
   const handleMakeClip = useCallback(async () => {
     setClipping(true);
     try {
-      // Pick best 60s segment (or full episode if shorter)
+      // If audio is a local file, upload it to blob storage first
+      let episodeId = result.episode_id;
+      if (result.audio_url.startsWith('file://')) {
+        // Upload MP3 to aggregator blobs
+        const localPath = result.audio_url.replace('file://', '');
+        const uploadResp = await fetch('http://127.0.0.1:9090/podcast/upload-for-clip', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ file_path: localPath, episode_id: episodeId }),
+          signal: AbortSignal.timeout(30000),
+        });
+        if (!uploadResp.ok) {
+          // Fallback: share just the MP3 for manual video creation
+          Alert.alert(
+            'Video clips require premium',
+            'Upgrade to premium to generate TikTok-ready video clips with backgrounds and captions. For now, share the MP3 and add visuals in CapCut.',
+            [{ text: 'OK' }],
+          );
+          setClipping(false);
+          return;
+        }
+      }
+
       const clipDuration = Math.min(60, result.duration_secs);
       const resp = await fetch('https://api.0x01.world/podcast/clip', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Agent-Id': '' },
         body: JSON.stringify({
-          episode_id: result.episode_id,
+          episode_id: episodeId,
           start_secs: 0,
           end_secs: clipDuration,
           background: 'particles',
