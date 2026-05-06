@@ -2233,7 +2233,7 @@ include_system = "true to include system apps (default: false)"
                         writeAgentConfig(currentProvider, currentModel, currentBaseUrl, currentCaps, minFee, minRep, autoAccept, currentMaxActions, currentMaxCost)
                         // LOW-3: Skip launch if no LLM API key is configured (except for custom endpoints where key may be optional)
                         val apiKey = getLlmApiKey()
-                        if (apiKey.isNullOrEmpty() && currentProvider != "custom") {
+                        if (apiKey.isNullOrEmpty() && currentProvider != "custom" && currentProvider != "default") {
                             Log.w(TAG, "Skipping zeroclaw launch: no LLM API key configured")
                             break
                         }
