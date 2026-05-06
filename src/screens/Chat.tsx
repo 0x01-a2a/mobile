@@ -233,6 +233,10 @@ function tryParsePodcastResult(text: string): PodcastResult | null {
 
 function PodcastResultCard({ result, player }: { result: PodcastResult; player: { playing: boolean; play: (uri: string) => Promise<void>; stop: () => Promise<void> } }) {
   const { colors } = useTheme();
+  const { config: brain } = useAgentBrain();
+  const { config: nodeConfig } = useNode();
+  const agentName = nodeConfig?.agentName;
+  const tokenAddress = brain?.tokenAddress;
   const [clipping, setClipping] = useState(false);
   const [clipUrl, setClipUrl] = useState<string | null>(null);
   const mins = Math.floor(result.duration_secs / 60);
@@ -281,9 +285,10 @@ function PodcastResultCard({ result, player }: { result: PodcastResult; player: 
         {
           label: '↗ Share MP3',
           onPress: () => {
+            const caption = `${result.title}\n\nMade with 01 Pilot${tokenAddress ? `\nToken: ${tokenAddress}` : ''}\n\n#01Pilot #AIPodcast`;
             Share.share(Platform.OS === 'ios'
-              ? { url: result.audio_url }
-              : { message: result.audio_url }
+              ? { url: result.audio_url, message: caption }
+              : { message: `${caption}\n${result.audio_url}` }
             );
           },
           variant: 'secondary',
@@ -291,9 +296,10 @@ function PodcastResultCard({ result, player }: { result: PodcastResult; player: 
         ...(clipUrl ? [{
           label: '↗ Share TikTok Video',
           onPress: () => {
+            const caption = `${result.title}${agentName ? ` by ${agentName}` : ''}\n\nMade with 01 Pilot — talk to your AI, make a podcast${tokenAddress ? `\n\nSupport: ${tokenAddress}` : ''}\n\n#01Pilot #AIPodcast #podcast`;
             Share.share(Platform.OS === 'ios'
-              ? { url: clipUrl }
-              : { message: clipUrl }
+              ? { url: clipUrl, message: caption }
+              : { message: `${caption}\n${clipUrl}` }
             );
           },
           variant: 'secondary' as const,
