@@ -289,6 +289,46 @@ export async function concatPodcastOnDevice(
   return null;
 }
 
+// ── SRT caption generation ────────────────────────────────────────────────────
+
+/**
+ * Generate an SRT subtitle file from chat messages.
+ * Each message becomes a caption block timed by estimated duration.
+ */
+export function generateSRT(
+  messages: { role: string; text: string; durationMs?: number }[],
+): string {
+  let srt = '';
+  let index = 1;
+  let offsetMs = 0;
+
+  for (const msg of messages) {
+    const text = msg.text?.trim();
+    if (!text) continue;
+    const dur = msg.durationMs ?? estimateDuration(text);
+    const speaker = msg.role === 'user' ? 'Host' : 'Co-host';
+    const startTs = formatSRTTime(offsetMs);
+    const endTs = formatSRTTime(offsetMs + dur);
+
+    srt += `${index}\n${startTs} --> ${endTs}\n[${speaker}] ${text}\n\n`;
+    index++;
+    offsetMs += dur;
+  }
+
+  return srt;
+}
+
+function formatSRTTime(ms: number): string {
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  const s = Math.floor((ms % 60000) / 1000);
+  const ms_ = ms % 1000;
+  return `${pad2(h)}:${pad2(m)}:${pad2(s)},${pad3(ms_)}`;
+}
+
+function pad2(n: number): string { return n.toString().padStart(2, '0'); }
+function pad3(n: number): string { return n.toString().padStart(3, '0'); }
+
 // ── Format helpers ────────────────────────────────────────────────────────────
 
 export function formatDuration(ms: number): string {
