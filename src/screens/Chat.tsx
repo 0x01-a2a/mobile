@@ -233,8 +233,38 @@ function tryParsePodcastResult(text: string): PodcastResult | null {
 
 function PodcastResultCard({ result, player }: { result: PodcastResult; player: { playing: boolean; play: (uri: string) => Promise<void>; stop: () => Promise<void> } }) {
   const { colors } = useTheme();
+  const [clipping, setClipping] = useState(false);
+  const [clipUrl, setClipUrl] = useState<string | null>(null);
   const mins = Math.floor(result.duration_secs / 60);
   const secs = result.duration_secs % 60;
+
+  const handleMakeClip = useCallback(async () => {
+    setClipping(true);
+    try {
+      // Pick best 60s segment (or full episode if shorter)
+      const clipDuration = Math.min(60, result.duration_secs);
+      const resp = await fetch('https://api.0x01.world/podcast/clip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Agent-Id': '' },
+        body: JSON.stringify({
+          episode_id: result.episode_id,
+          start_secs: 0,
+          end_secs: clipDuration,
+          background: 'particles',
+        }),
+        signal: AbortSignal.timeout(60000),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        setClipUrl(data.clip_url);
+      } else {
+        Alert.alert('Clip failed', 'Could not generate video clip. Try again later.');
+      }
+    } catch {
+      Alert.alert('Clip failed', 'Network error. Check your connection.');
+    }
+    setClipping(false);
+  }, [result]);
 
   return (
     <ChatActionCard
@@ -258,6 +288,22 @@ function PodcastResultCard({ result, player }: { result: PodcastResult; player: 
           },
           variant: 'secondary',
         },
+        ...(clipUrl ? [{
+          label: '↗ Share TikTok Video',
+          onPress: () => {
+            Share.share(Platform.OS === 'ios'
+              ? { url: clipUrl }
+              : { message: clipUrl }
+            );
+          },
+          variant: 'secondary' as const,
+        }] : [{
+          label: clipping ? 'Generating video...' : '🎬 Make TikTok Clip',
+          onPress: handleMakeClip,
+          loading: clipping,
+          disabled: clipping,
+          variant: 'ghost' as const,
+        }]),
       ]}
     />
   );
