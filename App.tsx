@@ -24,7 +24,6 @@ import { useIdentity, useOwnReel, skillInstallUrl } from './src/hooks/useNodeApi
 // ── Deep link config for Agent Presence notification actions ──────────────────
 // zerox1://chat        → Chat tab (normal chat)
 // zerox1://chat?mode=brief → Chat tab with initialMode='brief'
-// zerox1://inbox       → Inbox tab
 // zerox1://today       → Today tab
 const DEEP_LINKING = {
   prefixes: ['zerox1://'],
@@ -32,9 +31,6 @@ const DEEP_LINKING = {
     screens: {
       Today: {
         path: 'today',
-      },
-      Inbox: {
-        path: 'inbox',
       },
       Chat: {
         path: 'chat',
