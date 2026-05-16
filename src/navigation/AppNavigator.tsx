@@ -1,7 +1,7 @@
 /**
  * AppNavigator — bottom tab navigation for the 0x01 node app.
  *
- * Tabs: Today | Inbox | Fleet | Chat | You
+ * Tabs: Today | Inbox | Fleet | Chat | You  (current as of v0.7.0)
  */
 import React from 'react';
 import { StyleSheet, Pressable, View } from 'react-native';

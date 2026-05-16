@@ -40,6 +40,7 @@ import { useAgentBrain } from '../hooks/useAgentBrain';
 import { ChatActionCard } from '../components/ChatActionCard';
 import { useLayout } from '../hooks/useLayout';
 import { useTranslation } from 'react-i18next';
+import { CameraRoll } from '@react-native-camera-roll/camera-roll';
 export interface BountyTask {
   description: string;
   reward: string;
@@ -265,6 +266,15 @@ function PodcastResultCard({ result, player }: { result: PodcastResult; player: 
       if (resp.ok) {
         const data = await resp.json();
         setClipUrl(data.clip_url);
+        // Auto-save clip to camera roll
+        if (data.clip_url) {
+          try {
+            await CameraRoll.saveAsset(data.clip_url, { type: 'video' });
+          } catch (e) {
+            // Non-fatal — clip was still generated, user can share manually
+            console.warn('clip: camera roll save failed', e);
+          }
+        }
       } else {
         Alert.alert('Clip failed', 'Could not generate video clip. Try again later.');
       }
