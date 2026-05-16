@@ -27,7 +27,7 @@ import {
   handleIncomingUrl,
 } from '../utils/phantomDeepLink';
 import { use01PLGate, PRESENCE_THRESHOLD, PILOT_TOKEN_MINT } from '../hooks/use01PLGate';
-import { useTheme, PILOT_ACCENT } from '../theme/ThemeContext';
+import { useTheme, PILOT_ACCENT, ThemeColors } from '../theme/ThemeContext';
 import { useLayout } from '../hooks/useLayout';
 import { useRegionGate } from '../hooks/useRegionGate';
 
@@ -60,6 +60,7 @@ function isToday(tsSeconds: number): boolean {
 export default function YouScreen() {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
+  const s = makeStyles(colors);
   const { brainAvailable } = useRegionGate();
   const availableTabs = brainAvailable
     ? (['Wallet', 'Brain', 'Advanced'] as SubTab[])
@@ -110,6 +111,8 @@ export default function YouScreen() {
 
 function WalletTab() {
   const { t } = useTranslation();
+  const { colors } = useTheme();
+  const s = makeStyles(colors);
   const { tokens, solanaAddress, loading } = useHotKeyBalance();
   useHotWalletRegistration();
   const identity = useIdentity();
@@ -457,7 +460,8 @@ function WalletTab() {
 // ── Pilot Mode Row (inside Android PresenceCard) ───────────────────────────────
 
 function PilotModeRow() {
-  const { pilotMode, setPilotMode } = useTheme();
+  const { pilotMode, setPilotMode, colors } = useTheme();
+  const s = makeStyles(colors);
   return (
     <View style={s.pilotModeRow}>
       <View style={{ flex: 1 }}>
@@ -486,7 +490,8 @@ function PilotModeCard({
   onLinkWallet: () => void;
 }) {
   const { eligible, balance, loading, error, refresh } = use01PLGate([hotWallet, coldWallet]);
-  const { pilotMode, setPilotMode } = useTheme();
+  const { pilotMode, setPilotMode, colors } = useTheme();
+  const s = makeStyles(colors);
 
   const fmtBalance = (n: number) =>
     n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M`
@@ -593,6 +598,7 @@ function PresenceCard({
 }) {
   const { t } = useTranslation();
   const { colors } = useTheme();
+  const s = makeStyles(colors);
   const { eligible, balance, loading, error, refresh } = use01PLGate([hotWallet, coldWallet]);
   const [presenceEnabled, setPresenceEnabled] = useState(false);
   const [hasOverlay, setHasOverlay] = useState(false);
@@ -793,6 +799,7 @@ const CAPABILITY_DESCRIPTIONS: Record<Capability, string> = {
 function BrainTab() {
   const { t } = useTranslation();
   const { colors } = useTheme();
+  const s = makeStyles(colors);
   const { status, config: nodeConfig, saveConfig, stop, start } = useNode();
   const { config, save, loading } = useAgentBrain();
   const isRunning = status === 'running';
@@ -988,6 +995,8 @@ function BrainTab() {
 
 function SkillsSection() {
   const { t } = useTranslation();
+  const { colors } = useTheme();
+  const s = makeStyles(colors);
   const { skills, loading, refresh } = useSkills();
   const { listings, loading: marketplaceLoading } = useSkillMarketplace();
   const [marketplaceVisible, setMarketplaceVisible] = useState(false);
@@ -1248,6 +1257,7 @@ const SIGN_OUT_KEYS = [
 
 function PermissionsSection() {
   const { colors } = useTheme();
+  const s = makeStyles(colors);
   const [caps, setCaps] = useState<Record<string, boolean>>({});
   const [perms, setPerms] = useState<Record<string, boolean>>({});
 
@@ -1336,6 +1346,7 @@ function PermissionsSection() {
 function AdvancedTab() {
   const { t, i18n } = useTranslation();
   const { colors } = useTheme();
+  const s = makeStyles(colors);
   const currentLang = i18n.language;
   const signOut = useSignOut();
   const { config, saveConfig, autoStart, setAutoStart, backgroundNode, setBackgroundNode, status, stop, start } = useNode();
@@ -1723,6 +1734,8 @@ const CAP_GROUPS: CapDef[] = Platform.OS === 'ios' ? CAP_GROUPS_IOS : CAP_GROUPS
 
 function AboutSection() {
   const { t } = useTranslation();
+  const { colors } = useTheme();
+  const s = makeStyles(colors);
   const [checking, setChecking] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -1837,6 +1850,7 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
 }) {
   const { t } = useTranslation();
   const { colors } = useTheme();
+  const s = makeStyles(colors);
   const { config: brain, save: saveBrain } = useAgentBrain();
   const [relayAddr, setRelayAddr] = useState(config?.relayAddr ?? '');
   const [rpcUrl, setRpcUrl] = useState(config?.rpcUrl ?? '');
@@ -2487,230 +2501,232 @@ function AdvancedModal({ visible, onClose, config, applyAndRestart }: {
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#fff' },
-  header: { paddingHorizontal: 16, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
-  statusDot: { width: 7, height: 7, borderRadius: 3.5 },
-  title: { fontSize: 16, fontWeight: '700', color: '#111' },
-  segmented: { flexDirection: 'row', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 8, overflow: 'hidden' },
-  segment: { flex: 1, padding: 6, alignItems: 'center' },
-  segmentActive: { backgroundColor: '#111' },
-  segmentText: { fontSize: 10, color: '#6b7280' },
-  segmentTextActive: { color: '#fff', fontWeight: '600' },
+function makeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    root: { flex: 1, backgroundColor: colors.bg },
+    header: { paddingHorizontal: 16, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: colors.border },
+    titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+    statusDot: { width: 7, height: 7, borderRadius: 3.5 },
+    title: { fontSize: 16, fontWeight: '700', color: colors.text },
+    segmented: { flexDirection: 'row', borderWidth: 1, borderColor: colors.border, borderRadius: 8, overflow: 'hidden' },
+    segment: { flex: 1, padding: 6, alignItems: 'center' },
+    segmentActive: { backgroundColor: colors.text },
+    segmentText: { fontSize: 10, color: colors.sub },
+    segmentTextActive: { color: colors.bg, fontWeight: '600' },
 
-  tabContent: { flex: 1 },
+    tabContent: { flex: 1 },
 
-  // Node tab — Start/Stop button
-  startStopWrapper: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 4 },
-  startStopBtn: {
-    width: '100%',
-    height: 44,
-    borderRadius: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  startStopBtnStart: { backgroundColor: '#22c55e' },
-  startStopBtnStop: { backgroundColor: '#fef2f2', borderWidth: 1, borderColor: '#fca5a5' },
-  startStopBtnStarting: { backgroundColor: '#f3f4f6' },
-  startStopTextStart: { fontSize: 13, fontWeight: '700', color: '#fff', letterSpacing: 0.5 },
-  startStopTextStop: { fontSize: 13, fontWeight: '700', color: '#dc2626', letterSpacing: 0.5 },
-  startStopTextStarting: { fontSize: 13, fontWeight: '600', color: '#9ca3af' },
+    // Node tab — Start/Stop button
+    startStopWrapper: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 4 },
+    startStopBtn: {
+      width: '100%',
+      height: 44,
+      borderRadius: 10,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    startStopBtnStart: { backgroundColor: colors.green },
+    startStopBtnStop: { backgroundColor: colors.red + '18', borderWidth: 1, borderColor: colors.red + '60' },
+    startStopBtnStarting: { backgroundColor: colors.input },
+    startStopTextStart: { fontSize: 13, fontWeight: '700', color: colors.bg, letterSpacing: 0.5 },
+    startStopTextStop: { fontSize: 13, fontWeight: '700', color: colors.red, letterSpacing: 0.5 },
+    startStopTextStarting: { fontSize: 13, fontWeight: '600', color: colors.dim, letterSpacing: 0.5 },
 
-  nodeStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 },
-  nodeStatusDot: { width: 7, height: 7, borderRadius: 4 },
-  nodeStatusText: { fontSize: 10, color: '#6b7280' },
+    nodeStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 },
+    nodeStatusDot: { width: 7, height: 7, borderRadius: 4 },
+    nodeStatusText: { fontSize: 10, color: colors.sub },
 
-  hostedBadge: { fontSize: 9, color: '#6b7280', marginTop: 2 },
+    hostedBadge: { fontSize: 9, color: colors.sub, marginTop: 2 },
 
-  // Wallet
-  balanceHero: { alignItems: 'center', paddingTop: 24, paddingBottom: 16 },
-  balanceLabel: { fontSize: 10, color: '#9ca3af', letterSpacing: 0.5, marginBottom: 6 },
-  balanceAmount: { fontSize: 34, fontWeight: '700', color: '#111', letterSpacing: -1 },
-  balanceDelta: { fontSize: 10, color: '#22c55e', marginTop: 4 },
-  balanceEmpty: { fontSize: 11, color: '#9ca3af', marginTop: 6 },
+    // Wallet
+    balanceHero: { alignItems: 'center', paddingTop: 24, paddingBottom: 16 },
+    balanceLabel: { fontSize: 10, color: colors.dim, letterSpacing: 0.5, marginBottom: 6 },
+    balanceAmount: { fontSize: 34, fontWeight: '700', color: colors.text, letterSpacing: -1 },
+    balanceDelta: { fontSize: 10, color: colors.green, marginTop: 4 },
+    balanceEmpty: { fontSize: 11, color: colors.dim, marginTop: 6 },
 
-  addressCard: {
-    marginHorizontal: 16, backgroundColor: '#f9fafb',
-    borderRadius: 10, padding: 10, marginBottom: 12,
-  },
-  addressRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 5 },
-  addressDivider: { height: 1, backgroundColor: '#e5e7eb', marginVertical: 4 },
-  addressLabel: { fontSize: 10, color: '#6b7280', fontWeight: '600' },
-  addressValue: { fontSize: 9, color: '#374151', fontFamily: 'monospace' },
-  addressValueMuted: { fontSize: 9, color: '#9ca3af' },
-  greenDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#22c55e' },
-  amberDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#d97706' },
-  walletDescText: { fontSize: 11, color: '#9ca3af', marginTop: 2 },
+    addressCard: {
+      marginHorizontal: 16, backgroundColor: colors.card,
+      borderRadius: 10, padding: 10, marginBottom: 12,
+    },
+    addressRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 5 },
+    addressDivider: { height: 1, backgroundColor: colors.border, marginVertical: 4 },
+    addressLabel: { fontSize: 10, color: colors.sub, fontWeight: '600' },
+    addressValue: { fontSize: 9, color: colors.sub, fontFamily: 'monospace' },
+    addressValueMuted: { fontSize: 9, color: colors.dim },
+    greenDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.green },
+    amberDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.amber },
+    walletDescText: { fontSize: 11, color: colors.dim, marginTop: 2 },
 
-  walletActions: { flexDirection: 'row', gap: 6, paddingHorizontal: 16, marginBottom: 4 },
-  howItWorksCard: { marginHorizontal: 16, marginBottom: 12, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 10, padding: 12 },
-  howItWorksTitle: { fontSize: 9, color: '#94a3b8', letterSpacing: 0.5, marginBottom: 4 },
-  howItWorksBody: { fontSize: 12, color: '#475569', lineHeight: 18 },
-  sweepBtn: { flex: 1, backgroundColor: '#111', borderRadius: 9, padding: 10, alignItems: 'center' },
-  sweepBtnText: { fontSize: 11, color: '#fff', fontWeight: '600' },
-  historyBtn: { flex: 1, borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 9, padding: 10, alignItems: 'center' },
-  historyBtnText: { fontSize: 11, color: '#374151', fontWeight: '500' },
-  btnDisabled: { opacity: 0.4 },
+    walletActions: { flexDirection: 'row', gap: 6, paddingHorizontal: 16, marginBottom: 4 },
+    howItWorksCard: { marginHorizontal: 16, marginBottom: 12, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 10, padding: 12 },
+    howItWorksTitle: { fontSize: 9, color: colors.dim, letterSpacing: 0.5, marginBottom: 4 },
+    howItWorksBody: { fontSize: 12, color: colors.sub, lineHeight: 18 },
+    sweepBtn: { flex: 1, backgroundColor: colors.text, borderRadius: 9, padding: 10, alignItems: 'center' },
+    sweepBtnText: { fontSize: 11, color: colors.bg, fontWeight: '600' },
+    historyBtn: { flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: 9, padding: 10, alignItems: 'center' },
+    historyBtnText: { fontSize: 11, color: colors.sub, fontWeight: '500' },
+    btnDisabled: { opacity: 0.4 },
 
-  sectionLabel: { fontSize: 10, color: '#9ca3af', letterSpacing: 0.5, marginBottom: 8 },
-  emptyText: { fontSize: 14, color: '#9ca3af', textAlign: 'center', paddingVertical: 24, paddingHorizontal: 16 },
+    sectionLabel: { fontSize: 10, color: colors.dim, letterSpacing: 0.5, marginBottom: 8 },
+    emptyText: { fontSize: 14, color: colors.dim, textAlign: 'center', paddingVertical: 24, paddingHorizontal: 16 },
 
-  txRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 16 },
-  txRowBorder: { borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
-  txTitle: { fontSize: 11, color: '#111' },
-  txTime: { fontSize: 9, color: '#9ca3af', marginTop: 1 },
-  txAmountPos: { fontSize: 12, color: '#22c55e', fontWeight: '600' },
-  txAmountNeg: { fontSize: 12, color: '#6b7280', fontWeight: '600' },
+    txRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 16 },
+    txRowBorder: { borderBottomWidth: 1, borderBottomColor: colors.border },
+    txTitle: { fontSize: 11, color: colors.text },
+    txTime: { fontSize: 9, color: colors.dim, marginTop: 1 },
+    txAmountPos: { fontSize: 12, color: colors.green, fontWeight: '600' },
+    txAmountNeg: { fontSize: 12, color: colors.sub, fontWeight: '600' },
 
-  modalRoot: { flex: 1, backgroundColor: '#fff' },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
-  modalTitle: { fontSize: 16, fontWeight: '700', color: '#111' },
-  modalClose: { fontSize: 16, color: '#9ca3af' },
-  modalHandleBar: { width: 36, height: 4, borderRadius: 2, backgroundColor: '#e5e7eb', alignSelf: 'center', marginTop: 10, marginBottom: 4 },
+    modalRoot: { flex: 1, backgroundColor: colors.bg },
+    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: colors.border },
+    modalTitle: { fontSize: 16, fontWeight: '700', color: colors.text },
+    modalClose: { fontSize: 16, color: colors.dim },
+    modalHandleBar: { width: 36, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: 'center', marginTop: 10, marginBottom: 4 },
 
-  // Capability modal row
-  capModalRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12 },
+    // Capability modal row
+    capModalRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12 },
 
-  // Agent
-  agentIdentitySection: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, paddingBottom: 8 },
-  agentAvatarCircle: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#f0fdf4', borderWidth: 2, borderColor: '#bbf7d0', overflow: 'hidden' },
-  agentAvatarImage: { width: 56, height: 56 },
-  agentAvatarHint: { fontSize: 9, color: '#9ca3af', textAlign: 'center', marginTop: 3 },
-  agentIdentityInfo: { flex: 1 },
-  agentNameInput: { fontSize: 16, fontWeight: '700', color: '#111', padding: 0 },
-  agentBioInput: { fontSize: 12, color: '#374151', padding: 0, lineHeight: 18 },
-  agentStatusText: { fontSize: 10, color: '#22c55e' },
+    // Agent
+    agentIdentitySection: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, paddingBottom: 8 },
+    agentAvatarCircle: { width: 56, height: 56, borderRadius: 28, backgroundColor: colors.green + '18', borderWidth: 2, borderColor: colors.green + '50', overflow: 'hidden' },
+    agentAvatarImage: { width: 56, height: 56 },
+    agentAvatarHint: { fontSize: 9, color: colors.dim, textAlign: 'center', marginTop: 3 },
+    agentIdentityInfo: { flex: 1 },
+    agentNameInput: { fontSize: 16, fontWeight: '700', color: colors.text, padding: 0 },
+    agentBioInput: { fontSize: 12, color: colors.sub, padding: 0, lineHeight: 18 },
+    agentStatusText: { fontSize: 10, color: colors.green },
 
-  ruleRows: { paddingHorizontal: 16 },
-  ruleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12 },
-  ruleRowBorder: { borderTopWidth: 1, borderTopColor: '#f3f4f6' },
-  ruleLabel: { fontSize: 11, color: '#111', fontWeight: '500' },
-  ruleHint: { fontSize: 10, color: '#9ca3af', marginTop: 1 },
-  ruleInput: { fontSize: 13, fontWeight: '700', color: '#111', textAlign: 'right', minWidth: 60 },
-  ruleValue: { fontSize: 11, color: '#9ca3af' },
+    ruleRows: { paddingHorizontal: 16 },
+    ruleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12 },
+    ruleRowBorder: { borderTopWidth: 1, borderTopColor: colors.border },
+    ruleLabel: { fontSize: 11, color: colors.text, fontWeight: '500' },
+    ruleHint: { fontSize: 10, color: colors.dim, marginTop: 1 },
+    ruleInput: { fontSize: 13, fontWeight: '700', color: colors.text, textAlign: 'right', minWidth: 60 },
+    ruleValue: { fontSize: 11, color: colors.dim },
 
-  capPill: { backgroundColor: '#f3f4f6', borderRadius: 20, paddingHorizontal: 9, paddingVertical: 3 },
-  capPillText: { fontSize: 9, color: '#374151', fontWeight: '500' },
-  capPillAdd: { borderWidth: 1, borderStyle: 'dashed', borderColor: '#d1d5db', borderRadius: 20, paddingHorizontal: 9, paddingVertical: 3 },
-  capPillAddText: { fontSize: 9, color: '#9ca3af' },
-  walletOptionBtn: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 10, padding: 12 },
-  walletOptionLabel: { fontSize: 12, fontWeight: '600', color: '#111', marginBottom: 2 },
-  providerPill: { borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 5 },
-  providerPillActive: { backgroundColor: '#111', borderColor: '#111' },
-  providerPillText: { fontSize: 10, color: '#374151', fontWeight: '500' },
-  providerPillTextActive: { color: '#fff' },
+    capPill: { backgroundColor: colors.input, borderRadius: 20, paddingHorizontal: 9, paddingVertical: 3 },
+    capPillText: { fontSize: 9, color: colors.sub, fontWeight: '500' },
+    capPillAdd: { borderWidth: 1, borderStyle: 'dashed', borderColor: colors.border, borderRadius: 20, paddingHorizontal: 9, paddingVertical: 3 },
+    capPillAddText: { fontSize: 9, color: colors.dim },
+    walletOptionBtn: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderWidth: 1, borderColor: colors.border, borderRadius: 10, padding: 12 },
+    walletOptionLabel: { fontSize: 12, fontWeight: '600', color: colors.text, marginBottom: 2 },
+    providerPill: { borderWidth: 1, borderColor: colors.border, borderRadius: 6, paddingHorizontal: 10, paddingVertical: 5 },
+    providerPillActive: { backgroundColor: colors.text, borderColor: colors.text },
+    providerPillText: { fontSize: 10, color: colors.sub, fontWeight: '500' },
+    providerPillTextActive: { color: colors.bg },
 
-  // Settings / Advanced tab
-  settingsSectionLabel: { fontSize: 10, color: '#9ca3af', letterSpacing: 0.5, marginBottom: 6, marginTop: 18, paddingHorizontal: 16 },
-  settingsCard: { marginHorizontal: 16, backgroundColor: '#fff', borderWidth: 1, borderColor: '#f3f4f6', borderRadius: 12, paddingHorizontal: 14 },
-  settingsCardDivider: { height: 1, backgroundColor: '#f3f4f6' },
-  settingsRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12 },
-  settingsRowMuted: { opacity: 0.5 },
-  settingsLabel: { fontSize: 11, color: '#111', fontWeight: '500' },
-  settingsHint: { fontSize: 9, color: '#9ca3af', marginTop: 1 },
-  settingsLabelMuted: { fontSize: 11, color: '#9ca3af' },
-  settingsValue: { fontSize: 11, color: '#9ca3af' },
-  settingsValueMuted: { fontSize: 11, color: '#9ca3af' },
-  signOutText: { fontSize: 11, color: '#ef4444', fontWeight: '500' },
-  emergencyContactRow: { flexDirection: 'row', gap: 8, width: '100%', marginBottom: 6 },
-  emergencyContactName: { flex: 1, fontSize: 11, color: '#111', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 7, paddingHorizontal: 10, paddingVertical: 7 },
-  emergencyContactPhone: { flex: 1, fontSize: 11, color: '#111', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 7, paddingHorizontal: 10, paddingVertical: 7 },
+    // Settings / Advanced tab
+    settingsSectionLabel: { fontSize: 10, color: colors.dim, letterSpacing: 0.5, marginBottom: 6, marginTop: 18, paddingHorizontal: 16 },
+    settingsCard: { marginHorizontal: 16, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 12, paddingHorizontal: 14 },
+    settingsCardDivider: { height: 1, backgroundColor: colors.border },
+    settingsRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12 },
+    settingsRowMuted: { opacity: 0.5 },
+    settingsLabel: { fontSize: 11, color: colors.text, fontWeight: '500' },
+    settingsHint: { fontSize: 9, color: colors.dim, marginTop: 1 },
+    settingsLabelMuted: { fontSize: 11, color: colors.dim },
+    settingsValue: { fontSize: 11, color: colors.dim },
+    settingsValueMuted: { fontSize: 11, color: colors.dim },
+    signOutText: { fontSize: 11, color: colors.red, fontWeight: '500' },
+    emergencyContactRow: { flexDirection: 'row', gap: 8, width: '100%', marginBottom: 6 },
+    emergencyContactName: { flex: 1, fontSize: 11, color: colors.text, borderWidth: 1, borderColor: colors.border, borderRadius: 7, paddingHorizontal: 10, paddingVertical: 7 },
+    emergencyContactPhone: { flex: 1, fontSize: 11, color: colors.text, borderWidth: 1, borderColor: colors.border, borderRadius: 7, paddingHorizontal: 10, paddingVertical: 7 },
 
-  avatarPickerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 },
-  settingsAvatarCircle: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#f0fdf4', borderWidth: 1, borderColor: '#bbf7d0', overflow: 'hidden' },
-  settingsAvatarImage: { width: 44, height: 44 },
-  avatarPickerInfo: { flex: 1 },
-  nameInput: { fontSize: 11, color: '#111', textAlign: 'right', flex: 1, marginLeft: 16 },
-  advancedInput: { fontSize: 11, color: '#111', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 7, paddingHorizontal: 10, paddingVertical: 7, width: '100%' },
-  permRight: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  permDot: { width: 6, height: 6, borderRadius: 3 },
-  permLabel: { fontSize: 9, color: '#9ca3af', fontWeight: '500' },
-  permSectionHint: { fontSize: 10, color: '#9ca3af', marginHorizontal: 16, marginTop: -4, marginBottom: 8, lineHeight: 14 },
-  capRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, gap: 10 },
-  capSwitch: { transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] },
-  capInfo: { flex: 1 },
-  capLabelOff: { color: '#9ca3af' },
-  saveBtn: { backgroundColor: '#111', borderRadius: 10, padding: 13, alignItems: 'center', marginTop: 24, marginBottom: 8 },
-  saveBtnText: { fontSize: 12, color: '#fff', fontWeight: '600' },
+    avatarPickerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 },
+    settingsAvatarCircle: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.green + '18', borderWidth: 1, borderColor: colors.green + '50', overflow: 'hidden' },
+    settingsAvatarImage: { width: 44, height: 44 },
+    avatarPickerInfo: { flex: 1 },
+    nameInput: { fontSize: 11, color: colors.text, textAlign: 'right', flex: 1, marginLeft: 16 },
+    advancedInput: { fontSize: 11, color: colors.text, borderWidth: 1, borderColor: colors.border, borderRadius: 7, paddingHorizontal: 10, paddingVertical: 7, width: '100%' },
+    permRight: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+    permDot: { width: 6, height: 6, borderRadius: 3 },
+    permLabel: { fontSize: 9, color: colors.dim, fontWeight: '500' },
+    permSectionHint: { fontSize: 10, color: colors.dim, marginHorizontal: 16, marginTop: -4, marginBottom: 8, lineHeight: 14 },
+    capRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, gap: 10 },
+    capSwitch: { transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] },
+    capInfo: { flex: 1 },
+    capLabelOff: { color: colors.dim },
+    saveBtn: { backgroundColor: colors.text, borderRadius: 10, padding: 13, alignItems: 'center', marginTop: 24, marginBottom: 8 },
+    saveBtnText: { fontSize: 12, color: colors.bg, fontWeight: '600' },
 
-  skillIconBox: { width: 34, height: 34, borderRadius: 8, backgroundColor: '#f3f4f6', alignItems: 'center', justifyContent: 'center' },
-  skillIconText: { fontSize: 7, fontWeight: '700', color: '#374151', letterSpacing: 0.2 },
+    skillIconBox: { width: 34, height: 34, borderRadius: 8, backgroundColor: colors.input, alignItems: 'center', justifyContent: 'center' },
+    skillIconText: { fontSize: 7, fontWeight: '700', color: colors.sub, letterSpacing: 0.2 },
 
-  holdingsRow: { flexDirection: 'row', gap: 6, marginTop: 6, flexWrap: 'wrap' },
-  holdingsPill: { fontSize: 10, color: '#6b7280', backgroundColor: '#f3f4f6', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 },
+    holdingsRow: { flexDirection: 'row', gap: 6, marginTop: 6, flexWrap: 'wrap' },
+    holdingsPill: { fontSize: 10, color: colors.sub, backgroundColor: colors.input, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 },
 
-  updateBtn: { backgroundColor: '#111', borderRadius: 7, paddingHorizontal: 12, paddingVertical: 6 },
-  updateBtnText: { fontSize: 10, color: '#fff', fontWeight: '600' },
-  progressTrack: { height: 3, backgroundColor: '#f3f4f6', borderRadius: 2, overflow: 'hidden' },
-  progressFill: { height: 3, backgroundColor: '#22c55e', borderRadius: 2 },
+    updateBtn: { backgroundColor: colors.text, borderRadius: 7, paddingHorizontal: 12, paddingVertical: 6 },
+    updateBtnText: { fontSize: 10, color: colors.bg, fontWeight: '600' },
+    progressTrack: { height: 3, backgroundColor: colors.input, borderRadius: 2, overflow: 'hidden' },
+    progressFill: { height: 3, backgroundColor: colors.green, borderRadius: 2 },
 
-  langPills: { flexDirection: 'row', gap: 6 },
-  langPill: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, backgroundColor: '#f3f4f6' },
-  langPillActive: { backgroundColor: '#111' },
-  langPillText: { fontSize: 11, color: '#6b7280', fontWeight: '600' },
-  langPillTextActive: { color: '#fff' },
+    langPills: { flexDirection: 'row', gap: 6 },
+    langPill: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, backgroundColor: colors.input },
+    langPillActive: { backgroundColor: colors.text },
+    langPillText: { fontSize: 11, color: colors.sub, fontWeight: '600' },
+    langPillTextActive: { color: colors.bg },
 
-  // ── Agent Presence card ───────────────────────────────────────────────────
-  presenceSection: { paddingHorizontal: 16, paddingTop: 20, paddingBottom: 8 },
-  presenceCard: {
-    borderRadius: 14, borderWidth: 1, borderColor: '#e5e7eb',
-    backgroundColor: '#f9fafb', padding: 14,
-  },
-  presenceCardEligible: {
-    backgroundColor: '#f0fdf4', borderColor: '#bbf7d0',
-  },
-  presenceTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  presenceBadge: {
-    backgroundColor: '#111', borderRadius: 5,
-    paddingHorizontal: 7, paddingVertical: 3,
-  },
-  presenceBadgeLocked: { backgroundColor: '#6b7280' },
-  presenceBadgeText: { fontSize: 8, color: '#fff', fontWeight: '700', letterSpacing: 0.8 },
-  presenceLockText: { fontSize: 11, color: '#9ca3af', fontWeight: '600' },
+    // ── Agent Presence card ───────────────────────────────────────────────────
+    presenceSection: { paddingHorizontal: 16, paddingTop: 20, paddingBottom: 8 },
+    presenceCard: {
+      borderRadius: 14, borderWidth: 1, borderColor: colors.border,
+      backgroundColor: colors.card, padding: 14,
+    },
+    presenceCardEligible: {
+      backgroundColor: colors.green + '18', borderColor: colors.green + '50',
+    },
+    presenceTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+    presenceBadge: {
+      backgroundColor: colors.text, borderRadius: 5,
+      paddingHorizontal: 7, paddingVertical: 3,
+    },
+    presenceBadgeLocked: { backgroundColor: colors.sub },
+    presenceBadgeText: { fontSize: 8, color: colors.bg, fontWeight: '700', letterSpacing: 0.8 },
+    presenceLockText: { fontSize: 11, color: colors.dim, fontWeight: '600' },
 
-  presenceHeroRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 2 },
-  presenceBubblePreview: {
-    width: 44, height: 44, borderRadius: 22,
-    backgroundColor: '#fff', borderWidth: 2, borderColor: '#bbf7d0',
-    alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 6,
-    elevation: 3,
-  },
-  presenceBubbleRing: {
-    width: 24, height: 24, borderRadius: 12,
-    backgroundColor: '#dcfce7', borderWidth: 1.5, borderColor: '#86efac',
-  },
-  presenceBubbleDot: {
-    position: 'absolute', bottom: 2, right: 2,
-    width: 10, height: 10, borderRadius: 5,
-    backgroundColor: '#d1d5db', borderWidth: 1.5, borderColor: '#fff',
-  },
-  presenceBubbleDotActive: { backgroundColor: '#22c55e' },
+    presenceHeroRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 2 },
+    presenceBubblePreview: {
+      width: 44, height: 44, borderRadius: 22,
+      backgroundColor: colors.card, borderWidth: 2, borderColor: colors.green + '50',
+      alignItems: 'center', justifyContent: 'center',
+      shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 6,
+      elevation: 3,
+    },
+    presenceBubbleRing: {
+      width: 24, height: 24, borderRadius: 12,
+      backgroundColor: colors.green + '30', borderWidth: 1.5, borderColor: colors.green + '70',
+    },
+    presenceBubbleDot: {
+      position: 'absolute', bottom: 2, right: 2,
+      width: 10, height: 10, borderRadius: 5,
+      backgroundColor: colors.border, borderWidth: 1.5, borderColor: colors.card,
+    },
+    presenceBubbleDotActive: { backgroundColor: colors.green },
 
-  presenceTitle: { fontSize: 14, fontWeight: '700', color: '#111', marginBottom: 4 },
-  presenceDesc: { fontSize: 12, color: '#6b7280', lineHeight: 17 },
-  presenceActionRow: { marginTop: 12 },
-  presenceLinkBtn: {
-    borderWidth: 1, borderColor: '#d1d5db', borderRadius: 8,
-    paddingVertical: 8, paddingHorizontal: 12, alignSelf: 'flex-start',
-  },
-  presenceLinkBtnText: { fontSize: 11, color: '#374151', fontWeight: '600' },
-  presenceFeatureList: { flexDirection: 'row', gap: 8, marginTop: 12, flexWrap: 'wrap' },
-  presenceFeatureItem: {
-    fontSize: 10, color: '#16a34a', fontWeight: '600',
-    backgroundColor: '#dcfce7', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3,
-  },
-  pilotModeRow: {
-    flexDirection: 'row', alignItems: 'center', marginTop: 14,
-    paddingTop: 12, borderTopWidth: 1, borderTopColor: '#e5e7eb',
-  },
-  pilotModeLabel: { fontSize: 12, fontWeight: '700', color: '#111827' },
-  pilotModeHint: { fontSize: 10, color: '#6b7280', marginTop: 1 },
-  presencePermHint: {
-    marginTop: 10, backgroundColor: '#fffbeb', borderRadius: 8,
-    paddingHorizontal: 10, paddingVertical: 7, borderWidth: 1, borderColor: '#fde68a',
-  },
-  presencePermHintText: { fontSize: 11, color: '#92400e' },
-});
+    presenceTitle: { fontSize: 14, fontWeight: '700', color: colors.text, marginBottom: 4 },
+    presenceDesc: { fontSize: 12, color: colors.sub, lineHeight: 17 },
+    presenceActionRow: { marginTop: 12 },
+    presenceLinkBtn: {
+      borderWidth: 1, borderColor: colors.border, borderRadius: 8,
+      paddingVertical: 8, paddingHorizontal: 12, alignSelf: 'flex-start',
+    },
+    presenceLinkBtnText: { fontSize: 11, color: colors.sub, fontWeight: '600' },
+    presenceFeatureList: { flexDirection: 'row', gap: 8, marginTop: 12, flexWrap: 'wrap' },
+    presenceFeatureItem: {
+      fontSize: 10, color: colors.green, fontWeight: '600',
+      backgroundColor: colors.green + '20', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3,
+    },
+    pilotModeRow: {
+      flexDirection: 'row', alignItems: 'center', marginTop: 14,
+      paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.border,
+    },
+    pilotModeLabel: { fontSize: 12, fontWeight: '700', color: colors.text },
+    pilotModeHint: { fontSize: 10, color: colors.sub, marginTop: 1 },
+    presencePermHint: {
+      marginTop: 10, backgroundColor: colors.amber + '18', borderRadius: 8,
+      paddingHorizontal: 10, paddingVertical: 7, borderWidth: 1, borderColor: colors.amber + '60',
+    },
+    presencePermHintText: { fontSize: 11, color: colors.amber },
+  });
+}

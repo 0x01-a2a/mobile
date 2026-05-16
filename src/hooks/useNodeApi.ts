@@ -1186,9 +1186,11 @@ export async function sweepSol(
   if (sweepLamports <= 0) {
     throw new Error('Insufficient SOL balance to sweep (minimum 0.01 SOL reserve required)');
   }
+  const sweepHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (_hostedToken) sweepHeaders['Authorization'] = `Bearer ${_hostedToken}`;
   const res = await fetch(`${_apiBase}/wallet/send`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: sweepHeaders,
     body: JSON.stringify({ to: destination, amount: sweepLamports }),
   });
   if (!res.ok) {
@@ -1224,9 +1226,11 @@ export async function walletSend(
   amount: number,
   mint?: string,
 ): Promise<WalletSendResult> {
+  const sendHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (_hostedToken) sendHeaders['Authorization'] = `Bearer ${_hostedToken}`;
   const res = await fetch(`${_apiBase}/wallet/send`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: sendHeaders,
     body: JSON.stringify({ to, amount, mint }),
   });
   if (!res.ok) {
@@ -1258,22 +1262,26 @@ export function usePendingSwaps(): {
   reject: (swapId: string) => Promise<void>;
 } {
   const [swaps, setSwaps] = useState<PendingSwap[]>([]);
+  const cancelledRef = useRef(false);
 
   const fetch_ = useCallback(async () => {
     if (_isHostedMode || !_appActive) return; // pending swaps only exist on the local node
     try {
-      const res = await fetch(`${_apiBase}/trade/swap/pending`);
+      const pendingHeaders: Record<string, string> = {};
+      if (_hostedToken) pendingHeaders['Authorization'] = `Bearer ${_hostedToken}`;
+      const res = await fetch(`${_apiBase}/trade/swap/pending`, { headers: pendingHeaders });
       if (res.ok) {
         const data = await res.json();
-        setSwaps(data.pending ?? []);
+        if (!cancelledRef.current) setSwaps(data.pending ?? []);
       }
     } catch { /* ignore */ }
   }, []);
 
   useEffect(() => {
+    cancelledRef.current = false;
     fetch_();
     const id = setInterval(fetch_, 10_000);
-    return () => clearInterval(id);
+    return () => { cancelledRef.current = true; clearInterval(id); };
   }, [fetch_]);
 
   const confirm = useCallback(async (swapId: string) => {
@@ -1427,7 +1435,7 @@ export async function executeJupiterSwap(params: {
   amount: number;
   slippageBps?: number;
 }): Promise<{
-  outAmount: number;
+  out_amount: number;
   txid: string;
 } | null> {
   try {

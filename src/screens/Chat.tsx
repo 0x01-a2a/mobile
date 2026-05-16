@@ -34,7 +34,7 @@ import { useRecorder, usePlayer, generateTTSFile, formatDuration, concatPodcastO
 import { NodeModule } from '../native/NodeModule';
 import { useOwnedAgents, OwnedAgent } from '../hooks/useOwnedAgents';
 import { useBlobs } from '../hooks/useBlobs';
-import { sendEnvelope, setBagsApiKey } from '../hooks/useNodeApi';
+import { sendEnvelope, setBagsApiKey, useIdentity } from '../hooks/useNodeApi';
 import { useNode } from '../hooks/useNode';
 import { useAgentBrain } from '../hooks/useAgentBrain';
 import { ChatActionCard } from '../components/ChatActionCard';
@@ -235,6 +235,7 @@ function PodcastResultCard({ result, player }: { result: PodcastResult; player: 
   const { colors } = useTheme();
   const { config: brain } = useAgentBrain();
   const { config: nodeConfig } = useNode();
+  const identity = useIdentity();
   const agentName = nodeConfig?.agentName;
   const tokenAddress = brain?.tokenAddress;
   const [clipping, setClipping] = useState(false);
@@ -252,7 +253,7 @@ function PodcastResultCard({ result, player }: { result: PodcastResult; player: 
       const clipDuration = Math.min(60, result.duration_secs);
       const resp = await fetch('https://api.0x01.world/podcast/clip', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Agent-Id': '' },
+        headers: { 'Content-Type': 'application/json', 'X-Agent-Id': identity?.agent_id ?? '' },
         body: JSON.stringify({
           episode_id: result.episode_id,
           start_secs: 0,
@@ -918,9 +919,14 @@ export function ChatScreen() {
       return;
     }
 
+    if (!activeTask?.fromAgent) {
+      Alert.alert('Error', 'No active task recipient. Cannot deliver.');
+      return;
+    }
+
     const ok = await sendEnvelope({
       msg_type: 'DELIVER',
-      recipient: activeTask?.fromAgent,
+      recipient: activeTask.fromAgent,
       conversation_id: selectedConvId,
       payload_b64: payload,
     });
@@ -1340,10 +1346,17 @@ export function ChatScreen() {
           <TouchableOpacity
             style={s.briefStartBtn}
             onPress={() => {
-              if (!briefText.trim()) return;
-              send(briefText.trim());
+              if (!briefText.trim() && !pendingImage) return;
+              const img = pendingImage;
               setBriefText('');
+              setPendingImage(null);
               setMode('chat');
+              if (img) {
+                upload(img.base64, img.mime).catch(() => {});
+                send(briefText.trim(), { uri: img.uri, base64: img.base64, mime: img.mime });
+              } else {
+                send(briefText.trim());
+              }
             }}
           >
             <Text style={s.briefStartBtnText}>Start</Text>

@@ -22,9 +22,9 @@ import { ScreenActionConfirmModal } from './src/components/ScreenActionConfirmMo
 import { useIdentity, useOwnReel, skillInstallUrl } from './src/hooks/useNodeApi';
 
 // ── Deep link config for Agent Presence notification actions ──────────────────
-// zerox1://chat        → Chat tab (normal chat)
-// zerox1://chat?mode=brief → Chat tab with initialMode='brief'
-// zerox1://today       → Today tab
+// zerox1://chat             → Chat tab (normal chat)
+// zerox1://chat?initialMode=brief → Chat tab with initialMode='brief'
+// zerox1://today            → Today tab
 const DEEP_LINKING = {
   prefixes: ['zerox1://'],
   config: {
@@ -35,7 +35,7 @@ const DEEP_LINKING = {
       Chat: {
         path: 'chat',
         parse: {
-          mode: (m: string) => m || 'chat',
+          initialMode: (m: string) => m || 'chat',
         },
       },
     },

@@ -2032,8 +2032,8 @@ include_system = "true to include system apps (default: false)"
 """.trimIndent()
     }
 
-    private var nodeProcess:  Process? = null
-    private var agentProcess: Process? = null
+    @Volatile private var nodeProcess:  Process? = null
+    @Volatile private var agentProcess: Process? = null
     private var phoneBridge:  PhoneBridgeServer? = null
     private var wakeLock:     PowerManager.WakeLock? = null
     private val serviceScope  = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -2236,8 +2236,9 @@ include_system = "true to include system apps (default: false)"
                         // LOW-3: Skip launch if no LLM API key is configured (except for custom endpoints where key may be optional)
                         val apiKey = getLlmApiKey()
                         if (apiKey.isNullOrEmpty() && currentProvider != "custom" && currentProvider != "default") {
-                            Log.w(TAG, "Skipping zeroclaw launch: no LLM API key configured")
-                            break
+                            Log.w(TAG, "agent: API key not set, waiting 10s before retry")
+                            delay(10_000)
+                            continue
                         }
                         launchAgent(agentBinary)
                         if (!isActive) break
@@ -2636,7 +2637,14 @@ include_system = "true to include system apps (default: false)"
         )
         val skillEnvKeys = getSkillEnvVars().keys.toList()
         val allPassthrough = (builtinPassthrough + skillEnvKeys).distinct()
-        val shellEnvPassthrough = allPassthrough.joinToString(", ") { "\"$it\"" }
+        val validKeyRegex = Regex("[A-Za-z_][A-Za-z0-9_]*")
+        val droppedKeys = allPassthrough.filter { !it.matches(validKeyRegex) }
+        if (droppedKeys.isNotEmpty()) {
+            Log.w(TAG, "shell_env_passthrough: dropping invalid key names: $droppedKeys")
+        }
+        val shellEnvPassthrough = allPassthrough
+            .filter { it.matches(validKeyRegex) }
+            .joinToString(", ") { "\"$it\"" }
 
         // "default" provider routes through the local node's LLM relay to the 01 aggregator.
         // No API key is needed — access is gated by the agent's Bags.fm token trading history.
@@ -3281,6 +3289,10 @@ the capability in the app Settings > Phone Bridge section instead.
             }
             .start()
 
+        if (!isActive) {
+            process.destroy()
+            return@withContext
+        }
         agentProcess = process
 
         // Register zeroclaw PID with the node so POST /agent/reload can SIGTERM it.

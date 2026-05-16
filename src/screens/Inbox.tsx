@@ -698,7 +698,7 @@ export default function InboxScreen() {
             <View style={s.modalHeaderRow}>
               <Text style={s.modalAgentName}>{selectedAgent.name || selectedAgent.agent_id.slice(0, 8)}</Text>
               <TouchableOpacity
-                onPress={() => setSelectedAgent(null)}
+                onPress={() => { setSelectedAgent(null); setHireDescription(''); }}
                 accessibilityLabel="Close"
                 accessibilityRole="button"
               >
